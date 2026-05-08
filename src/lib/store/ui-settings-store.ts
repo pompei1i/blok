@@ -12,6 +12,7 @@ interface UiSettingsState {
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number;
+  noiseGateThreshold: number; // 0 = off, 1–100
   pushToTalk: boolean;
   compactMode: boolean;
   showMemberList: boolean;
@@ -34,6 +35,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       noiseSuppression: true,
       echoCancellation: true,
       inputVolume: 70,
+      noiseGateThreshold: 30,
       pushToTalk: false,
       compactMode: false,
       showMemberList: true,

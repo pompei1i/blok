@@ -522,7 +522,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       },
     }));
 
-    const { noiseSuppression, echoCancellation, inputVolume } = (await import("./ui-settings-store")).useUiSettingsStore.getState();
+    const { noiseSuppression, echoCancellation, inputVolume, noiseGateThreshold } = (await import("./ui-settings-store")).useUiSettingsStore.getState();
     const engine = new VoiceEngine(channelId, user.id, {
       onParticipantJoin: (userId) => {
         set((state) => {
@@ -579,7 +579,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       onScreenShareStop: () => {
         set({ screenShareUserId: null, remoteScreenStream: null });
       },
-    }, { noiseSuppression, echoCancellation, inputVolume });
+    }, { noiseSuppression, echoCancellation, inputVolume, noiseGateThreshold });
 
     try {
       await engine.join();

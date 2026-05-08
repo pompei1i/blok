@@ -23,21 +23,24 @@ export function useUpdater() {
     // Only run in Tauri context
     if (!("__TAURI_INTERNALS__" in window)) return;
 
-    check()
-      .then((update: Update | null) => {
-        if (update?.available) {
-          setState((s) => ({
-            ...s,
-            available: true,
-            version: update.version,
-            body: update.body ?? null,
-          }));
-        }
-      })
-      .catch((err: unknown) => {
-        // Silently ignore update check failures (offline, bad config, etc.)
-        console.warn("Update check failed:", err);
-      });
+    // Small delay so the app is fully loaded before checking
+    const timer = setTimeout(() => {
+      check()
+        .then((update: Update | null) => {
+          if (update?.available) {
+            setState((s) => ({
+              ...s,
+              available: true,
+              version: update.version,
+              body: update.body ?? null,
+            }));
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn("Update check failed:", err);
+        });
+    }, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   const installUpdate = async () => {

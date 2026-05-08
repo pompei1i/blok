@@ -18,6 +18,7 @@ type SettingsDraft = {
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number;
+  noiseGateThreshold: number;
   pushToTalk: boolean;
   compactMode: boolean;
   showMemberList: boolean;
@@ -48,6 +49,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     noiseSuppression,
     echoCancellation,
     inputVolume,
+    noiseGateThreshold,
     pushToTalk,
     compactMode,
     showMemberList,
@@ -64,6 +66,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     noiseSuppression,
     echoCancellation,
     inputVolume,
+    noiseGateThreshold,
     pushToTalk,
     compactMode,
     showMemberList,
@@ -101,6 +104,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
       noiseSuppression,
       echoCancellation,
       inputVolume,
+      noiseGateThreshold,
       pushToTalk,
       compactMode,
       showMemberList,
@@ -551,6 +555,20 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                       max={100}
                       value={draftSettings.inputVolume}
                       onChange={(e) => setDraftSettings((prev) => ({ ...prev, inputVolume: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-semibold text-[var(--text-muted)] mb-1 uppercase tracking-wider">
+                      Noise Gate: {draftSettings.noiseGateThreshold === 0 ? "off" : `${draftSettings.noiseGateThreshold}%`}
+                    </span>
+                    <p className="text-xs text-[var(--text-muted)] mb-2">Cuts audio below this volume threshold. Higher = more aggressive noise removal.</p>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={draftSettings.noiseGateThreshold}
+                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, noiseGateThreshold: Number(e.target.value) }))}
                       className="w-full"
                     />
                   </label>

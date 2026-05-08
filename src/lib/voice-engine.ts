@@ -29,6 +29,7 @@ export interface VoiceAudioSettings {
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number; // 0–100
+  noiseGateThreshold: number; // 0–100 (0 = off, higher = more aggressive)
 }
 
 export class VoiceEngine {
@@ -42,6 +43,7 @@ export class VoiceEngine {
   private screenStream: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
+  private noiseGateNode: AudioWorkletNode | null = null;
 
   private peers = new Map<string, RTCPeerConnection>();
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
@@ -61,6 +63,7 @@ export class VoiceEngine {
       noiseSuppression: audioSettings?.noiseSuppression ?? true,
       echoCancellation: audioSettings?.echoCancellation ?? true,
       inputVolume: audioSettings?.inputVolume ?? 100,
+      noiseGateThreshold: audioSettings?.noiseGateThreshold ?? 30,
     };
     this.subscribePromise = new Promise((res) => {
       this._subscribeResolve = res;
@@ -72,12 +75,15 @@ export class VoiceEngine {
       audio: {
         echoCancellation: this.audioSettings.echoCancellation,
         noiseSuppression: this.audioSettings.noiseSuppression,
-        autoGainControl: true,
+        autoGainControl: false, // manual gain via GainNode
+        sampleRate: { ideal: 48000 },
+        channelCount: { ideal: 1 },
       },
       video: false,
     });
 
-    this.audioCtx = new AudioContext();
+    // Match AudioContext sample rate to capture rate to avoid resampling artefacts
+    this.audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
     if (this.audioCtx.state === "suspended") {
       await this.audioCtx.resume();
     }
@@ -86,8 +92,28 @@ export class VoiceEngine {
     this.gainNode = this.audioCtx.createGain();
     this.gainNode.gain.value = this.audioSettings.inputVolume / 100;
     const dest = this.audioCtx.createMediaStreamDestination();
-    source.connect(this.gainNode);
-    this.gainNode.connect(dest);
+
+    // Load noise gate worklet if threshold > 0
+    if (this.audioSettings.noiseGateThreshold > 0) {
+      try {
+        await this.audioCtx.audioWorklet.addModule("/audio/noise-gate-processor.js");
+        this.noiseGateNode = new AudioWorkletNode(this.audioCtx, "noise-gate-processor");
+        // Map 0–100 UI scale to 0–0.05 RMS threshold
+        const rmsThreshold = (this.audioSettings.noiseGateThreshold / 100) * 0.05;
+        this.noiseGateNode.port.postMessage({ threshold: rmsThreshold });
+        source.connect(this.gainNode);
+        this.gainNode.connect(this.noiseGateNode);
+        this.noiseGateNode.connect(dest);
+      } catch {
+        // AudioWorklet not supported — fallback to simple gain chain
+        source.connect(this.gainNode);
+        this.gainNode.connect(dest);
+      }
+    } else {
+      source.connect(this.gainNode);
+      this.gainNode.connect(dest);
+    }
+
     this.localStream = dest.stream;
 
     this.trackSpeaking(this.userId, this.localStream);
@@ -149,6 +175,13 @@ export class VoiceEngine {
   setInputVolume(volume: number): void {
     if (this.gainNode) {
       this.gainNode.gain.value = volume / 100;
+    }
+  }
+
+  setNoiseGateThreshold(value: number): void {
+    if (this.noiseGateNode) {
+      const rmsThreshold = (value / 100) * 0.05;
+      this.noiseGateNode.port.postMessage({ threshold: rmsThreshold });
     }
   }
 
