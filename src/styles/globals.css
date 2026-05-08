@@ -1,0 +1,264 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --bg-base: #0a0a0a;
+  --bg-surface: #0f0f0f;
+  --bg-elevated: #1a1a1a;
+  --bg-hover: #222222;
+  --accent-red: #c0392b;
+  --text-primary: #e0e0e0;
+  --text-muted: #666666;
+  --online: #27ae60;
+  --offline: #e74c3c;
+  --afk: #f39c12;
+  --border: #333333;
+  --border-color: #333333;
+
+  --background: #0a0a0a;
+  --foreground: #e0e0e0;
+  --card: #0f0f0f;
+  --card-foreground: #e0e0e0;
+  --popover: #1a1a1a;
+  --popover-foreground: #e0e0e0;
+  --primary: #ffffff;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #e0e0e0;
+  --muted: #1a1a1a;
+  --muted-foreground: #666666;
+  --accent: #222222;
+  --accent-foreground: #e0e0e0;
+  --destructive: #c0392b;
+  --destructive-foreground: #ffffff;
+  --input: #1a1a1a;
+  --ring: #666666;
+  --radius: 0.5rem;
+
+  --sidebar: #0f0f0f;
+  --sidebar-foreground: #e0e0e0;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #1a1a1a;
+  --sidebar-accent-foreground: #e0e0e0;
+  --sidebar-border: #333333;
+  --sidebar-ring: #666666;
+}
+
+:root[data-theme-mode="darker"] {
+  --bg-base: #060606;
+  --bg-surface: #0b0b0b;
+  --bg-elevated: #121212;
+  --bg-hover: #1a1a1a;
+  --border: #2b2b2b;
+  --text-primary: #dddddd;
+}
+
+:root[data-theme-mode="light"] {
+  --bg-base: #f7f7f7;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f0f0f0;
+  --bg-hover: #e8e8e8;
+  --border: #d0d0d0;
+  --text-primary: #1a1a1a;
+  --text-muted: #666666;
+  --background: #f7f7f7;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+}
+
+:root[data-compact-mode="true"] {
+  --radius: 0.35rem;
+}
+
+/* Compact mode — tighter layout */
+[data-compact-mode="true"] .group.flex.gap-3.px-4.py-1 {
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+}
+[data-compact-mode="true"] .space-y-1 > * + * {
+  margin-top: 0;
+}
+[data-compact-mode="true"] [class*="w-8"][class*="h-8"],
+[data-compact-mode="true"] [class*="w-9"][class*="h-9"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.6rem;
+}
+[data-compact-mode="true"] .text-sm {
+  font-size: 0.8rem;
+}
+[data-compact-mode="true"] .py-4 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #e0e0e0;
+  --card: #0f0f0f;
+  --card-foreground: #e0e0e0;
+  --popover: #1a1a1a;
+  --popover-foreground: #e0e0e0;
+  --primary: #ffffff;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #e0e0e0;
+  --muted: #1a1a1a;
+  --muted-foreground: #666666;
+  --accent: #222222;
+  --accent-foreground: #e0e0e0;
+  --destructive: #c0392b;
+  --destructive-foreground: #ffffff;
+  --border: #333333;
+  --input: #1a1a1a;
+  --ring: #666666;
+  --sidebar: #0f0f0f;
+  --sidebar-foreground: #e0e0e0;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #1a1a1a;
+  --sidebar-accent-foreground: #e0e0e0;
+  --sidebar-border: #333333;
+  --sidebar-ring: #666666;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Mono", "JetBrains Mono", monospace;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-[var(--border-color)] outline-ring/50;
+  }
+  body {
+    @apply bg-[var(--bg-base)] text-[var(--text-primary)];
+    font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+  }
+}
+
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes bg-scrolling {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 50px 50px;
+  }
+}
+
+.terminal-grid {
+  background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAIAAACRXR/mAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAABnSURBVHja7M5RDYAwDEXRDgmvEocnlrQS2SwUFST9uEfBGWs9c97nbGtDcquqiKhOImLs/UpuzVzWEi1atGjRokWLFi1atGjRokWLFi1atGjRokWLFi1af7Ukz8xWp8z8AAAA//8DAJ4LoEAAlL1nAAAAAElFTkSuQmCC")
+    repeat;
+  animation: bg-scrolling 0.92s infinite linear;
+  filter: invert(1);
+  opacity: 0.43;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.5s ease-out forwards;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.presence-online {
+  box-shadow: 0 0 6px var(--online);
+}
+
+.presence-afk {
+  box-shadow: 0 0 6px var(--afk);
+}
+
+.speaking-glow {
+  box-shadow: 0 0 10px var(--online), 0 0 20px var(--online);
+}
+
