@@ -239,33 +239,36 @@ export function GroupSidebar() {
 
                     {participants.length > 0 && (
                       <div className="ml-6 mt-1 space-y-1">
-                        {participants.map((participant) => (
-                          <div
-                            key={participant.userId}
-                            className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-muted)]"
-                          >
+                        {participants.map((participant) => {
+                          const displayUser = participant.userId === user?.id ? user : participant.user;
+                          return (
                             <div
-                              className={cn(
-                                "rounded-full transition-all",
-                                participant.isSpeaking &&
-                                  "ring-2 ring-[var(--online)] ring-offset-1 ring-offset-[var(--bg-surface)]",
-                              )}
+                              key={participant.userId}
+                              className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-muted)]"
                             >
-                              <UserAvatar user={participant.user} size="xs" />
+                              <div
+                                className={cn(
+                                  "rounded-full transition-all",
+                                  participant.isSpeaking &&
+                                    "ring-2 ring-[var(--online)] ring-offset-1 ring-offset-[var(--bg-surface)]",
+                                )}
+                              >
+                                <UserAvatar user={displayUser} size="xs" />
+                              </div>
+                              <span
+                                className={cn(
+                                  "truncate transition-colors",
+                                  participant.isSpeaking && "text-[var(--online)]",
+                                )}
+                              >
+                                {displayUser?.displayName || displayUser?.username || "..."}
+                              </span>
+                              {participant.isMuted && (
+                                <MicOff className="w-3 h-3 text-[var(--destructive)] ml-auto" />
+                              )}
                             </div>
-                            <span
-                              className={cn(
-                                "truncate transition-colors",
-                                participant.isSpeaking && "text-[var(--online)]",
-                              )}
-                            >
-                              {participant.user?.username ?? participant.userId.slice(0, 8)}
-                            </span>
-                            {participant.isMuted && (
-                              <MicOff className="w-3 h-3 text-[var(--destructive)] ml-auto" />
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

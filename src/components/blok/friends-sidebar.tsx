@@ -19,6 +19,7 @@ export function FriendsSidebar() {
     presence,
     acceptRequest,
     declineRequest,
+    cancelRequest,
     loadError,
   } =
     useFriendsStore();
@@ -143,6 +144,13 @@ export function FriendsSidebar() {
                           request pending
                         </p>
                       </div>
+                      <button
+                        onClick={() => cancelRequest(request.id)}
+                        className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
+                        title="Cancel request"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 );

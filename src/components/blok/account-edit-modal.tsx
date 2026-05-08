@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { X, Camera, Save, User, Video, Mic, Keyboard, Layout, Palette, Globe, LogOut } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, Camera, Save, User, Video, Mic, Keyboard, Layout, Palette, Globe, LogOut, CheckCircle, XCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
 import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode } from "@/lib/store/ui-settings-store";
@@ -81,6 +81,10 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     statusMessage: user?.statusMessage || "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [micPermission, setMicPermission] = useState<"granted" | "denied" | "prompt" | "checking">("checking");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -123,7 +127,41 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     customCss,
   ]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!navigator.permissions) { setMicPermission("prompt"); return; }
+    navigator.permissions
+      .query({ name: "microphone" as PermissionName })
+      .then((result) => {
+        setMicPermission(result.state as "granted" | "denied" | "prompt");
+        result.onchange = () => setMicPermission(result.state as "granted" | "denied" | "prompt");
+      })
+      .catch(() => setMicPermission("prompt"));
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const requestMicPermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setMicPermission("granted");
+    } catch {
+      setMicPermission("denied");
+    }
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setAvatarPreview(result);
+      setAvatarBase64(result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,6 +176,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
       email: formData.email,
       bio: formData.bio,
       statusMessage: formData.statusMessage,
+      ...(avatarBase64 ? { avatarUrl: avatarBase64 } : {}),
     });
 
     setMessage({ type: "success", text: t("settings.account.savedSuccess") });
@@ -231,9 +270,9 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                   <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl flex items-center gap-6">
                     <div className="relative group">
                       <div className="w-24 h-24 rounded-2xl flex items-center justify-center text-3xl font-bold border-2 border-[var(--border)] overflow-hidden shadow-lg bg-[var(--accent-red)]">
-                        {user?.avatarUrl ? (
+                        {(avatarPreview || user?.avatarUrl) ? (
                           <img
-                            src={user.avatarUrl}
+                            src={avatarPreview ?? user!.avatarUrl!}
                             alt="Avatar"
                             className="w-full h-full object-cover"
                           />
@@ -245,6 +284,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                       </div>
                       <button
                         type="button"
+                        onClick={() => fileInputRef.current?.click()}
                         className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl backdrop-blur-sm"
                       >
                         <Camera className="w-6 h-6 text-white" />
@@ -253,7 +293,17 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                     <div className="flex-1">
                       <p className="text-sm font-medium text-[var(--text-primary)]">@{user?.username}</p>
                       <p className="text-xs text-[var(--text-muted)] mt-1">{user?.email}</p>
+                      {avatarPreview && (
+                        <p className="text-xs text-[var(--online)] mt-1">new avatar selected — save to apply</p>
+                      )}
                     </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarChange}
+                    />
                   </div>
 
                   {/* Form Fields */}
@@ -430,6 +480,52 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                   <h3 className="text-2xl font-bold text-[var(--text-primary)]">{t("settings.audio.title")}</h3>
                   <p className="text-[var(--text-muted)] mt-1">{t("settings.audio.subtitle")}</p>
                 </div>
+
+                {/* Microphone Permission */}
+                <div className="p-5 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-3">
+                  <span className="block text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Microphone Access</span>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      {micPermission === "granted" && <><CheckCircle className="w-4 h-4 text-[var(--online)]" /><span className="text-[var(--online)]">Access granted</span></>}
+                      {micPermission === "denied" && <><XCircle className="w-4 h-4 text-[var(--destructive)]" /><span className="text-[var(--destructive)]">Access denied</span></>}
+                      {micPermission === "prompt" && <><AlertCircle className="w-4 h-4 text-[var(--afk)]" /><span className="text-[var(--afk)]">Not yet requested</span></>}
+                      {micPermission === "checking" && <><AlertCircle className="w-4 h-4 text-[var(--text-muted)]" /><span className="text-[var(--text-muted)]">Checking...</span></>}
+                    </div>
+                    {micPermission !== "granted" && (
+                      <div className="flex gap-2">
+                        {micPermission === "denied" ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const { open } = await import("@tauri-apps/plugin-opener");
+                                await open("ms-settings:privacy-microphone");
+                              } catch { /* not in Tauri or failed */ }
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg hover:border-[var(--text-muted)] transition-colors text-[var(--text-primary)]"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Open System Settings
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={requestMicPermission}
+                            className="px-3 py-1.5 text-xs bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30 rounded-lg hover:bg-[var(--online)]/30 transition-colors"
+                          >
+                            Request Access
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {micPermission === "denied" && (
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Open Windows Settings → Privacy → Microphone and allow access for this app.
+                    </p>
+                  )}
+                </div>
+
                 <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-5">
                   <label className="flex items-center justify-between">
                     <span className="text-sm text-[var(--text-primary)]">{t("settings.audio.noiseSuppression")}</span>

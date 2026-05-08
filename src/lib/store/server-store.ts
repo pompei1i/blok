@@ -31,6 +31,9 @@ interface ServerState {
   voiceParticipants: Record<string, VoiceParticipant[]>;
   isMuted: boolean;
   isDeafened: boolean;
+  isScreenSharing: boolean;
+  screenShareUserId: string | null;
+  remoteScreenStream: MediaStream | null;
 
   initData: (userId: string) => Promise<void>;
   loadMessages: (channelId: string) => Promise<void>;
@@ -47,6 +50,7 @@ interface ServerState {
   leaveVoiceChannel: () => Promise<void>;
   toggleMute: () => void;
   toggleDeafen: () => void;
+  toggleScreenShare: () => Promise<void>;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
 }
 
@@ -66,6 +70,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
   voiceParticipants: {},
   isMuted: false,
   isDeafened: false,
+  isScreenSharing: false,
+  screenShareUserId: null,
+  remoteScreenStream: null,
 
   initData: async (_userId) => {
     try {
@@ -182,7 +189,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
           for (const [chId, participants] of Object.entries(newMap)) {
             merged[chId] = participants.map((p) => {
               const existing = (state.voiceParticipants[chId] ?? []).find((e) => e.userId === p.userId);
-              return existing ? { ...p, isSpeaking: existing.isSpeaking } : p;
+              return existing
+                ? { ...p, isSpeaking: existing.isSpeaking, user: p.user ?? existing.user }
+                : p;
             });
           }
           return { voiceParticipants: merged };
@@ -521,10 +530,27 @@ export const useServerStore = create<ServerState>((set, get) => ({
           if (existing.some((p) => p.userId === userId)) return state;
           const serverId = state.activeServerId;
           const member = (serverId ? state.members[serverId] ?? [] : []).find((m) => m.userId === userId);
+          const participant = { userId, channelId, isMuted: false, isDeafened: false, isSpeaking: false, user: member?.user };
+
+          if (!member?.user) {
+            supabase.from("profiles").select("*").eq("id", userId).single().then(({ data }) => {
+              if (!data) return;
+              const loadedUser = mapProfile(data);
+              set((s) => ({
+                voiceParticipants: {
+                  ...s.voiceParticipants,
+                  [channelId]: (s.voiceParticipants[channelId] ?? []).map((p) =>
+                    p.userId === userId ? { ...p, user: loadedUser } : p
+                  ),
+                },
+              }));
+            });
+          }
+
           return {
             voiceParticipants: {
               ...state.voiceParticipants,
-              [channelId]: [...existing, { userId, channelId, isMuted: false, isDeafened: false, isSpeaking: false, user: member?.user }],
+              [channelId]: [...existing, participant],
             },
           };
         });
@@ -546,6 +572,12 @@ export const useServerStore = create<ServerState>((set, get) => ({
             ),
           },
         }));
+      },
+      onScreenShareStart: (userId, stream) => {
+        set({ screenShareUserId: userId, remoteScreenStream: stream });
+      },
+      onScreenShareStop: () => {
+        set({ screenShareUserId: null, remoteScreenStream: null });
       },
     }, { noiseSuppression, echoCancellation, inputVolume });
 
@@ -578,8 +610,30 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set((state) => {
       const ch = state.activeVoiceChannelId;
       if (!ch) return state;
-      return { activeVoiceChannelId: null, voiceParticipants: { ...state.voiceParticipants, [ch]: [] } };
+      return {
+        activeVoiceChannelId: null,
+        voiceParticipants: { ...state.voiceParticipants, [ch]: [] },
+        isScreenSharing: false,
+        screenShareUserId: null,
+        remoteScreenStream: null,
+      };
     });
+  },
+
+  toggleScreenShare: async () => {
+    const engine = getActiveVoiceEngine();
+    if (!engine) return;
+    if (engine.isScreenSharing()) {
+      await engine.stopScreenShare();
+      set({ isScreenSharing: false });
+    } else {
+      try {
+        await engine.startScreenShare();
+        set({ isScreenSharing: true });
+      } catch {
+        // User cancelled getDisplayMedia or permission denied
+      }
+    }
   },
 
   inviteUser: async (serverId, username) => {

@@ -5,6 +5,8 @@ import {
   HeadphoneOff,
   Settings,
   PhoneOff,
+  Monitor,
+  MonitorOff,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useServerStore } from "@/lib/store/server-store";
@@ -24,8 +26,10 @@ export function UserBar() {
     leaveVoiceChannel,
     isMuted,
     isDeafened,
+    isScreenSharing,
     toggleMute,
     toggleDeafen,
+    toggleScreenShare,
     channels,
     activeServerId,
     voiceParticipants,
@@ -117,6 +121,20 @@ export function UserBar() {
               <Headphones className="w-4 h-4" />
             )}
           </button>
+          {activeVoiceChannelId && (
+            <button
+              onClick={() => void toggleScreenShare()}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                isScreenSharing
+                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
+                  : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
+              )}
+              title={isScreenSharing ? "Stop sharing" : "Share screen"}
+            >
+              {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+            </button>
+          )}
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"

@@ -3,6 +3,7 @@ import { ChatArea } from "./chat-area";
 import { FriendsSidebar } from "./friends-sidebar";
 import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
+import { ScreenShareOverlay } from "./screen-share-overlay";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
@@ -77,6 +78,7 @@ export function AppLayout() {
       </div>
 
       <DMPortal />
+      <ScreenShareOverlay />
     </div>
   );
 }

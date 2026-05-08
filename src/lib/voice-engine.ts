@@ -13,12 +13,16 @@ type SignalMsg =
   | { type: "leave"; from: string }
   | { type: "offer"; from: string; to: string; sdp: RTCSessionDescriptionInit }
   | { type: "answer"; from: string; to: string; sdp: RTCSessionDescriptionInit }
-  | { type: "ice"; from: string; to: string; candidate: RTCIceCandidateInit };
+  | { type: "ice"; from: string; to: string; candidate: RTCIceCandidateInit }
+  | { type: "screen-start"; from: string }
+  | { type: "screen-stop"; from: string };
 
 export interface VoiceCallbacks {
   onParticipantJoin: (userId: string) => void;
   onParticipantLeave: (userId: string) => void;
   onSpeakingChange: (userId: string, speaking: boolean) => void;
+  onScreenShareStart?: (userId: string, stream: MediaStream) => void;
+  onScreenShareStop?: (userId: string) => void;
 }
 
 export interface VoiceAudioSettings {
@@ -35,6 +39,7 @@ export class VoiceEngine {
 
   private realtimeCh: ReturnType<typeof supabase.channel> | null = null;
   private localStream: MediaStream | null = null;
+  private screenStream: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
 
@@ -77,14 +82,12 @@ export class VoiceEngine {
       await this.audioCtx.resume();
     }
 
-    // Apply input volume via GainNode
     const source = this.audioCtx.createMediaStreamSource(this.localStream);
     this.gainNode = this.audioCtx.createGain();
     this.gainNode.gain.value = this.audioSettings.inputVolume / 100;
     const dest = this.audioCtx.createMediaStreamDestination();
     source.connect(this.gainNode);
     this.gainNode.connect(dest);
-    // Replace raw stream with gain-processed stream for WebRTC
     this.localStream = dest.stream;
 
     this.trackSpeaking(this.userId, this.localStream);
@@ -108,6 +111,7 @@ export class VoiceEngine {
   }
 
   async leave(): Promise<void> {
+    if (this.screenStream) await this.stopScreenShare();
     await this.broadcast({ type: "leave", from: this.userId });
 
     this.localStream?.getTracks().forEach((t) => t.stop());
@@ -148,6 +152,49 @@ export class VoiceEngine {
     }
   }
 
+  async startScreenShare(): Promise<void> {
+    this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 15 } as MediaTrackConstraints,
+      audio: false,
+    });
+
+    const videoTrack = this.screenStream.getVideoTracks()[0];
+    if (!videoTrack) {
+      this.screenStream = null;
+      return;
+    }
+
+    videoTrack.onended = () => { void this.stopScreenShare(); };
+
+    for (const pc of this.peers.values()) {
+      if (pc.signalingState !== "closed") {
+        pc.addTrack(videoTrack, this.screenStream);
+      }
+    }
+
+    await this.broadcast({ type: "screen-start", from: this.userId });
+  }
+
+  async stopScreenShare(): Promise<void> {
+    if (!this.screenStream) return;
+
+    this.screenStream.getTracks().forEach((t) => t.stop());
+
+    for (const pc of this.peers.values()) {
+      if (pc.signalingState !== "closed") {
+        const videoSenders = pc.getSenders().filter((s) => s.track?.kind === "video");
+        videoSenders.forEach((s) => { try { pc.removeTrack(s); } catch { /* ignore */ } });
+      }
+    }
+
+    this.screenStream = null;
+    await this.broadcast({ type: "screen-stop", from: this.userId });
+  }
+
+  isScreenSharing(): boolean {
+    return this.screenStream !== null;
+  }
+
   private async handleSignal(msg: SignalMsg): Promise<void> {
     if (msg.from === this.userId) return;
 
@@ -172,6 +219,12 @@ export class VoiceEngine {
       case "ice":
         if (msg.to !== this.userId) break;
         await this.handleIce(msg.from, msg.candidate);
+        break;
+      case "screen-start":
+        // Stream arrives via ontrack; signal just prepares UI
+        break;
+      case "screen-stop":
+        this.cb.onScreenShareStop?.(msg.from);
         break;
     }
   }
@@ -237,8 +290,21 @@ export class VoiceEngine {
       }
     }
 
-    pc.ontrack = ({ streams }) => {
-      if (streams[0]) this.attachRemoteAudio(peerId, streams[0]);
+    // Include active screen share for late joiners
+    if (this.screenStream) {
+      const videoTrack = this.screenStream.getVideoTracks()[0];
+      if (videoTrack) pc.addTrack(videoTrack, this.screenStream);
+    }
+
+    pc.ontrack = ({ track, streams }) => {
+      if (track.kind === "audio") {
+        if (streams[0]) this.attachRemoteAudio(peerId, streams[0]);
+      } else if (track.kind === "video") {
+        if (streams[0]) {
+          this.cb.onScreenShareStart?.(peerId, streams[0]);
+          track.onended = () => this.cb.onScreenShareStop?.(peerId);
+        }
+      }
     };
 
     pc.onicecandidate = ({ candidate }) => {
@@ -249,6 +315,15 @@ export class VoiceEngine {
           to: peerId,
           candidate: candidate.toJSON(),
         });
+      }
+    };
+
+    // Renegotiation when screen share track is added/removed
+    pc.onnegotiationneeded = async () => {
+      if (pc.signalingState === "stable" && this.peers.get(peerId) === pc) {
+        try {
+          await this.createOffer(peerId);
+        } catch { /* ignore race conditions */ }
       }
     };
 
@@ -317,7 +392,7 @@ export class VoiceEngine {
 
       this.speakingTimers.set(userId, timer);
     } catch {
-      // AudioContext unavailable in this environment
+      // AudioContext unavailable
     }
   }
 
