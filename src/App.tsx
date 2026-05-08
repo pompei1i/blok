@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAuthStore } from "./lib/store/auth-store";
 import { useFriendsStore } from "./lib/store/friends-store";
 import { useServerStore } from "./lib/store/server-store";
@@ -16,6 +17,12 @@ function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    if ("__TAURI_INTERNALS__" in window) {
+      invoke("disable_audio_ducking").catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${uiScale}%`;
