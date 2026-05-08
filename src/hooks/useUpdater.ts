@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface UpdateState {
@@ -24,7 +24,7 @@ export function useUpdater() {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
     check()
-      .then((update) => {
+      .then((update: Update | null) => {
         if (update?.available) {
           setState((s) => ({
             ...s,
@@ -44,7 +44,7 @@ export function useUpdater() {
     if (!("__TAURI_INTERNALS__" in window)) return;
     setState((s) => ({ ...s, installing: true, error: null }));
     try {
-      const update = await check();
+      const update: Update | null = await check();
       if (update?.available) {
         await update.downloadAndInstall();
         await relaunch();
