@@ -498,8 +498,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                             type="button"
                             onClick={async () => {
                               try {
-                                const { open } = await import("@tauri-apps/plugin-opener");
-                                await open("ms-settings:privacy-microphone");
+                                const { openUrl } = await import("@tauri-apps/plugin-opener");
+                                await openUrl("ms-settings:privacy-microphone");
                               } catch { /* not in Tauri or failed */ }
                             }}
                             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg hover:border-[var(--text-muted)] transition-colors text-[var(--text-primary)]"
