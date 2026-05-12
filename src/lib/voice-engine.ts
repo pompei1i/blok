@@ -44,10 +44,12 @@ export class VoiceEngine {
   private audioCtx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
   private noiseGateNode: AudioWorkletNode | null = null;
+  private outputCtx: AudioContext | null = null;
+  private outputMasterGain: GainNode | null = null;
+  private remoteSourceNodes = new Map<string, MediaStreamAudioSourceNode>();
 
   private peers = new Map<string, RTCPeerConnection>();
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
-  private audioElements = new Map<string, HTMLAudioElement>();
   private speakingTimers = new Map<string, ReturnType<typeof setInterval>>();
   private speakingState = new Map<string, boolean>();
 
@@ -60,8 +62,8 @@ export class VoiceEngine {
     this.userId = userId;
     this.cb = cb;
     this.audioSettings = {
-      noiseSuppression: audioSettings?.noiseSuppression ?? true,
-      echoCancellation: audioSettings?.echoCancellation ?? true,
+      noiseSuppression: audioSettings?.noiseSuppression ?? false,
+      echoCancellation: audioSettings?.echoCancellation ?? false,
       inputVolume: audioSettings?.inputVolume ?? 100,
       noiseGateThreshold: audioSettings?.noiseGateThreshold ?? 30,
     };
@@ -71,50 +73,38 @@ export class VoiceEngine {
   }
 
   async join(): Promise<void> {
-    this.localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: this.audioSettings.echoCancellation,
-        noiseSuppression: this.audioSettings.noiseSuppression,
-        autoGainControl: false, // manual gain via GainNode
-        sampleRate: { ideal: 48000 },
-        channelCount: { ideal: 1 },
-      },
-      video: false,
-    });
+    // Create the output AudioContext at 48 kHz BEFORE opening the microphone.
+    // Having an active 48 kHz render session helps anchor the audio engine
+    // format before Chrome's getUserMedia triggers Windows communications mode.
+    this.outputCtx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+    this.outputMasterGain = this.outputCtx.createGain();
+    this.outputMasterGain.connect(this.outputCtx.destination);
+    if (this.outputCtx.state === "suspended") {
+      await this.outputCtx.resume();
+    }
 
-    // Match AudioContext sample rate to capture rate to avoid resampling artefacts
-    this.audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+    this.audioCtx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
     if (this.audioCtx.state === "suspended") {
       await this.audioCtx.resume();
     }
 
-    const source = this.audioCtx.createMediaStreamSource(this.localStream);
-    this.gainNode = this.audioCtx.createGain();
-    this.gainNode.gain.value = this.audioSettings.inputVolume / 100;
-    const dest = this.audioCtx.createMediaStreamDestination();
+    // Open the microphone AFTER the 48 kHz render session is live.
+    this.localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: this.audioSettings.echoCancellation,
+        noiseSuppression: this.audioSettings.noiseSuppression,
+        autoGainControl: false,
+        channelCount: { ideal: 1 },
+        sampleRate: 48000,
+      },
+      video: false,
+    });
 
-    // Load noise gate worklet if threshold > 0
-    if (this.audioSettings.noiseGateThreshold > 0) {
-      try {
-        await this.audioCtx.audioWorklet.addModule("/audio/noise-gate-processor.js");
-        this.noiseGateNode = new AudioWorkletNode(this.audioCtx, "noise-gate-processor");
-        // Map 0–100 UI scale to 0–0.05 RMS threshold
-        const rmsThreshold = (this.audioSettings.noiseGateThreshold / 100) * 0.05;
-        this.noiseGateNode.port.postMessage({ threshold: rmsThreshold });
-        source.connect(this.gainNode);
-        this.gainNode.connect(this.noiseGateNode);
-        this.noiseGateNode.connect(dest);
-      } catch {
-        // AudioWorklet not supported — fallback to simple gain chain
-        source.connect(this.gainNode);
-        this.gainNode.connect(dest);
-      }
-    } else {
-      source.connect(this.gainNode);
-      this.gainNode.connect(dest);
+    if ("__TAURI_INTERNALS__" in window) {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke("disable_audio_ducking").catch(() => {});
+      });
     }
-
-    this.localStream = dest.stream;
 
     this.trackSpeaking(this.userId, this.localStream);
 
@@ -153,6 +143,10 @@ export class VoiceEngine {
 
     this.audioCtx?.close();
     this.audioCtx = null;
+    this.outputCtx?.close();
+    this.outputCtx = null;
+    this.outputMasterGain = null;
+    this.remoteSourceNodes.clear();
 
     if (this.realtimeCh) {
       await supabase.removeChannel(this.realtimeCh);
@@ -167,8 +161,8 @@ export class VoiceEngine {
   }
 
   setDeafened(deafened: boolean): void {
-    for (const el of this.audioElements.values()) {
-      el.muted = deafened;
+    if (this.outputMasterGain) {
+      this.outputMasterGain.gain.value = deafened ? 0 : 1;
     }
   }
 
@@ -262,11 +256,28 @@ export class VoiceEngine {
     }
   }
 
+  // Force Opus fullband (48 kHz) mode.  Without this, WebRTC defaults to
+  // maxplaybackrate=24000 (super-wideband) which makes voices sound like radio.
+  private patchSdp(desc: RTCSessionDescriptionInit): RTCSessionDescriptionInit {
+    if (!desc.sdp) return desc;
+    let sdp = desc.sdp;
+    const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
+    if (!opusMatch) return desc;
+    const pt = opusMatch[1];
+    const fmtpLine = `a=fmtp:${pt} minptime=10;useinbandfec=1;maxaveragebitrate=128000;maxplaybackrate=48000;sprop-maxcapturerate=48000;dtx=0`;
+    const fmtpRegex = new RegExp(`a=fmtp:${pt} [^\r\n]+`);
+    sdp = fmtpRegex.test(sdp)
+      ? sdp.replace(fmtpRegex, fmtpLine)
+      : sdp.replace(`a=rtpmap:${pt} opus/48000/2`, `a=rtpmap:${pt} opus/48000/2\r\n${fmtpLine}`);
+    return { type: desc.type as RTCSdpType, sdp };
+  }
+
   private async createOffer(targetId: string): Promise<void> {
     const pc = this.getOrCreatePeer(targetId);
     const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await this.broadcast({ type: "offer", from: this.userId, to: targetId, sdp: offer });
+    const patched = this.patchSdp(offer);
+    await pc.setLocalDescription(patched);
+    await this.broadcast({ type: "offer", from: this.userId, to: targetId, sdp: patched });
   }
 
   private async handleOffer(fromId: string, sdp: RTCSessionDescriptionInit): Promise<void> {
@@ -274,8 +285,9 @@ export class VoiceEngine {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     await this.flushPending(fromId, pc);
     const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await this.broadcast({ type: "answer", from: this.userId, to: fromId, sdp: answer });
+    const patched = this.patchSdp(answer);
+    await pc.setLocalDescription(patched);
+    await this.broadcast({ type: "answer", from: this.userId, to: fromId, sdp: patched });
   }
 
   private async handleAnswer(fromId: string, sdp: RTCSessionDescriptionInit): Promise<void> {
@@ -375,10 +387,10 @@ export class VoiceEngine {
     this.peers.delete(peerId);
     this.pendingCandidates.delete(peerId);
 
-    const el = this.audioElements.get(peerId);
-    if (el) {
-      el.srcObject = null;
-      this.audioElements.delete(peerId);
+    const src = this.remoteSourceNodes.get(peerId);
+    if (src) {
+      try { src.disconnect(); } catch { /* ignore */ }
+      this.remoteSourceNodes.delete(peerId);
     }
 
     const t = this.speakingTimers.get(peerId);
@@ -390,13 +402,19 @@ export class VoiceEngine {
   }
 
   private attachRemoteAudio(peerId: string, stream: MediaStream): void {
-    let el = this.audioElements.get(peerId);
-    if (!el) {
-      el = new Audio();
-      el.autoplay = true;
-      this.audioElements.set(peerId, el);
+    if (!this.outputCtx || !this.outputMasterGain) return;
+
+    const old = this.remoteSourceNodes.get(peerId);
+    if (old) { try { old.disconnect(); } catch { /* ignore */ } }
+
+    const source = this.outputCtx.createMediaStreamSource(stream);
+    source.connect(this.outputMasterGain);
+    this.remoteSourceNodes.set(peerId, source);
+
+    if (this.outputCtx.state === "suspended") {
+      void this.outputCtx.resume();
     }
-    el.srcObject = stream;
+
     this.trackSpeaking(peerId, stream);
   }
 

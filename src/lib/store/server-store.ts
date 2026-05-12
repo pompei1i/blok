@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
-import { VoiceEngine, getActiveVoiceEngine, setActiveVoiceEngine } from "../voice-engine";
+import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../native-voice-engine";
 import type {
   Server,
   Category,
@@ -171,10 +171,12 @@ export const useServerStore = create<ServerState>((set, get) => ({
         const all = Object.values(raw).flat();
         const newMap: Record<string, VoiceParticipant[]> = {};
         const allMembers = Object.values(get().members).flat();
+        const missingProfileIds: string[] = [];
         for (const p of all) {
           if (!p.voiceChannelId) continue;
           if (!newMap[p.voiceChannelId]) newMap[p.voiceChannelId] = [];
           const member = allMembers.find((m) => m.userId === p.userId);
+          if (!member?.user) missingProfileIds.push(p.userId);
           newMap[p.voiceChannelId].push({
             userId: p.userId,
             channelId: p.voiceChannelId,
@@ -196,6 +198,21 @@ export const useServerStore = create<ServerState>((set, get) => ({
           }
           return { voiceParticipants: merged };
         });
+        // Fetch profiles for presence participants not yet in the members cache
+        for (const uid of missingProfileIds) {
+          supabase.from("profiles").select("*").eq("id", uid).single().then(({ data }) => {
+            if (!data) return;
+            const loadedUser = mapProfile(data);
+            set((s) => ({
+              voiceParticipants: Object.fromEntries(
+                Object.entries(s.voiceParticipants).map(([chId, parts]) => [
+                  chId,
+                  parts.map((p) => p.userId === uid && !p.user ? { ...p, user: loadedUser } : p),
+                ])
+              ),
+            }));
+          });
+        }
       };
 
       voicePresenceCh
@@ -522,8 +539,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       },
     }));
 
-    const { noiseSuppression, echoCancellation, inputVolume, noiseGateThreshold } = (await import("./ui-settings-store")).useUiSettingsStore.getState();
-    const engine = new VoiceEngine(channelId, user.id, {
+    const engine = new NativeVoiceEngine(channelId, user.id, {
       onParticipantJoin: (userId) => {
         set((state) => {
           const existing = state.voiceParticipants[channelId] ?? [];
@@ -579,11 +595,11 @@ export const useServerStore = create<ServerState>((set, get) => ({
       onScreenShareStop: () => {
         set({ screenShareUserId: null, remoteScreenStream: null });
       },
-    }, { noiseSuppression, echoCancellation, inputVolume, noiseGateThreshold });
+    });
 
     try {
       await engine.join();
-      setActiveVoiceEngine(engine);
+      setActiveNativeVoiceEngine(engine);
       const { isMuted, isDeafened } = get();
       if (isMuted) engine.setMuted(true);
       if (isDeafened) engine.setDeafened(true);
@@ -602,9 +618,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
     if (_currentUserId) {
       voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: null, isMuted: false, isDeafened: false });
     }
-    const engine = getActiveVoiceEngine();
+    const engine = getActiveNativeVoiceEngine();
     if (engine) {
-      setActiveVoiceEngine(null);
+      setActiveNativeVoiceEngine(null);
       await engine.leave();
     }
     set((state) => {
@@ -621,7 +637,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   toggleScreenShare: async () => {
-    const engine = getActiveVoiceEngine();
+    const engine = getActiveNativeVoiceEngine();
     if (!engine) return;
     if (engine.isScreenSharing()) {
       await engine.stopScreenShare();
@@ -675,7 +691,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   toggleMute: () => {
     const newMuted = !get().isMuted;
     set({ isMuted: newMuted });
-    getActiveVoiceEngine()?.setMuted(newMuted);
+    getActiveNativeVoiceEngine()?.setMuted(newMuted);
     const { activeVoiceChannelId, isDeafened } = get();
     if (activeVoiceChannelId && _currentUserId) {
       voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted: newMuted, isDeafened });
@@ -685,7 +701,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   toggleDeafen: () => {
     const newDeafened = !get().isDeafened;
     set({ isDeafened: newDeafened });
-    getActiveVoiceEngine()?.setDeafened(newDeafened);
+    getActiveNativeVoiceEngine()?.setDeafened(newDeafened);
     const { activeVoiceChannelId, isMuted } = get();
     if (activeVoiceChannelId && _currentUserId) {
       voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened: newDeafened });

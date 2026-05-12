@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAuthStore } from "./lib/store/auth-store";
 import { useFriendsStore } from "./lib/store/friends-store";
 import { useServerStore } from "./lib/store/server-store";
-import { getActiveVoiceEngine } from "./lib/voice-engine";
+import { getActiveNativeVoiceEngine } from "./lib/native-voice-engine";
 import { AuthScreen } from "./components/blok/auth-screen";
 import { AppLayout } from "./components/blok/app-layout";
 import { useUiSettingsStore } from "./lib/store/ui-settings-store";
@@ -70,7 +70,7 @@ function App() {
 
   // Live input volume update when slider changes
   useEffect(() => {
-    getActiveVoiceEngine()?.setInputVolume(inputVolume);
+    getActiveNativeVoiceEngine()?.setInputVolume(inputVolume);
   }, [inputVolume]);
 
   if (!initialized) {
