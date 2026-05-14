@@ -260,6 +260,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         status_message: updates.statusMessage,
         accent_color: updates.accentColor,
         avatar_url: updates.avatarUrl,
+        pronouns: updates.pronouns,
       })
       .eq("id", current.id);
 

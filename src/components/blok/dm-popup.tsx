@@ -198,6 +198,11 @@ export function DMPopup({ dmState }: DMPopupProps) {
             <p className="text-sm text-[var(--text-primary)] font-medium">
               @{friend?.username ?? dmState.userId.slice(0, 8)}
             </p>
+            {friend?.pronouns && (
+              <p className="text-xs text-[var(--text-muted)] opacity-70">
+                {friend.pronouns}
+              </p>
+            )}
             <p className="text-xs text-[var(--text-muted)] mt-1">
               {t("dm.startConversation")}
             </p>
@@ -335,7 +340,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
             disabled={!inputValue.trim() && attachments.length === 0 && gifAttachments.length === 0}
             className={cn(
               "p-1 rounded transition-colors",
-              inputValue.trim() || attachments.length > 0
+              inputValue.trim() || attachments.length > 0 || gifAttachments.length > 0
                 ? "bg-[var(--accent-red)] hover:opacity-90 text-white"
                 : "text-[var(--text-muted)]",
             )}

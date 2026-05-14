@@ -639,7 +639,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
   toggleScreenShare: async () => {
     const engine = getActiveNativeVoiceEngine();
     if (!engine) return;
-    if (engine.isScreenSharing()) {
+    const { isScreenSharing } = get();
+    if (isScreenSharing) {
       await engine.stopScreenShare();
       set({ isScreenSharing: false });
     } else {
@@ -659,17 +660,17 @@ export const useServerStore = create<ServerState>((set, get) => ({
       .eq("username", username.toLowerCase().trim())
       .maybeSingle();
 
-    if (profileError) return "Ошибка поиска пользователя";
-    if (!profile) return "Пользователь не найден";
+    if (profileError) return "Failed to find user";
+    if (!profile) return "User not found";
 
     const members = get().members[serverId] || [];
-    if (members.some((m) => m.userId === profile.id)) return "Уже участник сервера";
+    if (members.some((m) => m.userId === profile.id)) return "Already a member";
 
     const { error } = await supabase
       .from("server_members")
       .insert({ server_id: serverId, user_id: profile.id });
 
-    if (error) return "Не удалось добавить пользователя";
+    if (error) return "Failed to add user";
 
     const newMember: ServerMember = {
       id: crypto.randomUUID(),

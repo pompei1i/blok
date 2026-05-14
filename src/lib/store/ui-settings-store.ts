@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ThemeMode = "dark" | "light";
-export type Language = "English" | "Polish" | "German" | "Spanish" | "Ukrainian";
+export type Language = "English" | "Polish" | "German" | "Spanish" | "Ukrainian" | "Russian";
 export type CameraQuality = "720p" | "1080p" | "1440p";
 
 interface UiSettingsState {

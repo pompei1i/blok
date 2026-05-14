@@ -234,7 +234,12 @@ export function FriendsSidebar() {
                   <p className="text-sm text-[var(--text-primary)] truncate">
                     @{friendship.friendUser?.username ?? "unknown-user"}
                   </p>
-                  {friendship.friendUser?.statusMessage && (
+                  {friendship.friendUser?.pronouns && (
+                    <p className="text-xs text-[var(--text-muted)] truncate opacity-60">
+                      {friendship.friendUser.pronouns}
+                    </p>
+                  )}
+                  {!friendship.friendUser?.pronouns && friendship.friendUser?.statusMessage && (
                     <p className="text-xs text-[var(--text-muted)] truncate">
                       {friendship.friendUser.statusMessage}
                     </p>

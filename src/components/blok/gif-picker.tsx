@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 
-const TENOR_KEY = import.meta.env.VITE_TENOR_API_KEY ?? "LIVDSRZULELA";
-const TENOR_BASE = "https://api.tenor.com/v1";
+const TENOR_KEY = import.meta.env.VITE_TENOR_API_KEY ?? "";
+const TENOR_BASE = "https://tenor.googleapis.com/v2";
 
-interface TenorMedia {
+interface TenorMediaFormats {
   gif?: { url: string };
   tinygif?: { url: string };
   nanogif?: { url: string };
@@ -12,7 +12,7 @@ interface TenorMedia {
 
 interface TenorResult {
   id: string;
-  media: TenorMedia[];
+  media_formats: TenorMediaFormats;
 }
 
 interface GifPickerProps {
@@ -30,10 +30,16 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const fetchGifs = async (q: string) => {
     setLoading(true);
     setError(null);
+    if (!TENOR_KEY) {
+      setError("No API key configured");
+      setGifs([]);
+      setLoading(false);
+      return;
+    }
     try {
       const endpoint = q.trim()
-        ? `${TENOR_BASE}/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&limit=24&media_filter=minimal`
-        : `${TENOR_BASE}/trending?key=${TENOR_KEY}&limit=24&media_filter=minimal`;
+        ? `${TENOR_BASE}/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&limit=24&media_filter=tinygif,nanogif,gif`
+        : `${TENOR_BASE}/featured?key=${TENOR_KEY}&limit=24&media_filter=tinygif,nanogif,gif`;
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
@@ -89,7 +95,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
         ) : (
           <div className="columns-2 gap-1 space-y-1">
             {gifs.map((gif) => {
-              const formats = gif.media[0];
+              const formats = gif.media_formats;
               const thumb =
                 formats?.nanogif?.url ??
                 formats?.tinygif?.url ??

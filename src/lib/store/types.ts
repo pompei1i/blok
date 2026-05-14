@@ -9,6 +9,7 @@ export interface User {
   bio?: string;
   statusMessage?: string;
   accentColor?: string;
+  pronouns?: string;
   createdAt: string;
 }
 

@@ -28,7 +28,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
       setMessage(error);
     } else {
       setStatus("success");
-      setMessage(`@${username.trim()} добавлен на сервер`);
+      setMessage(`@${username.trim()} added to server`);
       setUsername("");
     }
   };
@@ -52,7 +52,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
           <div className="flex items-center gap-2">
             <UserPlus className="w-4 h-4 text-[var(--accent-red)]" />
             <span className="font-semibold text-sm text-[var(--text-primary)]">
-              Добавить участника
+              Add Member
             </span>
           </div>
           <button
@@ -84,7 +84,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
                   if (status !== "idle") { setStatus("idle"); setMessage(""); }
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="введи username..."
+                placeholder="enter username..."
                 className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
               />
             </div>
@@ -110,7 +110,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
               onClick={handleClose}
               className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
             >
-              Отмена
+              Cancel
             </button>
             <button
               onClick={handleInvite}
@@ -122,7 +122,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
                   : "bg-[var(--bg-elevated)] text-[var(--text-muted)] cursor-not-allowed"
               )}
             >
-              {status === "loading" ? "Добавление..." : "Добавить"}
+              {status === "loading" ? "Adding..." : "Add"}
             </button>
           </div>
         </div>

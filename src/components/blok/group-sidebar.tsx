@@ -6,6 +6,7 @@ import {
   Settings,
   PhoneOff,
   MicOff,
+  HeadphoneOff,
   UserPlus,
 } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
@@ -95,7 +96,7 @@ export function GroupSidebar() {
             {isServerOwner && (
               <button
                 onClick={() => setShowInviteUser(true)}
-                title="Добавить участника"
+                title="Add member"
                 className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
               >
                 <UserPlus className="w-4 h-4 text-[var(--text-muted)]" />
@@ -263,8 +264,13 @@ export function GroupSidebar() {
                               >
                                 {displayUser?.displayName || displayUser?.username || "..."}
                               </span>
-                              {participant.isMuted && (
-                                <MicOff className="w-3 h-3 text-[var(--destructive)] ml-auto" />
+                              {(participant.isMuted || participant.isDeafened) && (
+                                <div className="flex items-center gap-0.5 ml-auto">
+                                  <MicOff className="w-3 h-3 text-[var(--destructive)]" />
+                                  {participant.isDeafened && (
+                                    <HeadphoneOff className="w-3 h-3 text-[var(--destructive)]" />
+                                  )}
+                                </div>
                               )}
                             </div>
                           );

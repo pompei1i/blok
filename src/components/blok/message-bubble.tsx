@@ -197,19 +197,26 @@ export function MessageBubble({
       )}
       <div className="flex-1 min-w-0">
         {showAvatar && (
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-medium text-[var(--text-primary)]">
-              @{user?.username || "Unknown"}
-            </span>
-            <span className="text-xs text-[var(--text-muted)]">
-              {formatTime(message.createdAt)}
-            </span>
-            {"editedAt" in message &&
-              message.editedAt && (
-                <span className="text-xs text-[var(--text-muted)]">
-                  {t("message.edited")}
-                </span>
-              )}
+          <div className="mb-0.5">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-[var(--text-primary)]">
+                @{user?.username || "Unknown"}
+              </span>
+              <span className="text-xs text-[var(--text-muted)]">
+                {formatTime(message.createdAt)}
+              </span>
+              {"editedAt" in message &&
+                message.editedAt && (
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {t("message.edited")}
+                  </span>
+                )}
+            </div>
+            {user?.pronouns && (
+              <span className="text-xs text-[var(--text-muted)] opacity-60">
+                {user.pronouns}
+              </span>
+            )}
           </div>
         )}
         {message.content && (
