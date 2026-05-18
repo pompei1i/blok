@@ -6,6 +6,8 @@ import {
   Settings,
   PhoneOff,
   MicOff,
+  VolumeX,
+  Monitor,
   UserPlus,
 } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
@@ -31,6 +33,7 @@ export function GroupSidebar() {
     voiceParticipants,
     joinVoiceChannel,
     leaveVoiceChannel,
+    unreadCounts,
   } = useServerStore();
   const { user } = useAuthStore();
   const [expandedSections, setExpandedSections] = useState({
@@ -63,12 +66,12 @@ export function GroupSidebar() {
       playSound("leave");
     } else {
       setJoiningChannel(channelId);
-      const error = await joinVoiceChannel(channelId, user);
-      setJoiningChannel(null);
-      if (error) {
-        setVoiceError(error);
-      } else {
-        playSound("join");
+      try {
+        const error = await joinVoiceChannel(channelId, user);
+        if (error) setVoiceError(error);
+        else playSound("join");
+      } finally {
+        setJoiningChannel(null);
       }
     }
   };
@@ -158,14 +161,19 @@ export function GroupSidebar() {
                   key={channel.id}
                   onClick={() => setActiveChannel(channel.id)}
                   className={cn(
-                    "flex items-center gap-2 w-full px-2 py-1.5 rounded text-sm transition-all duration-120",
+                    "flex items-center gap-1.5 w-full px-2 py-1.5 rounded text-sm transition-all duration-120 text-left",
                     activeChannelId === channel.id
-                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] border-l-2 border-[var(--accent-red)]"
+                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[inset_2px_0_0_var(--accent-red)]"
                       : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
                   )}
                 >
                   <Hash className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">{channel.name}</span>
+                  <span className="truncate flex-1 min-w-0">{channel.name}</span>
+                  {(unreadCounts[channel.id] ?? 0) > 0 && (
+                    <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center bg-[var(--accent-red)] rounded-full text-[10px] text-white font-bold px-1">
+                      {unreadCounts[channel.id] > 99 ? "99+" : unreadCounts[channel.id]}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -263,9 +271,26 @@ export function GroupSidebar() {
                               >
                                 {displayUser?.displayName || displayUser?.username || "..."}
                               </span>
-                              {participant.isMuted && (
-                                <MicOff className="w-3 h-3 text-[var(--destructive)] ml-auto" />
-                              )}
+                              <div className="ml-auto flex items-center gap-1">
+                                {participant.isScreenSharing && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.dispatchEvent(new CustomEvent("blok:focus-screen-share"));
+                                    }}
+                                    title="View screen share"
+                                    className="hover:text-[var(--online)] transition-colors"
+                                  >
+                                    <Monitor className="w-3 h-3 text-[var(--online)]" />
+                                  </button>
+                                )}
+                                {(participant.isMuted || participant.isDeafened) && (
+                                  <MicOff className="w-3 h-3 text-[var(--destructive)]" />
+                                )}
+                                {participant.isDeafened && (
+                                  <VolumeX className="w-3 h-3 text-[var(--destructive)]" />
+                                )}
+                              </div>
                             </div>
                           );
                         })}

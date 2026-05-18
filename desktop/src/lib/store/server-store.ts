@@ -2,12 +2,15 @@ import { create } from "zustand";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
 import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../native-voice-engine";
+import { playNotificationBeep } from "../sounds";
+import { sendDesktopNotification } from "../notifications";
 import type {
   Server,
   Category,
   Channel,
   ServerMember,
   Message,
+  Reaction,
   User,
   VoiceParticipant,
 } from "./types";
@@ -27,6 +30,7 @@ interface ServerState {
   messagesLoading: Set<string>;
   typingUsers: Record<string, string[]>;
   openTabs: string[];
+  unreadCounts: Record<string, number>;
   activeVoiceChannelId: string | null;
   voiceParticipants: Record<string, VoiceParticipant[]>;
   isMuted: boolean;
@@ -50,10 +54,12 @@ interface ServerState {
   leaveVoiceChannel: () => Promise<void>;
   toggleMute: () => void;
   toggleDeafen: () => void;
-  toggleScreenShare: () => Promise<void>;
+  toggleScreenShare: (sourceId?: string) => Promise<void>;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
   deleteMessage: (messageId: string, channelId: string) => Promise<void>;
   pinMessage: (messageId: string, channelId: string) => Promise<void>;
+  addReaction: (messageId: string, channelId: string, emoji: string, userId: string) => Promise<void>;
+  removeReaction: (messageId: string, channelId: string, emoji: string, userId: string) => Promise<void>;
   patchUser: (user: User) => void;
 }
 
@@ -69,6 +75,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   messagesLoading: new Set(),
   typingUsers: {},
   openTabs: [],
+  unreadCounts: {},
   activeVoiceChannelId: null,
   voiceParticipants: {},
   isMuted: false,
@@ -170,7 +177,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
       const syncPresence = () => {
         if (!voicePresenceCh) return;
-        const raw = voicePresenceCh.presenceState() as Record<string, Array<{ userId: string; voiceChannelId: string | null; isMuted?: boolean; isDeafened?: boolean }>>;
+        const raw = voicePresenceCh.presenceState() as Record<string, Array<{ userId: string; voiceChannelId: string | null; isMuted?: boolean; isDeafened?: boolean; isScreenSharing?: boolean }>>;
         const all = Object.values(raw).flat();
         const newMap: Record<string, VoiceParticipant[]> = {};
         const allMembers = Object.values(get().members).flat();
@@ -185,6 +192,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
             channelId: p.voiceChannelId,
             isMuted: p.isMuted ?? false,
             isDeafened: p.isDeafened ?? false,
+            isScreenSharing: p.isScreenSharing ?? false,
             isSpeaking: false,
             user: member?.user,
           });
@@ -277,6 +285,21 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 },
               }));
             }
+
+            // Unread count + notification for messages from others in non-active channels
+            const { activeChannelId } = get();
+            if (m.channel_id !== activeChannelId && m.author_id !== _currentUserId) {
+              set((state) => ({
+                unreadCounts: {
+                  ...state.unreadCounts,
+                  [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1,
+                },
+              }));
+              playNotificationBeep();
+              const channelName = Object.values(get().channels).flat().find((c) => c.id === m.channel_id)?.name ?? "blok";
+              const preview = parsedMessage.content?.slice(0, 80) || (parsedMessage.attachments?.length ? "sent an attachment" : "");
+              sendDesktopNotification(`#${channelName}`, `${author?.username ?? "someone"}: ${preview}`);
+            }
           }
         )
         .subscribe();
@@ -366,6 +389,57 @@ export const useServerStore = create<ServerState>((set, get) => ({
           }
         )
         .subscribe();
+
+      // Realtime: emoji reactions
+      supabase
+        .channel("public:message_reactions")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "message_reactions" },
+          (payload) => {
+            if (payload.eventType === "INSERT") {
+              const r = payload.new;
+              const reaction: Reaction = {
+                id: r.id, messageId: r.message_id, userId: r.user_id, emoji: r.emoji, createdAt: r.created_at,
+              };
+              set((state) => {
+                const channelId = Object.keys(state.messages).find((chId) =>
+                  state.messages[chId].some((m) => m.id === r.message_id)
+                );
+                if (!channelId) return state;
+                return {
+                  messages: {
+                    ...state.messages,
+                    [channelId]: state.messages[channelId].map((m) =>
+                      m.id === r.message_id && !m.reactions?.some((rx) => rx.id === r.id)
+                        ? { ...m, reactions: [...(m.reactions || []), reaction] }
+                        : m
+                    ),
+                  },
+                };
+              });
+            } else if (payload.eventType === "DELETE") {
+              const r = payload.old;
+              set((state) => {
+                const channelId = Object.keys(state.messages).find((chId) =>
+                  state.messages[chId].some((m) => m.id === r.message_id)
+                );
+                if (!channelId) return state;
+                return {
+                  messages: {
+                    ...state.messages,
+                    [channelId]: state.messages[channelId].map((m) =>
+                      m.id === r.message_id
+                        ? { ...m, reactions: (m.reactions || []).filter((rx) => rx.id !== r.id) }
+                        : m
+                    ),
+                  },
+                };
+              });
+            }
+          }
+        )
+        .subscribe();
     } catch (e) {
       console.error(e);
     }
@@ -384,7 +458,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
       .select(`
         id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
         author:profiles(id, username, display_name, avatar_url, accent_color, pronouns),
-        attachments(id, message_id, url, filename, media_type, size_bytes, created_at)
+        attachments(id, message_id, url, filename, media_type, size_bytes, created_at),
+        message_reactions(id, message_id, user_id, emoji, created_at)
       `)
       .eq("channel_id", channelId)
       .order("created_at", { ascending: false })
@@ -422,6 +497,15 @@ export const useServerStore = create<ServerState>((set, get) => ({
             createdAt: a.created_at,
           }))
         : [],
+      reactions: Array.isArray(m.message_reactions)
+        ? m.message_reactions.map((r: any) => ({
+            id: r.id,
+            messageId: r.message_id,
+            userId: r.user_id,
+            emoji: r.emoji,
+            createdAt: r.created_at,
+          }))
+        : [],
     }));
 
     set((state) => {
@@ -438,12 +522,23 @@ export const useServerStore = create<ServerState>((set, get) => ({
   setActiveServer: (serverId) => {
     const channels = serverId ? get().channels[serverId] ?? [] : [];
     const firstTextChannel = channels.find((c) => c.type === "text") ?? channels[0] ?? null;
-    set({ activeServerId: serverId, activeChannelId: firstTextChannel?.id ?? null });
+    set((state) => ({
+      activeServerId: serverId,
+      activeChannelId: firstTextChannel?.id ?? null,
+      unreadCounts: firstTextChannel
+        ? { ...state.unreadCounts, [firstTextChannel.id]: 0 }
+        : state.unreadCounts,
+    }));
     if (firstTextChannel) void get().loadMessages(firstTextChannel.id);
   },
 
   setActiveChannel: (channelId) => {
-    set({ activeChannelId: channelId });
+    set((state) => ({
+      activeChannelId: channelId,
+      unreadCounts: channelId
+        ? { ...state.unreadCounts, [channelId]: 0 }
+        : state.unreadCounts,
+    }));
     if (channelId) void get().loadMessages(channelId);
   },
 
@@ -548,16 +643,30 @@ export const useServerStore = create<ServerState>((set, get) => ({
       return { openTabs: [...state.openTabs, serverId] };
     }),
 
-  closeTab: (serverId) =>
-    set((state) => ({
-      openTabs: state.openTabs.filter((id) => id !== serverId),
-      activeServerId:
-        state.activeServerId === serverId
-          ? state.openTabs[0] !== serverId
-            ? state.openTabs[0]
-            : state.openTabs[1] || null
-          : state.activeServerId,
-    })),
+  closeTab: (serverId) => {
+    const state = get();
+    const newTabs = state.openTabs.filter((id) => id !== serverId);
+    let newActiveServerId = state.activeServerId;
+    let newActiveChannelId = state.activeChannelId;
+
+    if (state.activeServerId === serverId) {
+      const next = newTabs[0] ?? null;
+      newActiveServerId = next;
+      const nextChannels = next ? state.channels[next] ?? [] : [];
+      const firstText = nextChannels.find((c) => c.type === "text") ?? nextChannels[0] ?? null;
+      newActiveChannelId = firstText?.id ?? null;
+      if (firstText) void get().loadMessages(firstText.id);
+    }
+
+    set((s) => ({
+      openTabs: newTabs,
+      activeServerId: newActiveServerId,
+      activeChannelId: newActiveChannelId,
+      unreadCounts: newActiveChannelId
+        ? { ...s.unreadCounts, [newActiveChannelId]: 0 }
+        : s.unreadCounts,
+    }));
+  },
 
   joinVoiceChannel: async (channelId, user) => {
     const prevChannel = get().activeVoiceChannelId;
@@ -569,7 +678,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
         ...state.voiceParticipants,
         [channelId]: [
           ...(state.voiceParticipants[channelId] ?? []).filter((p) => p.userId !== user.id),
-          { userId: user.id, channelId, isMuted: state.isMuted, isDeafened: state.isDeafened, isSpeaking: false, user },
+          { userId: user.id, channelId, isMuted: state.isMuted, isDeafened: state.isDeafened, isScreenSharing: false, isSpeaking: false, user },
         ],
       },
     }));
@@ -581,7 +690,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
           if (existing.some((p) => p.userId === userId)) return state;
           const serverId = state.activeServerId;
           const member = (serverId ? state.members[serverId] ?? [] : []).find((m) => m.userId === userId);
-          const participant = { userId, channelId, isMuted: false, isDeafened: false, isSpeaking: false, user: member?.user };
+          const participant = { userId, channelId, isMuted: false, isDeafened: false, isScreenSharing: false, isSpeaking: false, user: member?.user };
 
           if (!member?.user) {
             supabase.from("profiles").select("*").eq("id", userId).single().then(({ data }) => {
@@ -625,7 +734,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
         }));
       },
       onScreenShareStart: (userId, stream) => {
-        set({ screenShareUserId: userId, remoteScreenStream: stream });
+        // Only track remote shares; local share is already tracked by isScreenSharing.
+        if (userId !== _currentUserId) {
+          set({ screenShareUserId: userId, remoteScreenStream: stream });
+        }
       },
       onScreenShareStop: () => {
         set({ screenShareUserId: null, remoteScreenStream: null });
@@ -638,7 +750,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       const { isMuted, isDeafened } = get();
       if (isMuted) engine.setMuted(true);
       if (isDeafened) engine.setDeafened(true);
-      voicePresenceCh?.track({ userId: user.id, voiceChannelId: channelId, isMuted, isDeafened });
+      voicePresenceCh?.track({ userId: user.id, voiceChannelId: channelId, isMuted, isDeafened, isScreenSharing: false });
       return null;
     } catch (err) {
       setActiveNativeVoiceEngine(null);
@@ -652,7 +764,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   leaveVoiceChannel: async () => {
     if (_currentUserId) {
-      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: null, isMuted: false, isDeafened: false });
+      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: null, isMuted: false, isDeafened: false, isScreenSharing: false });
     }
     const engine = getActiveNativeVoiceEngine();
     if (engine) {
@@ -672,17 +784,39 @@ export const useServerStore = create<ServerState>((set, get) => ({
     });
   },
 
-  toggleScreenShare: async () => {
+  toggleScreenShare: async (sourceId?: string) => {
     const engine = getActiveNativeVoiceEngine();
     if (!engine) return;
-    const { isScreenSharing } = get();
+    const { isScreenSharing, activeVoiceChannelId, isMuted, isDeafened } = get();
     if (isScreenSharing) {
       await engine.stopScreenShare();
       set({ isScreenSharing: false });
+      if (activeVoiceChannelId && _currentUserId) {
+        voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: false });
+        set((state) => ({
+          voiceParticipants: {
+            ...state.voiceParticipants,
+            [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
+              p.userId === _currentUserId ? { ...p, isScreenSharing: false } : p
+            ),
+          },
+        }));
+      }
     } else {
       try {
-        await engine.startScreenShare();
+        await engine.startScreenShare(sourceId);
         set({ isScreenSharing: true });
+        if (activeVoiceChannelId && _currentUserId) {
+          voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: true });
+          set((state) => ({
+            voiceParticipants: {
+              ...state.voiceParticipants,
+              [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
+                p.userId === _currentUserId ? { ...p, isScreenSharing: true } : p
+              ),
+            },
+          }));
+        }
       } catch {
         // User cancelled getDisplayMedia or permission denied
       }
@@ -729,9 +863,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const newMuted = !get().isMuted;
     set({ isMuted: newMuted });
     getActiveNativeVoiceEngine()?.setMuted(newMuted);
-    const { activeVoiceChannelId, isDeafened } = get();
+    const { activeVoiceChannelId, isDeafened, isScreenSharing } = get();
     if (activeVoiceChannelId && _currentUserId) {
-      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted: newMuted, isDeafened });
+      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted: newMuted, isDeafened, isScreenSharing });
     }
   },
 
@@ -739,9 +873,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const newDeafened = !get().isDeafened;
     set({ isDeafened: newDeafened });
     getActiveNativeVoiceEngine()?.setDeafened(newDeafened);
-    const { activeVoiceChannelId, isMuted } = get();
+    const { activeVoiceChannelId, isMuted, isScreenSharing } = get();
     if (activeVoiceChannelId && _currentUserId) {
-      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened: newDeafened });
+      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened: newDeafened, isScreenSharing });
     }
   },
 
@@ -752,7 +886,11 @@ export const useServerStore = create<ServerState>((set, get) => ({
         [channelId]: (state.messages[channelId] || []).filter((m) => m.id !== messageId),
       },
     }));
-    const { error } = await supabase.from("messages").delete().eq("id", messageId);
+    const { error } = await supabase
+      .from("messages")
+      .delete()
+      .eq("id", messageId)
+      .eq("author_id", _currentUserId ?? "");
     if (error) {
       console.error("Failed to delete message", error);
     }
@@ -785,6 +923,41 @@ export const useServerStore = create<ServerState>((set, get) => ({
         },
       }));
     }
+  },
+
+  addReaction: async (messageId, channelId, emoji, userId) => {
+    const reaction: Reaction = {
+      id: crypto.randomUUID(), messageId, userId, emoji, createdAt: new Date().toISOString(),
+    };
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [channelId]: (state.messages[channelId] || []).map((m) =>
+          m.id === messageId && !m.reactions?.some((r) => r.userId === userId && r.emoji === emoji)
+            ? { ...m, reactions: [...(m.reactions || []), reaction] }
+            : m
+        ),
+      },
+    }));
+    await supabase.from("message_reactions").upsert(
+      { message_id: messageId, user_id: userId, emoji },
+      { onConflict: "message_id,user_id,emoji" }
+    );
+  },
+
+  removeReaction: async (messageId, channelId, emoji, userId) => {
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [channelId]: (state.messages[channelId] || []).map((m) =>
+          m.id === messageId
+            ? { ...m, reactions: (m.reactions || []).filter((r) => !(r.userId === userId && r.emoji === emoji)) }
+            : m
+        ),
+      },
+    }));
+    await supabase.from("message_reactions").delete()
+      .eq("message_id", messageId).eq("user_id", userId).eq("emoji", emoji);
   },
 
   patchUser: (user) => {

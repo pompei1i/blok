@@ -4,6 +4,7 @@ import { useAuthStore } from "./lib/store/auth-store";
 import { useFriendsStore } from "./lib/store/friends-store";
 import { useServerStore } from "./lib/store/server-store";
 import { getActiveNativeVoiceEngine } from "./lib/native-voice-engine";
+import { requestNotificationPermission } from "./lib/notifications";
 import { AuthScreen } from "./components/blok/auth-screen";
 import { AppLayout } from "./components/blok/app-layout";
 import { useUiSettingsStore } from "./lib/store/ui-settings-store";
@@ -22,6 +23,7 @@ function App() {
     if ("__TAURI_INTERNALS__" in window) {
       invoke("disable_audio_ducking").catch(() => {});
     }
+    void requestNotificationPermission();
   }, []);
 
   useEffect(() => {

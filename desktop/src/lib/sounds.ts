@@ -51,6 +51,27 @@ export function playSound(name: SoundName, loop = false): HTMLAudioElement | nul
   }
 }
 
+/** Short synthesized beep for incoming message notifications. */
+export function playNotificationBeep() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx() as AudioContext;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.25);
+    setTimeout(() => ctx.close(), 500);
+  } catch {}
+}
+
 /** Stop a sound (e.g. ringtone loop). */
 export function stopSound(name: SoundName) {
   const audio = audioCache.get(name);

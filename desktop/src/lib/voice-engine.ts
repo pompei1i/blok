@@ -179,7 +179,7 @@ export class VoiceEngine {
     }
   }
 
-  async startScreenShare(): Promise<void> {
+  async startScreenShare(_sourceId?: string): Promise<void> {
     this.screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: 15 } as MediaTrackConstraints,
       audio: false,

@@ -18,6 +18,12 @@ export function ScreenShareOverlay() {
     }
   }, [remoteScreenStream]);
 
+  useEffect(() => {
+    const handler = () => setMinimized(false);
+    window.addEventListener("blok:focus-screen-share", handler);
+    return () => window.removeEventListener("blok:focus-screen-share", handler);
+  }, []);
+
   if (!isVisible) return null;
 
   const serverMembers = activeServerId ? members[activeServerId] ?? [] : [];

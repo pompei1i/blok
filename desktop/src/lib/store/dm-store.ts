@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
+import { useAuthStore } from "./auth-store";
 import type { DMMessage, Attachment } from "./types";
 
 interface DMWindowState {
@@ -438,7 +439,12 @@ export const useDMStore = create<DMState>((set, get) => ({
           : state.openDMs[targetUserId],
       },
     }));
-    const { error } = await supabase.from("dm_messages").delete().eq("id", messageId);
+    const currentUserId = useAuthStore.getState().user?.id ?? "";
+    const { error } = await supabase
+      .from("dm_messages")
+      .delete()
+      .eq("id", messageId)
+      .eq("author_id", currentUserId);
     if (error) console.error("Failed to delete DM message", error);
   },
 }));

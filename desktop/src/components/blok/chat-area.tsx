@@ -18,9 +18,11 @@ import { EmojiPicker } from "./emoji-picker";
 import { GifPicker } from "./gif-picker";
 import { MentionPicker } from "./mention-picker";
 import { AttachmentPicker } from "./attachment-picker";
-import type { Attachment } from "@/lib/store/types";
+import type { Message } from "@/lib/store/types";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import { useChatInput } from "@/hooks/useChatInput";
+import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS } from "@/lib/constants";
 
 export function ChatArea() {
   const { t } = useI18n();
@@ -31,123 +33,69 @@ export function ChatArea() {
     messages,
     messagesLoading,
     typingUsers,
-    addMessage,
     deleteMessage,
     pinMessage,
+    addReaction,
+    removeReaction,
   } = useServerStore();
   const { user } = useAuthStore();
-  const [inputValue, setInputValue] = useState("");
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showGifPicker, setShowGifPicker] = useState(false);
-  const [showMentionPicker, setShowMentionPicker] = useState(false);
-  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [gifAttachments, setGifAttachments] = useState<Attachment[]>([]);
-  const [replyTo, setReplyTo] = useState<import("@/lib/store/types").Message | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [showPinnedList, setShowPinnedList] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  const chat = useChatInput({ activeChannelId, user });
 
   const serverChannels = activeServerId ? channels[activeServerId] || [] : [];
   const activeChannel = serverChannels.find((c) => c.id === activeChannelId);
-  const channelMessages = activeChannelId
-    ? messages[activeChannelId] || []
-    : [];
+  const channelMessages = activeChannelId ? messages[activeChannelId] || [] : [];
   const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
+  const pinnedMessages = channelMessages.filter((m) => m.isPinned);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [channelMessages]);
 
-  const handleGifSelect = (url: string) => {
-    setGifAttachments((prev) => [
-      ...prev,
-      {
-        id: `gif-${Date.now()}`,
-        messageId: "",
-        url,
-        filename: "gif",
-        mediaType: "image/gif",
-        sizeBytes: 0,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-  };
-
-  const handleSendMessage = async () => {
-    if ((!inputValue.trim() && attachments.length === 0 && gifAttachments.length === 0) || !activeChannelId || !user) return;
-
-    const messageId = `m${Date.now()}`;
-    
-    // Read all files synchronously into Base64 Data URLs so they persist stably inside normal text limits mapping directly over the DB payload
-    const base64Attachments = await Promise.all(
-      attachments.map((file, i) => {
-        return new Promise<any>((resolve) => {
-           const reader = new FileReader();
-           reader.onloadend = () => {
-              resolve({
-                id: `att${Date.now()}-${i}`,
-                messageId,
-                url: reader.result as string, // Safe Base64 
-                filename: file.name,
-                mediaType: file.type,
-                sizeBytes: file.size,
-                createdAt: new Date().toISOString(),
-              });
-           };
-           reader.readAsDataURL(file);
-        });
-      })
-    );
-
-    const allAttachments = [
-      ...base64Attachments,
-      ...gifAttachments.map((a) => ({ ...a, messageId })),
-    ];
-
-    const newMessage = {
-      id: messageId,
-      channelId: activeChannelId,
-      authorId: user.id,
-      replyToId: replyTo?.id,
-      content: inputValue.trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isEdited: false,
-      author: user,
-      attachments: allAttachments,
-    };
-
-    addMessage(activeChannelId, newMessage);
-    setInputValue("");
-    setAttachments([]);
-    setGifAttachments([]);
-    setReplyTo(null);
-    setShowGifPicker(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
+  // Keep focus on input after emoji/mention selection
   const handleEmojiSelect = (emoji: string) => {
-    setInputValue((prev) => prev + emoji);
+    chat.handleEmojiSelect(emoji);
     inputRef.current?.focus();
   };
 
   const handleMentionSelect = (mention: string) => {
-    setInputValue((prev) => prev + mention + " ");
+    chat.handleMentionSelect(mention);
     inputRef.current?.focus();
   };
 
-  const handleAttach = (files: File[]) => {
-    setAttachments((prev) => [...prev, ...files]);
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      chat.closeAllPickers();
+      chat.handleAttach(files);
+    }
   };
 
   if (!activeChannel) {
@@ -171,30 +119,40 @@ export function ChatArea() {
     );
   }
 
-  const pinnedMessages = channelMessages.filter((m) => m.isPinned);
-  const [showPinnedList, setShowPinnedList] = useState(false);
-  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
   const scrollToMessage = (id: string) => {
     const el = messageRefs.current[id];
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.classList.add("highlight-flash");
-      setTimeout(() => el.classList.remove("highlight-flash"), 1500);
+      setTimeout(() => el.classList.remove("highlight-flash"), HIGHLIGHT_FLASH_DURATION_MS);
     }
   };
 
   return (
-    <div className="flex-1 bg-[var(--bg-base)] flex flex-col">
+    <div
+      className="flex-1 bg-[var(--bg-base)] flex flex-col relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag-and-drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center bg-[var(--bg-base)]/80 backdrop-blur-sm">
+          <div className="border-2 border-dashed border-[var(--accent-red)] rounded-xl px-12 py-8 text-center">
+            <p className="text-[var(--accent-red)] font-mono text-sm">
+              <span className="opacity-60">$ </span>drop to attach
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <div className="h-12 border-b border-[var(--border)] flex items-center px-4 bg-[var(--bg-surface)]">
         <Hash className="w-5 h-5 text-[var(--text-muted)] mr-2" />
-        <span className="font-medium text-[var(--text-primary)]">
-          {activeChannel.name}
-        </span>
+        <span className="font-medium text-[var(--text-primary)]">{activeChannel.name}</span>
         <div className="ml-2 h-4 w-px bg-[var(--border)]" />
-        <span className="ml-2 text-sm text-[var(--text-muted)]">
-          {t("chat.channelTopic")}
-        </span>
+        <span className="ml-2 text-sm text-[var(--text-muted)]">{t("chat.channelTopic")}</span>
       </div>
 
       {/* Pinned messages bar */}
@@ -211,7 +169,10 @@ export function ChatArea() {
             <span className="ml-2 text-xs text-[var(--text-muted)] truncate flex-1">
               {pinnedMessages[pinnedMessages.length - 1].content?.slice(0, 60) ?? ""}
             </span>
-            <ChevronDown className={cn("w-3.5 h-3.5 text-[var(--text-muted)] transition-transform flex-shrink-0", showPinnedList && "rotate-180")} />
+            <ChevronDown className={cn(
+              "w-3.5 h-3.5 text-[var(--text-muted)] transition-transform flex-shrink-0",
+              showPinnedList && "rotate-180",
+            )} />
           </button>
 
           {showPinnedList && (
@@ -247,6 +208,7 @@ export function ChatArea() {
         </div>
       )}
 
+      {/* Messages list */}
       <div className="flex-1 overflow-y-auto py-4">
         {activeChannelId && messagesLoading.has(activeChannelId) ? (
           <div className="flex items-center justify-center h-full text-[var(--text-muted)] font-mono text-sm">
@@ -273,7 +235,7 @@ export function ChatArea() {
                 prevMessage.authorId !== message.authorId ||
                 new Date(message.createdAt).getTime() -
                   new Date(prevMessage.createdAt).getTime() >
-                  300000;
+                  MESSAGE_GROUP_THRESHOLD_MS;
 
               const replyToMsg = message.replyToId
                 ? channelMessages.find((m) => m.id === message.replyToId) ?? null
@@ -291,10 +253,13 @@ export function ChatArea() {
                     showAvatar={showAvatar}
                     replyToMessage={replyToMsg}
                     replyToId={message.replyToId}
-                    onReply={(msg) => setReplyTo(msg as import("@/lib/store/types").Message)}
+                    onReply={(msg) => chat.setReplyTo(msg as Message)}
                     onDelete={activeChannelId ? (id) => deleteMessage(id, activeChannelId) : undefined}
                     onPin={activeChannelId ? (id) => pinMessage(id, activeChannelId) : undefined}
                     onJumpTo={scrollToMessage}
+                    onReact={activeChannelId && user ? (emoji) => addReaction(message.id, activeChannelId, emoji, user.id) : undefined}
+                    onRemoveReact={activeChannelId && user ? (emoji) => removeReaction(message.id, activeChannelId, emoji, user.id) : undefined}
+                    currentUserId={user?.id}
                   />
                 </div>
               );
@@ -304,27 +269,32 @@ export function ChatArea() {
         )}
       </div>
 
+      {/* Typing indicator */}
       {typing.length > 0 && (
         <div className="px-4 py-1 text-xs text-[var(--text-muted)]">
           <span className="animate-pulse">
-            {typing.length === 1
-              ? t("chat.someoneTyping")
-              : t("chat.severalTyping")}
+            {typing.length === 1 ? t("chat.someoneTyping") : t("chat.severalTyping")}
           </span>
         </div>
       )}
 
-      {replyTo && (
+      {/* Reply bar */}
+      {chat.replyTo && (
         <div className="px-4 py-2 border-t border-[var(--border)] bg-[var(--bg-surface)] flex items-center gap-2">
           <CornerUpLeft className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" />
           <span className="text-xs text-[var(--text-muted)]">
-            Replying to <span className="font-medium text-[var(--text-primary)]">@{replyTo.author?.username ?? "unknown"}</span>
-            {replyTo.content && (
-              <span className="ml-1 opacity-60 truncate max-w-xs inline-block align-bottom">{replyTo.content}</span>
+            Replying to{" "}
+            <span className="font-medium text-[var(--text-primary)]">
+              @{chat.replyTo.author?.username ?? "unknown"}
+            </span>
+            {chat.replyTo.content && (
+              <span className="ml-1 opacity-60 truncate max-w-xs inline-block align-bottom">
+                {chat.replyTo.content}
+              </span>
             )}
           </span>
           <button
-            onClick={() => setReplyTo(null)}
+            onClick={() => chat.setReplyTo(null)}
             className="ml-auto p-0.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
           >
             <X className="w-3.5 h-3.5 text-[var(--text-muted)]" />
@@ -332,20 +302,19 @@ export function ChatArea() {
         </div>
       )}
 
-      {attachments.length > 0 && (
+      {/* Attachment previews */}
+      {chat.attachments.length > 0 && (
         <div className="px-4 py-2 border-t border-[var(--border)] bg-[var(--bg-surface)]">
           <div className="flex flex-wrap gap-2">
-            {attachments.map((file, index) => (
+            {chat.attachments.map((file, index) => (
               <div
                 key={index}
                 className="flex items-center gap-2 px-2 py-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border)]"
               >
                 <Paperclip className="w-3 h-3 text-[var(--text-muted)]" />
-                <span className="text-xs text-[var(--text-primary)] max-w-32 truncate">
-                  {file.name}
-                </span>
+                <span className="text-xs text-[var(--text-primary)] max-w-32 truncate">{file.name}</span>
                 <button
-                  onClick={() => removeAttachment(index)}
+                  onClick={() => chat.removeAttachment(index)}
                   className="p-0.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
                 >
                   <X className="w-3 h-3 text-[var(--text-muted)]" />
@@ -356,10 +325,11 @@ export function ChatArea() {
         </div>
       )}
 
+      {/* Input area */}
       <div className="p-4 border-t border-[var(--border)] bg-[var(--bg-surface)]">
-        {gifAttachments.length > 0 && (
+        {chat.gifAttachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
-            {gifAttachments.map((att, idx) => (
+            {chat.gifAttachments.map((att, idx) => (
               <div key={att.id} className="relative">
                 <img
                   src={att.url}
@@ -367,7 +337,7 @@ export function ChatArea() {
                   className="h-14 rounded border border-[var(--border)] object-cover"
                 />
                 <button
-                  onClick={() => setGifAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                  onClick={() => chat.removeGifAttachment(idx)}
                   className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full flex items-center justify-center hover:bg-[var(--bg-hover)]"
                 >
                   <X className="w-2.5 h-2.5 text-[var(--text-muted)]" />
@@ -376,124 +346,148 @@ export function ChatArea() {
             ))}
           </div>
         )}
+
+        {chat.isUploading && (
+          <div className="mb-2">
+            <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] mb-1">
+              <span>{chat.fileProgress < 100 ? `Reading files… ${chat.fileProgress}%` : "Sending…"}</span>
+            </div>
+            <div className="h-0.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
+              {chat.fileProgress < 100 ? (
+                <div
+                  className="h-full bg-[var(--accent-red)] transition-all duration-150 rounded-full"
+                  style={{ width: `${chat.fileProgress}%` }}
+                />
+              ) : (
+                <div className="h-full bg-[var(--accent-red)] rounded-full animate-pulse" />
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border)] px-3 py-2 relative">
+          {/* Attachment picker */}
           <div className="relative">
             <button
               onClick={() => {
-                setShowAttachmentPicker(!showAttachmentPicker);
-                setShowEmojiPicker(false);
-                setShowGifPicker(false);
-                setShowMentionPicker(false);
+                const next = !chat.showAttachmentPicker;
+                chat.closeAllPickers();
+                if (next) chat.setShowAttachmentPicker(true);
               }}
               className={cn(
                 "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
-                showAttachmentPicker && "bg-[var(--bg-hover)]",
+                chat.showAttachmentPicker && "bg-[var(--bg-hover)]",
               )}
             >
               <PlusCircle className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
-            {showAttachmentPicker && (
+            {chat.showAttachmentPicker && (
               <AttachmentPicker
-                onAttach={handleAttach}
-                onClose={() => setShowAttachmentPicker(false)}
+                onAttach={chat.handleAttach}
+                onClose={() => chat.setShowAttachmentPicker(false)}
               />
             )}
           </div>
 
+          {/* Text input */}
           <input
             ref={inputRef}
             type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
+            value={chat.inputValue}
+            onChange={(e) => chat.setInputValue(e.target.value)}
+            onKeyDown={chat.handleKeyDown}
             placeholder={t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
             className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
           />
 
+          {/* GIF picker */}
           <div className="relative">
             <button
               onClick={() => {
-                setShowGifPicker(!showGifPicker);
-                setShowEmojiPicker(false);
-                setShowMentionPicker(false);
-                setShowAttachmentPicker(false);
+                const next = !chat.showGifPicker;
+                chat.closeAllPickers();
+                if (next) chat.setShowGifPicker(true);
               }}
               className={cn(
                 "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors text-[var(--text-muted)] text-[10px] font-bold leading-none",
-                showGifPicker && "bg-[var(--bg-hover)]",
+                chat.showGifPicker && "bg-[var(--bg-hover)]",
               )}
             >
               GIF
             </button>
-            {showGifPicker && (
+            {chat.showGifPicker && (
               <GifPicker
-                onSelect={handleGifSelect}
-                onClose={() => setShowGifPicker(false)}
+                onSelect={chat.handleGifSelect}
+                onClose={() => chat.setShowGifPicker(false)}
               />
             )}
           </div>
 
+          {/* Mention picker */}
           <div className="relative">
             <button
               onClick={() => {
-                setShowMentionPicker(!showMentionPicker);
-                setShowEmojiPicker(false);
-                setShowGifPicker(false);
-                setShowAttachmentPicker(false);
+                const next = !chat.showMentionPicker;
+                chat.closeAllPickers();
+                if (next) chat.setShowMentionPicker(true);
               }}
               className={cn(
                 "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
-                showMentionPicker && "bg-[var(--bg-hover)]",
+                chat.showMentionPicker && "bg-[var(--bg-hover)]",
               )}
             >
               <AtSign className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
-            {showMentionPicker && (
+            {chat.showMentionPicker && (
               <MentionPicker
                 onSelect={handleMentionSelect}
-                onClose={() => setShowMentionPicker(false)}
+                onClose={() => chat.setShowMentionPicker(false)}
               />
             )}
           </div>
 
+          {/* Emoji picker */}
           <div className="relative">
             <button
               onClick={() => {
-                setShowEmojiPicker(!showEmojiPicker);
-                setShowGifPicker(false);
-                setShowMentionPicker(false);
-                setShowAttachmentPicker(false);
+                const next = !chat.showEmojiPicker;
+                chat.closeAllPickers();
+                if (next) chat.setShowEmojiPicker(true);
               }}
               className={cn(
                 "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
-                showEmojiPicker && "bg-[var(--bg-hover)]",
+                chat.showEmojiPicker && "bg-[var(--bg-hover)]",
               )}
             >
               <Smile className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
-            {showEmojiPicker && (
+            {chat.showEmojiPicker && (
               <EmojiPicker
                 onSelect={handleEmojiSelect}
-                onClose={() => setShowEmojiPicker(false)}
+                onClose={() => chat.setShowEmojiPicker(false)}
               />
             )}
           </div>
 
+          {/* Send button */}
           <button
-            onClick={handleSendMessage}
-            disabled={!inputValue.trim() && attachments.length === 0 && gifAttachments.length === 0}
+            onClick={() => void chat.handleSendMessage()}
+            disabled={!chat.canSend || chat.isUploading}
             className={cn(
-              "p-1.5 rounded transition-colors",
-              inputValue.trim() || attachments.length > 0 || gifAttachments.length > 0
+              "p-1.5 rounded transition-colors flex-shrink-0",
+              chat.canSend && !chat.isUploading
                 ? "bg-[var(--accent-red)] hover:opacity-90 text-white"
                 : "bg-[var(--bg-hover)] text-[var(--text-muted)]",
             )}
           >
-            <Send className="w-4 h-4" />
+            {chat.isUploading ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

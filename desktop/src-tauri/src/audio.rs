@@ -32,18 +32,42 @@ pub struct NativeAudio {
     tx: std::sync::mpsc::SyncSender<Cmd>,
 }
 
+/// Resample i16 PCM from `from_rate` to TARGET_RATE (48 kHz) and convert to f32.
+/// Uses linear interpolation; if rates match just converts in-place.
+pub fn resample_to_f32(samples: &[i16], from_rate: u32) -> Vec<f32> {
+    if from_rate == TARGET_RATE || samples.is_empty() {
+        return samples.iter().map(|&s| s as f32 / 32_768.0).collect();
+    }
+    let ratio = from_rate as f64 / TARGET_RATE as f64;
+    let out_len = ((samples.len() as f64) / ratio).ceil() as usize;
+    (0..out_len)
+        .map(|i| {
+            let src_pos = i as f64 * ratio;
+            let idx = src_pos as usize;
+            let frac = (src_pos - idx as f64) as f32;
+            let s0 = samples.get(idx).copied().unwrap_or(0) as f32 / 32_768.0;
+            let s1 = samples.get(idx + 1).copied().unwrap_or(0) as f32 / 32_768.0;
+            s0 + (s1 - s0) * frac
+        })
+        .collect()
+}
+
 impl NativeAudio {
-    pub fn start(app: tauri::AppHandle) -> Result<Self, String> {
+    /// Start the native audio engine. Returns `(engine, actual_sample_rate)`.
+    pub fn start(app: tauri::AppHandle) -> Result<(Self, u32), String> {
         let (tx, rx) = std::sync::mpsc::sync_channel::<Cmd>(128);
+        let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<u32>(1);
         std::thread::Builder::new()
             .name("blok-audio".into())
             .spawn(move || {
-                if let Err(e) = run_audio(app, rx) {
+                if let Err(e) = run_audio(app, rx, rate_tx) {
                     eprintln!("[audio] engine error: {e}");
                 }
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { tx })
+        // Block until audio thread reports its actual sample rate (or dies).
+        let actual_rate = rate_rx.recv().unwrap_or(TARGET_RATE);
+        Ok((Self { tx }, actual_rate))
     }
 
     pub fn send(&self, cmd: Cmd) {
@@ -77,6 +101,7 @@ fn rms_f32(s: &[f32]) -> f32 {
 fn run_audio(
     app: tauri::AppHandle,
     rx: std::sync::mpsc::Receiver<Cmd>,
+    rate_tx: std::sync::mpsc::SyncSender<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let host = cpal::default_host();
 
@@ -212,6 +237,9 @@ fn run_audio(
 
     input_stream.play()?;
     output_stream.play()?;
+
+    // Report actual input rate to the caller before entering the command loop.
+    let _ = rate_tx.send(input_config.sample_rate.0);
 
     // keep streams alive by holding them; process commands
     let _input = input_stream;

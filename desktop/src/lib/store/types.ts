@@ -160,6 +160,7 @@ export interface VoiceParticipant {
   channelId: string;
   isMuted: boolean;
   isDeafened: boolean;
+  isScreenSharing: boolean;
   isSpeaking: boolean;
   user?: User;
 }

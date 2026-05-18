@@ -8,16 +8,19 @@ type NativeSignalMsg =
   | { type: "join"; from: string }
   | { type: "hello"; from: string }
   | { type: "leave"; from: string }
-  | { type: "audio"; from: string; data: string };
+  | { type: "audio"; from: string; data: string; rate?: number }
+  | { type: "screenshare_start"; from: string }
+  | { type: "screenshare_stop"; from: string };
 
 const SPEAKING_TIMEOUT_MS = 400;
 
 function int16ToBase64(samples: number[]): string {
-  const arr = new Int16Array(samples);
-  const bytes = new Uint8Array(arr.buffer);
+  const bytes = new Uint8Array(new Int16Array(samples).buffer);
+  // Chunk the spread to stay safely under V8's argument limit (65535).
   let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(binary);
 }
@@ -43,6 +46,8 @@ export class NativeVoiceEngine {
   private speakingState = new Map<string, boolean>();
   private speakingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  private screenStream: MediaStream | null = null;
+  private localRate = 48000;
   private _subscribed = false;
   private _subscribeResolve: (() => void) | null = null;
   private _subscribeReject: ((err: Error) => void) | null = null;
@@ -62,14 +67,16 @@ export class NativeVoiceEngine {
     if (!("__TAURI_INTERNALS__" in window)) {
       throw new Error("Native voice requires the desktop app");
     }
-    await invoke("audio_start");
+    // audio_start returns the actual input sample rate so we can tag every
+    // outgoing packet; remote peers resample if their device differs.
+    this.localRate = await invoke<number>("audio_start");
     invoke("disable_audio_ducking").catch(() => {});
 
     this.unlistenChunk = await listen<number[]>("audio-chunk", (event) => {
       if (!this.realtimeCh) return;
       const base64 = int16ToBase64(event.payload);
       this.realtimeCh
-        .send({ type: "broadcast", event: "signal", payload: { type: "audio", from: this.userId, data: base64 } })
+        .send({ type: "broadcast", event: "signal", payload: { type: "audio", from: this.userId, data: base64, rate: this.localRate } })
         .catch(() => {});
     });
 
@@ -133,9 +140,24 @@ export class NativeVoiceEngine {
     return false;
   }
 
-  async startScreenShare(): Promise<void> {}
+  async startScreenShare(_sourceId?: string): Promise<void> {
+    // Sources are enumerated natively (get_screen_sources / get_window_sources).
+    // getDisplayMedia is never called — it always triggers the system dialog
+    // which we've replaced with our own picker. Video isn't transmitted to
+    // remote peers yet, so a dummy stream is sufficient.
+    this.screenStream = new MediaStream();
+    await this.broadcast({ type: "screenshare_start", from: this.userId });
+    this.cb.onScreenShareStart?.(this.userId, this.screenStream);
+  }
 
-  async stopScreenShare(): Promise<void> {}
+  async stopScreenShare(): Promise<void> {
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach((t) => t.stop());
+      this.screenStream = null;
+    }
+    await this.broadcast({ type: "screenshare_stop", from: this.userId });
+    this.cb.onScreenShareStop?.(this.userId);
+  }
 
   private async handleSignal(msg: NativeSignalMsg): Promise<void> {
     if (!msg || !msg.from) return;
@@ -157,10 +179,16 @@ export class NativeVoiceEngine {
         break;
       case "audio": {
         const samples = base64ToInt16Array(msg.data);
-        const speaking = await invoke<boolean>("audio_receive", { from: msg.from, samples });
+        const speaking = await invoke<boolean>("audio_receive", { from: msg.from, samples, rate: msg.rate ?? 48000 });
         this.updateSpeaking(msg.from, speaking);
         break;
       }
+      case "screenshare_start":
+        this.cb.onScreenShareStart?.(msg.from, new MediaStream());
+        break;
+      case "screenshare_stop":
+        this.cb.onScreenShareStop?.(msg.from);
+        break;
     }
   }
 

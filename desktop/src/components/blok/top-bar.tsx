@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import { CreateServerModal } from "./create-server-modal";
 
 export function TopBar() {
-  const { servers, openTabs, activeServerId, setActiveServer, closeTab, openTab } =
+  const { servers, openTabs, activeServerId, setActiveServer, closeTab, openTab, channels, unreadCounts } =
     useServerStore();
   const [showAllOpen, setShowAllOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -21,7 +21,11 @@ export function TopBar() {
   return (
     <div className="h-10 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center px-2 gap-1">
       <div className="flex items-center gap-1 flex-1 overflow-x-auto">
-        {openServers.map((server) => (
+        {openServers.map((server) => {
+          const serverUnread = (channels[server.id] || []).reduce(
+            (sum, ch) => sum + (unreadCounts[ch.id] ?? 0), 0
+          );
+          return (
           <div
             key={server.id}
             className={cn(
@@ -43,6 +47,11 @@ export function TopBar() {
             >
               <span className="text-[var(--text-muted)]">@</span>
               <span className="max-w-[100px] truncate">{server.name}</span>
+              {serverUnread > 0 && activeServerId !== server.id && (
+                <span className="min-w-[16px] h-4 flex items-center justify-center bg-[var(--accent-red)] rounded-full text-[10px] text-white font-bold px-1">
+                  {serverUnread > 99 ? "99+" : serverUnread}
+                </span>
+              )}
             </button>
             <button
               onClick={() => closeTab(server.id)}
@@ -52,7 +61,8 @@ export function TopBar() {
               <X className="w-3 h-3" />
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {closedServers.length > 0 && (

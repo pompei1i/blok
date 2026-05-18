@@ -1,13 +1,61 @@
+import DOMPurify from "dompurify";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
-import type { Message, DMMessage, User } from "@/lib/store/types";
+import type { Message, DMMessage, User, Reaction } from "@/lib/store/types";
 import { useState, useRef, useEffect } from "react";
-import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin } from "lucide-react";
+import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile } from "lucide-react";
 import { AudioPlayer } from "./audio-player";
 import { VideoPlayer } from "./video-player";
 import { useI18n } from "@/lib/i18n";
+import {
+  QUICK_EMOJIS,
+  LAZY_LOAD_ROOT_MARGIN,
+  REPLY_PREVIEW_MAX_CHARS,
+  REPLY_PREVIEW_MAX_CHARS_DM,
+} from "@/lib/constants";
 
-// Для изображений: img загружается в hidden (display:none), что безопасно для img
+// ── Formatting ────────────────────────────────────────────────────────────────
+
+const FORMAT_SANITIZE_CONFIG = {
+  ALLOWED_TAGS: ["strong", "em", "code", "a"],
+  ALLOWED_ATTR: ["href", "class", "target", "rel"],
+  ALLOW_DATA_ATTR: false,
+};
+
+function formatContent(content: string): string {
+  // Escape raw HTML first to prevent injection, then apply markdown transforms.
+  const escaped = content
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  const formatted = escaped
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(
+      /`(.+?)`/g,
+      '<code class="bg-[var(--bg-elevated)] px-1 rounded text-sm">$1</code>',
+    )
+    .replace(
+      /(https?:\/\/[^\s]+)/g,
+      '<a href="$1" class="text-[var(--accent-red)] hover:underline" target="_blank" rel="noopener noreferrer">$1</a>',
+    );
+
+  return DOMPurify.sanitize(formatted, FORMAT_SANITIZE_CONFIG);
+}
+
+function groupReactions(reactions: Reaction[]): { emoji: string; count: number; userIds: string[] }[] {
+  const map = new Map<string, string[]>();
+  for (const r of reactions) {
+    const list = map.get(r.emoji) ?? [];
+    list.push(r.userId);
+    map.set(r.emoji, list);
+  }
+  return Array.from(map.entries()).map(([emoji, userIds]) => ({ emoji, count: userIds.length, userIds }));
+}
+
+// ── Lazy media ────────────────────────────────────────────────────────────────
+
 function LazyImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [show, setShow] = useState(false);
@@ -18,7 +66,7 @@ function LazyImage({ src, alt, className }: { src: string; alt: string; classNam
     if (!el) return;
     const obs = new IntersectionObserver(
       ([e]) => { if (e.isIntersecting) { setShow(true); obs.disconnect(); } },
-      { rootMargin: "400px" }
+      { rootMargin: LAZY_LOAD_ROOT_MARGIN },
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -44,8 +92,6 @@ function LazyImage({ src, alt, className }: { src: string; alt: string; classNam
   );
 }
 
-// Для видео/аудио: нельзя скрывать через display:none — браузер не грузит медиа.
-// Просто откладываем рендер до появления во viewport.
 function LazyMedia({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [show, setShow] = useState(false);
@@ -55,7 +101,7 @@ function LazyMedia({ children }: { children: React.ReactNode }) {
     if (!el) return;
     const obs = new IntersectionObserver(
       ([e]) => { if (e.isIntersecting) { setShow(true); obs.disconnect(); } },
-      { rootMargin: "400px" }
+      { rootMargin: LAZY_LOAD_ROOT_MARGIN },
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -64,6 +110,8 @@ function LazyMedia({ children }: { children: React.ReactNode }) {
   if (!show) return <div ref={ref} className="h-16 w-52 rounded-md bg-[var(--bg-elevated)] animate-pulse" />;
   return <>{children}</>;
 }
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 interface MessageBubbleProps {
   message:
@@ -80,6 +128,9 @@ interface MessageBubbleProps {
   onDelete?: (messageId: string) => void;
   onPin?: (messageId: string) => void;
   onJumpTo?: (messageId: string) => void;
+  onReact?: (emoji: string) => void;
+  onRemoveReact?: (emoji: string) => void;
+  currentUserId?: string;
 }
 
 export function MessageBubble({
@@ -94,10 +145,14 @@ export function MessageBubble({
   onDelete,
   onPin,
   onJumpTo,
+  onReact,
+  onRemoveReact,
+  currentUserId,
 }: MessageBubbleProps) {
   const { t } = useI18n();
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showQuickEmoji, setShowQuickEmoji] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,28 +167,12 @@ export function MessageBubble({
   }, [showMenu]);
 
   const handleCopy = () => {
-    if (message.content) navigator.clipboard.writeText(message.content);
+    if (message.content) void navigator.clipboard.writeText(message.content);
     setShowMenu(false);
   };
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
-  const formatContent = (content: string) => {
-    return content
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(
-        /`(.+?)`/g,
-        '<code class="bg-[var(--bg-elevated)] px-1 rounded text-sm">$1</code>',
-      )
-      .replace(
-        /(https?:\/\/[^\s]+)/g,
-        '<a href="$1" class="text-[var(--accent-red)] hover:underline" target="_blank" rel="noopener">$1</a>',
-      );
-  };
+  const formatTime = (dateString: string) =>
+    new Date(dateString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   if (isDM) {
     return (
@@ -173,13 +212,20 @@ export function MessageBubble({
                       </span>
                       {replyToMessage.content && (
                         <span className={cn("ml-1", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>
-                          {replyToMessage.content.slice(0, 60)}{replyToMessage.content.length > 60 ? "…" : ""}
+                          {replyToMessage.content.slice(0, REPLY_PREVIEW_MAX_CHARS_DM)}
+                          {replyToMessage.content.length > REPLY_PREVIEW_MAX_CHARS_DM ? "…" : ""}
                         </span>
                       )}
-                      {!replyToMessage.content && <span className={cn("ml-1 italic opacity-60", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>attachment</span>}
+                      {!replyToMessage.content && (
+                        <span className={cn("ml-1 italic opacity-60", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>
+                          attachment
+                        </span>
+                      )}
                     </>
                   ) : (
-                    <span className={cn("italic opacity-50", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>original message</span>
+                    <span className={cn("italic opacity-50", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>
+                      original message
+                    </span>
                   )}
                 </span>
               </button>
@@ -215,23 +261,30 @@ export function MessageBubble({
             )}
           </div>
 
-          {/* DM menu */}
-          <div className={cn("flex gap-0.5", isOwn ? "justify-end" : "justify-start", "opacity-0 group-hover/dm:opacity-100 transition-opacity")}>
+          <div className={cn(
+            "flex gap-0.5",
+            isOwn ? "justify-end" : "justify-start",
+            "opacity-0 group-hover/dm:opacity-100 transition-opacity",
+          )}>
             {onReply && (
               <button
-                onClick={() => { onReply(message as Message | DMMessage); }}
+                onClick={() => onReply(message as Message | DMMessage)}
                 className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                 title="Reply"
               >
                 <CornerUpLeft className="w-3 h-3" />
               </button>
             )}
-            <button onClick={handleCopy} className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Copy">
+            <button
+              onClick={handleCopy}
+              className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              title="Copy"
+            >
               <Copy className="w-3 h-3" />
             </button>
             {isOwn && onDelete && (
               <button
-                onClick={() => { onDelete(message.id); }}
+                onClick={() => onDelete(message.id)}
                 className="p-1 rounded hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
                 title="Delete"
               >
@@ -248,10 +301,7 @@ export function MessageBubble({
     <div
       className="group flex gap-3 px-4 py-1 hover:bg-[var(--bg-hover)]/50 transition-colors"
       onMouseEnter={() => setShowTimestamp(true)}
-      onMouseLeave={() => {
-        setShowTimestamp(false);
-        setShowMenu(false);
-      }}
+      onMouseLeave={() => { setShowTimestamp(false); setShowMenu(false); }}
     >
       {showAvatar ? (
         <UserAvatar user={user} size="md" />
@@ -273,7 +323,8 @@ export function MessageBubble({
                   </span>
                   {replyToMessage.content && (
                     <span className="ml-1 opacity-70">
-                      {replyToMessage.content.slice(0, 80)}{replyToMessage.content.length > 80 ? "…" : ""}
+                      {replyToMessage.content.slice(0, REPLY_PREVIEW_MAX_CHARS)}
+                      {replyToMessage.content.length > REPLY_PREVIEW_MAX_CHARS ? "…" : ""}
                     </span>
                   )}
                   {!replyToMessage.content && <span className="ml-1 opacity-50 italic">attachment</span>}
@@ -298,18 +349,14 @@ export function MessageBubble({
               {formatTime(message.createdAt)}
             </span>
             {"editedAt" in message && message.editedAt && (
-              <span className="text-xs text-[var(--text-muted)]">
-                {t("message.edited")}
-              </span>
+              <span className="text-xs text-[var(--text-muted)]">{t("message.edited")}</span>
             )}
           </div>
         )}
         {message.content && (
           <p
             className="text-sm text-[var(--text-primary)] leading-relaxed"
-            dangerouslySetInnerHTML={{
-              __html: formatContent(message.content),
-            }}
+            dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
           />
         )}
 
@@ -327,18 +374,10 @@ export function MessageBubble({
                 );
               }
               if (att.mediaType?.startsWith("video/")) {
-                return (
-                  <LazyMedia key={att.id}>
-                    <VideoPlayer src={att.url} />
-                  </LazyMedia>
-                );
+                return <LazyMedia key={att.id}><VideoPlayer src={att.url} /></LazyMedia>;
               }
               if (att.mediaType?.startsWith("audio/")) {
-                return (
-                  <LazyMedia key={att.id}>
-                    <AudioPlayer src={att.url} filename={att.filename} />
-                  </LazyMedia>
-                );
+                return <LazyMedia key={att.id}><AudioPlayer src={att.url} filename={att.filename} /></LazyMedia>;
               }
               return (
                 <div
@@ -356,14 +395,61 @@ export function MessageBubble({
             })}
           </div>
         )}
+
+        {"reactions" in message && message.reactions && message.reactions.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {groupReactions(message.reactions).map(({ emoji, count, userIds }) => {
+              const reacted = currentUserId ? userIds.includes(currentUserId) : false;
+              return (
+                <button
+                  key={emoji}
+                  onClick={() => reacted ? onRemoveReact?.(emoji) : onReact?.(emoji)}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs transition-colors",
+                    reacted
+                      ? "bg-[var(--accent-red)]/20 border-[var(--accent-red)]/50 text-[var(--accent-red)]"
+                      : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+                  )}
+                  title={userIds.join(", ")}
+                >
+                  <span>{emoji}</span>
+                  <span className="font-medium">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div
         ref={menuRef}
-        className="relative flex items-center opacity-0 group-hover:opacity-100 transition-opacity self-start mt-1"
+        className="relative flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity self-start mt-1"
       >
+        {onReact && (
+          <div className="relative">
+            <button
+              onClick={() => { setShowQuickEmoji((v) => !v); setShowMenu(false); }}
+              className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
+            >
+              <Smile className="w-4 h-4 text-[var(--text-muted)]" />
+            </button>
+            {showQuickEmoji && (
+              <div className="absolute right-0 top-full mt-1 flex gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl p-1 z-50">
+                {QUICK_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => { onReact(emoji); setShowQuickEmoji(false); }}
+                    className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-base transition-colors"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <button
-          onClick={() => setShowMenu((v) => !v)}
+          onClick={() => { setShowMenu((v) => !v); setShowQuickEmoji(false); }}
           className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
         >
           <MoreHorizontal className="w-4 h-4 text-[var(--text-muted)]" />
@@ -411,4 +497,3 @@ export function MessageBubble({
     </div>
   );
 }
-
