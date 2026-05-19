@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { UPDATER_CHECK_DELAY_MS } from "@/lib/constants";
+
+// 3 s → 30 s → 5 min — stops after the last delay whether it succeeds or fails
+const RETRY_DELAYS_MS = [UPDATER_CHECK_DELAY_MS, 30_000, 5 * 60_000];
 
 export interface UpdateState {
   available: boolean;
@@ -20,13 +24,17 @@ export function useUpdater() {
   });
 
   useEffect(() => {
-    // Only run in Tauri context
     if (!("__TAURI_INTERNALS__" in window)) return;
 
-    // Small delay so the app is fully loaded before checking
-    const timer = setTimeout(() => {
-      check()
-        .then((update: Update | null) => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tryCheck = (attempt: number) => {
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const update: Update | null = await check();
+          if (cancelled) return;
           if (update?.available) {
             setState((s) => ({
               ...s,
@@ -34,13 +42,29 @@ export function useUpdater() {
               version: update.version,
               body: update.body ?? null,
             }));
+            return;
           }
-        })
-        .catch((err: unknown) => {
-          console.warn("Update check failed:", err);
-        });
-    }, 3000);
-    return () => clearTimeout(timer);
+          if (attempt + 1 < RETRY_DELAYS_MS.length) tryCheck(attempt + 1);
+        } catch (err: unknown) {
+          if (cancelled) return;
+          console.warn(`Update check failed (attempt ${attempt + 1}):`, err);
+          if (attempt + 1 < RETRY_DELAYS_MS.length) {
+            tryCheck(attempt + 1);
+          } else {
+            setState((s) => ({
+              ...s,
+              error: err instanceof Error ? err.message : "Update check failed",
+            }));
+          }
+        }
+      }, RETRY_DELAYS_MS[attempt]);
+    };
+
+    tryCheck(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   const installUpdate = async () => {

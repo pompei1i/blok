@@ -178,13 +178,27 @@ export class NativeVoiceEngine {
     return this._screenVideoEl !== null;
   }
 
-  async startScreenShare(_sourceId?: string): Promise<void> {
-    if (this._screenVideoEl) return;
+  async startScreenShare(sourceId?: string): Promise<void> {
+    if (this._screenCaptureTimer !== null) return;
 
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      audio: false,
-      video: { width: { max: SCREEN_MAX_WIDTH }, frameRate: { max: 1 } },
-    });
+    // In Tauri with a specific source: use Rust GDI capture — no OS picker at all
+    if (sourceId && "__TAURI_INTERNALS__" in window) {
+      this._screenCaptureTimer = setInterval(() => {
+        void invoke<{ data: string; w: number; h: number } | null>(
+          "capture_screen_frame", { sourceId }
+        ).then((frame) => {
+          if (frame) {
+            this.broadcast({ type: "screen_frame", from: this.userId, data: frame.data, w: frame.w, h: frame.h }).catch(() => {});
+          }
+        }).catch(() => {});
+      }, SCREEN_FRAME_INTERVAL_MS);
+      await this.broadcast({ type: "screenshare_start", from: this.userId });
+      this.cb.onScreenShareStart?.(this.userId, new MediaStream());
+      return;
+    }
+
+    // Browser fallback: getDisplayMedia (shows OS picker)
+    const stream = await navigator.mediaDevices.getDisplayMedia({ audio: false, video: { width: { max: SCREEN_MAX_WIDTH }, frameRate: { max: 1 } } });
 
     this.screenStream = stream;
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAuthStore } from "./lib/store/auth-store";
@@ -15,6 +15,7 @@ function App() {
   const { isAuthenticated, init, initialized, user } = useAuthStore();
   const { uiScale, compactMode, themeMode, customCss, pushToTalk, inputVolume } = useUiSettingsStore();
   const { isMuted, toggleMute } = useServerStore();
+  const [audioError, setAudioError] = useState<string | null>(null);
 
   useEffect(() => {
     void init();
@@ -25,6 +26,16 @@ function App() {
       invoke("disable_audio_ducking").catch(() => {});
     }
     void requestNotificationPermission();
+  }, []);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let unlisten: (() => void) | null = null;
+    void listen<string>("audio-error", (e) => {
+      setAudioError(e.payload);
+      setTimeout(() => setAudioError(null), 6000);
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -51,11 +62,10 @@ function App() {
       void useServerStore.getState().leaveVoiceChannel();
     };
 
-    // Web fallback (e.g. page reload in dev)
+    // Web: page unload
     window.addEventListener("beforeunload", goOffline);
 
-    // Tauri tray "Quit" — emits this event then exits after 1 s,
-    // giving the async Supabase call time to complete.
+    // Tauri tray "Quit" — emits this event then exits after 1 s
     let tauriUnlisten: (() => void) | null = null;
     if ("__TAURI_INTERNALS__" in window) {
       void listen<void>("app:quitting", goOffline).then((fn) => {
@@ -112,6 +122,12 @@ function App() {
   return (
     <>
       <UpdateBanner />
+      {audioError && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-4 py-2.5 bg-[var(--destructive)] text-white text-xs rounded-lg shadow-lg font-mono">
+          <span>audio device error — rejoin voice to restore</span>
+          <button onClick={() => setAudioError(null)} className="opacity-70 hover:opacity-100 transition-opacity">✕</button>
+        </div>
+      )}
       <AppLayout />
     </>
   );

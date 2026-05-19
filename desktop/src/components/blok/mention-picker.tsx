@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFriendsStore } from "@/lib/store/friends-store";
+import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { useI18n } from "@/lib/i18n";
@@ -11,7 +11,7 @@ interface MentionPickerProps {
 
 export function MentionPicker({ onSelect, onClose }: MentionPickerProps) {
   const { t } = useI18n();
-  const { friends, presence } = useFriendsStore();
+  const { friends, presence, presenceLastSeen } = useFriendsStore();
   const [searchQuery, setSearchQuery] = useState("");
 
   const mentionableUsers = friends.map((f) => f.targetUser).filter(Boolean);
@@ -43,7 +43,7 @@ export function MentionPicker({ onSelect, onClose }: MentionPickerProps) {
         ) : (
           filteredUsers.map((user) => {
             if (!user) return null;
-            const status = presence[user.id] || "offline";
+            const status = effectiveStatus(presence[user.id], presenceLastSeen[user.id]);
             return (
               <button
                 key={user.id}

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 
 // ── native audio state ────────────────────────────────────────────────────────
@@ -18,10 +18,22 @@ struct AudioState(Mutex<Option<NativeAudio>>);
 fn audio_start(
     state: tauri::State<AudioState>,
     app: tauri::AppHandle,
+    input_device: Option<String>,
+    output_device: Option<String>,
 ) -> Result<u32, String> {
-    let (engine, actual_rate) = NativeAudio::start(app)?;
+    let (engine, actual_rate) = NativeAudio::start(app, input_device, output_device)?;
     *state.0.lock().unwrap() = Some(engine);
     Ok(actual_rate)
+}
+
+#[tauri::command]
+fn audio_list_input_devices() -> Vec<String> {
+    audio::list_input_devices()
+}
+
+#[tauri::command]
+fn audio_list_output_devices() -> Vec<String> {
+    audio::list_output_devices()
 }
 
 #[tauri::command]
@@ -134,6 +146,75 @@ fn disable_audio_ducking() {
     }
 }
 
+// ── autostart (Windows registry) ─────────────────────────────────────────────
+
+const AUTOSTART_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+const AUTOSTART_VALUE: &str = "$blok";
+
+#[tauri::command]
+fn autostart_is_enabled() -> bool {
+    autostart_is_enabled_impl()
+}
+
+#[tauri::command]
+fn autostart_set(enabled: bool) -> Result<(), String> {
+    autostart_set_impl(enabled)
+}
+
+#[cfg(target_os = "windows")]
+fn autostart_is_enabled_impl() -> bool {
+    use windows::Win32::System::Registry::{RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_CURRENT_USER, KEY_READ};
+    use windows::core::PCWSTR;
+
+    unsafe {
+        let key_path: Vec<u16> = format!("{AUTOSTART_KEY}\0").encode_utf16().collect();
+        let value_name: Vec<u16> = format!("{AUTOSTART_VALUE}\0").encode_utf16().collect();
+        let mut hkey = std::mem::zeroed();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(key_path.as_ptr()), Some(0), KEY_READ, &mut hkey).ok().is_err() {
+            return false;
+        }
+        let found = RegQueryValueExW(hkey, PCWSTR(value_name.as_ptr()), None, None, None, None).ok().is_ok();
+        let _ = RegCloseKey(hkey);
+        found
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn autostart_set_impl(enabled: bool) -> Result<(), String> {
+    use windows::Win32::System::Registry::{RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_SZ};
+    use windows::core::PCWSTR;
+
+    unsafe {
+        let key_path: Vec<u16> = format!("{AUTOSTART_KEY}\0").encode_utf16().collect();
+        let value_name: Vec<u16> = format!("{AUTOSTART_VALUE}\0").encode_utf16().collect();
+        let mut hkey = std::mem::zeroed();
+        RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(key_path.as_ptr()), Some(0), KEY_SET_VALUE, &mut hkey)
+            .ok().map_err(|e| e.to_string())?;
+
+        let result = if enabled {
+            let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+            let exe_utf16: Vec<u16> = exe_path.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+            let data = std::slice::from_raw_parts(exe_utf16.as_ptr() as *const u8, exe_utf16.len() * 2);
+            RegSetValueExW(hkey, PCWSTR(value_name.as_ptr()), Some(0), REG_SZ, Some(data))
+                .ok().map_err(|e| e.to_string())
+        } else {
+            RegDeleteValueW(hkey, PCWSTR(value_name.as_ptr()))
+                .ok().map_err(|e| e.to_string())
+        };
+
+        let _ = RegCloseKey(hkey);
+        result
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn autostart_is_enabled_impl() -> bool { false }
+
+#[cfg(not(target_os = "windows"))]
+fn autostart_set_impl(_enabled: bool) -> Result<(), String> {
+    Err("Autostart is only supported on Windows".to_string())
+}
+
 // ── screen source enumeration ─────────────────────────────────────────────────
 
 #[derive(serde::Serialize)]
@@ -141,6 +222,157 @@ struct ScreenSource {
     id: String,
     name: String,
 }
+
+// ── screen frame capture ──────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+struct ScreenFrame {
+    data: String, // base64-encoded JPEG
+    w: u32,
+    h: u32,
+}
+
+const SCREEN_MAX_W: u32 = 1280;
+
+fn encode_bgra_to_frame(bgra: Vec<u8>, w: u32, h: u32) -> Option<ScreenFrame> {
+    let rgb: Vec<u8> = bgra.chunks(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
+    let img = image::RgbImage::from_raw(w, h, rgb)?;
+    let img = if w > SCREEN_MAX_W {
+        let new_h = (h as f64 * SCREEN_MAX_W as f64 / w as f64).round() as u32;
+        image::imageops::resize(&img, SCREEN_MAX_W, new_h, image::imageops::FilterType::Nearest)
+    } else {
+        img
+    };
+    let (fw, fh) = img.dimensions();
+    let mut buf = std::io::Cursor::new(Vec::new());
+    let dynamic: image::DynamicImage = img.into();
+    dynamic.write_to(&mut buf, image::ImageFormat::Jpeg).ok()?;
+    use base64::Engine as _;
+    let data = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
+    Some(ScreenFrame { data, w: fw, h: fh })
+}
+
+#[tauri::command]
+fn capture_screen_frame(source_id: String) -> Option<ScreenFrame> {
+    if let Some(rest) = source_id.strip_prefix("screen:") {
+        let idx: u32 = rest.split(':').next()?.parse().ok()?;
+        capture_monitor(idx)
+    } else if let Some(rest) = source_id.strip_prefix("window:") {
+        let hwnd_val: isize = rest.split(':').next()?.parse().ok()?;
+        capture_window(hwnd_val)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_monitor(index: u32) -> Option<ScreenFrame> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{LPARAM, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
+        EnumDisplayMonitors, GetDC, GetDIBits, ReleaseDC, SelectObject,
+        BITMAPINFO, BITMAPINFOHEADER, HDC, HGDIOBJ, HMONITOR, DIB_RGB_COLORS, SRCCOPY,
+    };
+
+    struct MData { idx: u32, cur: u32, rect: RECT }
+
+    unsafe extern "system" fn mon_cb(
+        _: HMONITOR, _: HDC, lp: *mut RECT, param: LPARAM,
+    ) -> BOOL {
+        let d = &mut *(param.0 as *mut MData);
+        if d.cur == d.idx { d.rect = *lp; }
+        d.cur += 1;
+        BOOL(1)
+    }
+
+    let mut mdata = MData { idx: index, cur: 0, rect: RECT::default() };
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(mon_cb),
+            LPARAM(&mut mdata as *mut MData as isize),
+        );
+        let r = mdata.rect;
+        let w = (r.right - r.left) as u32;
+        let h = (r.bottom - r.top) as u32;
+        if w == 0 || h == 0 { return None; }
+
+        let sdc = GetDC(None);
+        let mdc = CreateCompatibleDC(Some(sdc));
+        let bmp = CreateCompatibleBitmap(sdc, w as i32, h as i32);
+        let old = SelectObject(mdc, HGDIOBJ(bmp.0));
+        let _ = BitBlt(mdc, 0, 0, w as i32, h as i32, Some(sdc), r.left, r.top, SRCCOPY);
+
+        let mut bmi = core::mem::zeroed::<BITMAPINFO>();
+        bmi.bmiHeader.biSize = core::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w as i32;
+        bmi.bmiHeader.biHeight = -(h as i32);
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = 0u32; // BI_RGB
+
+        let mut px = vec![0u8; (w * h * 4) as usize];
+        GetDIBits(mdc, bmp, 0, h, Some(px.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
+
+        let _ = SelectObject(mdc, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        let _ = DeleteDC(mdc);
+        let _ = ReleaseDC(None, sdc);
+
+        encode_bgra_to_frame(px, w, h)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_window(hwnd_val: isize) -> Option<ScreenFrame> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
+        GetDC, GetDIBits, ReleaseDC, SelectObject,
+        BITMAPINFO, BITMAPINFOHEADER, HGDIOBJ, DIB_RGB_COLORS, SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+
+    unsafe {
+        let hwnd = HWND(hwnd_val as *mut _);
+        let mut rect = RECT::default();
+        let _ = GetClientRect(hwnd, &mut rect);
+        let w = (rect.right - rect.left) as u32;
+        let h = (rect.bottom - rect.top) as u32;
+        if w == 0 || h == 0 { return None; }
+
+        let wdc = GetDC(Some(hwnd));
+        let mdc = CreateCompatibleDC(Some(wdc));
+        let bmp = CreateCompatibleBitmap(wdc, w as i32, h as i32);
+        let old = SelectObject(mdc, HGDIOBJ(bmp.0));
+        let _ = BitBlt(mdc, 0, 0, w as i32, h as i32, Some(wdc), 0, 0, SRCCOPY);
+
+        let mut bmi = core::mem::zeroed::<BITMAPINFO>();
+        bmi.bmiHeader.biSize = core::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w as i32;
+        bmi.bmiHeader.biHeight = -(h as i32);
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = 0u32; // BI_RGB
+
+        let mut px = vec![0u8; (w * h * 4) as usize];
+        GetDIBits(mdc, bmp, 0, h, Some(px.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
+
+        let _ = SelectObject(mdc, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        let _ = DeleteDC(mdc);
+        let _ = ReleaseDC(Some(hwnd), wdc);
+
+        encode_bgra_to_frame(px, w, h)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn capture_monitor(_: u32) -> Option<ScreenFrame> { None }
+#[cfg(not(target_os = "windows"))]
+fn capture_window(_: isize) -> Option<ScreenFrame> { None }
 
 /// Returns one entry per monitor. IDs use the Chromium desktop-capture format
 /// ("screen:INDEX:0") so they can be passed directly to getUserMedia with
@@ -265,7 +497,15 @@ pub fn run() {
                             let _ = window.set_focus();
                         }
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        // Give JS 1 s to set presence "offline" before the process dies.
+                        let _ = app.emit("app:quitting", ());
+                        let handle = app.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                            handle.exit(0);
+                        });
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|icon, event| {
@@ -303,8 +543,13 @@ pub fn run() {
             audio_set_deafened,
             audio_receive,
             audio_remove_peer,
+            audio_list_input_devices,
+            audio_list_output_devices,
             get_screen_sources,
             get_window_sources,
+            capture_screen_frame,
+            autostart_is_enabled,
+            autostart_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

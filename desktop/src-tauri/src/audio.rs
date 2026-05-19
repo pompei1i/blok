@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 const TARGET_RATE: u32 = 48_000;
-const FRAME_MS: usize = 60; // ms per broadcast chunk → ~17 msgs/sec/participant
+const FRAME_MS: usize = 100; // ms per broadcast chunk → 10 msgs/sec/participant
 const SPEAKING_THRESHOLD: f32 = 0.015; // RMS level to count as speaking
 
 struct CaptureShared {
@@ -52,21 +52,40 @@ pub fn resample_to_f32(samples: &[i16], from_rate: u32) -> Vec<f32> {
         .collect()
 }
 
+/// List the names of all available input (microphone) devices.
+pub fn list_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    host.input_devices()
+        .map(|iter| iter.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default()
+}
+
+/// List the names of all available output (speaker/headphone) devices.
+pub fn list_output_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    host.output_devices()
+        .map(|iter| iter.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default()
+}
+
 impl NativeAudio {
     /// Start the native audio engine. Returns `(engine, actual_sample_rate)`.
-    pub fn start(app: tauri::AppHandle) -> Result<(Self, u32), String> {
+    /// Pass `None` for either device to use the system default.
+    pub fn start(app: tauri::AppHandle, input_device: Option<String>, output_device: Option<String>) -> Result<(Self, u32), String> {
         let (tx, rx) = std::sync::mpsc::sync_channel::<Cmd>(128);
         let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<u32>(1);
         std::thread::Builder::new()
             .name("blok-audio".into())
             .spawn(move || {
-                if let Err(e) = run_audio(app, rx, rate_tx) {
+                if let Err(e) = run_audio(app, rx, rate_tx, input_device, output_device) {
                     eprintln!("[audio] engine error: {e}");
                 }
             })
             .map_err(|e| e.to_string())?;
         // Block until audio thread reports its actual sample rate (or dies).
-        let actual_rate = rate_rx.recv().unwrap_or(TARGET_RATE);
+        let actual_rate = rate_rx
+            .recv()
+            .map_err(|_| "Audio thread failed to start (check microphone permissions)".to_string())?;
         Ok((Self { tx }, actual_rate))
     }
 
@@ -102,15 +121,28 @@ fn run_audio(
     app: tauri::AppHandle,
     rx: std::sync::mpsc::Receiver<Cmd>,
     rate_tx: std::sync::mpsc::SyncSender<u32>,
+    input_device_name: Option<String>,
+    output_device_name: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let host = cpal::default_host();
 
-    let input_device = host
-        .default_input_device()
-        .ok_or("no default input device")?;
-    let output_device = host
-        .default_output_device()
-        .ok_or("no default output device")?;
+    let input_device = if let Some(ref name) = input_device_name {
+        host.input_devices()?
+            .find(|d| d.name().ok().as_deref() == Some(name.as_str()))
+            .or_else(|| host.default_input_device())
+            .ok_or("no input device found")?
+    } else {
+        host.default_input_device().ok_or("no default input device")?
+    };
+
+    let output_device = if let Some(ref name) = output_device_name {
+        host.output_devices()?
+            .find(|d| d.name().ok().as_deref() == Some(name.as_str()))
+            .or_else(|| host.default_output_device())
+            .ok_or("no output device found")?
+    } else {
+        host.default_output_device().ok_or("no default output device")?
+    };
 
     // --- input config: prefer 48 kHz mono ---
     let input_config: cpal::StreamConfig = {
@@ -178,10 +210,14 @@ fn run_audio(
     // --- input stream ---
     let cap = cap_shared.clone();
     let app_in = app.clone();
+    let app_in_err = app.clone();
     let input_stream = input_device.build_input_stream(
         &input_config,
         move |data: &[f32], _| {
-            let mut state = cap.lock().unwrap();
+            let mut state = match cap.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
             if state.muted {
                 return;
             }
@@ -198,25 +234,35 @@ fn run_audio(
                 let _ = app_in.emit("audio-speaking", speaking);
             }
         },
-        |e| eprintln!("[audio] input error: {e}"),
+        move |e| {
+            eprintln!("[audio] input error: {e}");
+            let _ = app_in_err.emit("audio-error", e.to_string());
+        },
         None,
     )?;
 
     // --- output stream ---
     let play = play_shared.clone();
+    let app_out_err = app.clone();
     let output_stream = output_device.build_output_stream(
         &output_config,
         move |data: &mut [f32], _| {
             for s in data.iter_mut() {
                 *s = 0.0;
             }
-            let mut state = play.lock().unwrap();
+            let mut state = match play.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
             if state.deafened {
                 return;
             }
             let ch = state.out_channels;
             let n_frames = data.len() / ch;
-            let n_peers = state.buffers.len().max(1) as f32;
+            // Count only peers currently sending audio to avoid dividing by zero
+            // or silently halving volume for idle/disconnected peers.
+            let n_active = state.buffers.values().filter(|b| !b.is_empty()).count();
+            let n_peers = n_active.max(1) as f32;
 
             for buf in state.buffers.values_mut() {
                 for i in 0..n_frames {
@@ -231,7 +277,10 @@ fn run_audio(
                 *s = s.clamp(-1.0, 1.0);
             }
         },
-        |e| eprintln!("[audio] output error: {e}"),
+        move |e| {
+            eprintln!("[audio] output error: {e}");
+            let _ = app_out_err.emit("audio-error", e.to_string());
+        },
         None,
     )?;
 
@@ -249,26 +298,177 @@ fn run_audio(
         match rx.recv() {
             Ok(Cmd::Stop) | Err(_) => break,
             Ok(Cmd::SetMuted(v)) => {
-                cap_shared.lock().unwrap().muted = v;
+                cap_shared.lock().unwrap_or_else(|e| e.into_inner()).muted = v;
             }
             Ok(Cmd::SetDeafened(v)) => {
-                play_shared.lock().unwrap().deafened = v;
+                play_shared.lock().unwrap_or_else(|e| e.into_inner()).deafened = v;
             }
             Ok(Cmd::AddSamples { from, samples }) => {
-                let mut state = play_shared.lock().unwrap();
+                let mut state = play_shared.lock().unwrap_or_else(|e| e.into_inner());
                 let buf = state.buffers.entry(from).or_default();
-                // keep at most 2 s of audio to avoid unbounded growth
-                let max = actual_rate * 2;
+                // Playback samples are always at TARGET_RATE (resampled before add).
+                let max = TARGET_RATE as usize * 2;
                 while buf.len() + samples.len() > max {
                     buf.pop_front();
                 }
                 buf.extend(samples);
             }
             Ok(Cmd::RemovePeer(id)) => {
-                play_shared.lock().unwrap().buffers.remove(&id);
+                play_shared.lock().unwrap_or_else(|e| e.into_inner()).buffers.remove(&id);
             }
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── resample_to_f32 ───────────────────────────────────────────────────────
+
+    #[test]
+    fn resample_empty_input_is_empty() {
+        assert!(resample_to_f32(&[], 44_100).is_empty());
+        assert!(resample_to_f32(&[], TARGET_RATE).is_empty());
+    }
+
+    #[test]
+    fn resample_same_rate_converts_without_resampling() {
+        let input = vec![0i16, 16_384, -16_384, 32_767];
+        let out = resample_to_f32(&input, TARGET_RATE);
+        assert_eq!(out.len(), 4);
+        assert!((out[0] - 0.0).abs() < 1e-4, "silence should map to 0.0");
+        assert!((out[1] - 0.5).abs() < 1e-3, "16384 should map to ~0.5");
+        assert!((out[2] + 0.5).abs() < 1e-3, "-16384 should map to ~-0.5");
+        assert!(out[3] > 0.99, "32767 should be close to 1.0");
+    }
+
+    #[test]
+    fn resample_upsample_44100_to_48000_produces_more_samples() {
+        // 100 ms at 44.1 kHz = 4410 samples → expect ~4800 at 48 kHz
+        let input = vec![0i16; 4410];
+        let out = resample_to_f32(&input, 44_100);
+        let expected = 4800usize;
+        assert!(
+            (out.len() as i64 - expected as i64).abs() <= 2,
+            "expected ~{expected} samples, got {}",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn resample_downsample_96000_to_48000_produces_fewer_samples() {
+        let input = vec![0i16; 9600]; // 100 ms at 96 kHz
+        let out = resample_to_f32(&input, 96_000);
+        let expected = 4800usize;
+        assert!(
+            (out.len() as i64 - expected as i64).abs() <= 2,
+            "expected ~{expected} samples, got {}",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn resample_preserves_values_on_same_rate() {
+        let input: Vec<i16> = (0..10).map(|i| (i * 3000) as i16).collect();
+        let out = resample_to_f32(&input, TARGET_RATE);
+        for (i, (&s, &f)) in input.iter().zip(out.iter()).enumerate() {
+            let expected = s as f32 / 32_768.0;
+            assert!(
+                (f - expected).abs() < 1e-4,
+                "sample {i}: expected {expected}, got {f}"
+            );
+        }
+    }
+
+    // ── is_speaking_i16 ───────────────────────────────────────────────────────
+
+    #[test]
+    fn is_speaking_empty_returns_false() {
+        assert!(!is_speaking_i16(&[]));
+    }
+
+    #[test]
+    fn is_speaking_silence_returns_false() {
+        let silence = vec![0i16; 480];
+        assert!(!is_speaking_i16(&silence));
+    }
+
+    #[test]
+    fn is_speaking_near_threshold_noise_returns_false() {
+        // RMS ≈ 0.005, well below SPEAKING_THRESHOLD (0.015)
+        let quiet: Vec<i16> = (0..480)
+            .map(|i| if i % 2 == 0 { 160 } else { -160 })
+            .collect();
+        assert!(!is_speaking_i16(&quiet));
+    }
+
+    #[test]
+    fn is_speaking_loud_audio_returns_true() {
+        // Alternating ±30000 → RMS ≈ 0.916, well above threshold
+        let loud: Vec<i16> = (0..480)
+            .map(|i| if i % 2 == 0 { 30_000 } else { -30_000 })
+            .collect();
+        assert!(is_speaking_i16(&loud));
+    }
+
+    #[test]
+    fn is_speaking_single_loud_sample() {
+        let samples = vec![32_767i16];
+        assert!(is_speaking_i16(&samples));
+    }
+
+    // ── rms_f32 ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn rms_empty_is_zero() {
+        assert_eq!(rms_f32(&[]), 0.0);
+    }
+
+    #[test]
+    fn rms_dc_signal() {
+        let dc = vec![0.5f32; 100];
+        let rms = rms_f32(&dc);
+        assert!((rms - 0.5).abs() < 1e-5, "RMS of 0.5 DC should be 0.5, got {rms}");
+    }
+
+    #[test]
+    fn rms_square_wave() {
+        // ±1.0 square wave → RMS = 1.0
+        let sq: Vec<f32> = (0..100).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        let rms = rms_f32(&sq);
+        assert!((rms - 1.0).abs() < 1e-5, "RMS of ±1.0 square wave should be 1.0, got {rms}");
+    }
+
+    #[test]
+    fn rms_sine_like() {
+        // sin²(x) averaged over full cycle = 0.5 → RMS = √0.5 ≈ 0.707
+        let sine: Vec<f32> = (0..1000)
+            .map(|i| (i as f32 * std::f32::consts::TAU / 1000.0).sin())
+            .collect();
+        let rms = rms_f32(&sine);
+        let expected = std::f32::consts::FRAC_1_SQRT_2;
+        assert!(
+            (rms - expected).abs() < 1e-2,
+            "RMS of sine should be ~{expected:.4}, got {rms:.4}"
+        );
+    }
+
+    // ── device enumeration ────────────────────────────────────────────────────
+
+    #[test]
+    fn list_input_devices_does_not_panic() {
+        // Can't assert specific devices in CI, just verify no panic/crash.
+        let devices = list_input_devices();
+        // On a machine with no audio hardware this may be empty — that's fine.
+        let _ = devices;
+    }
+
+    #[test]
+    fn list_output_devices_does_not_panic() {
+        let devices = list_output_devices();
+        let _ = devices;
+    }
 }

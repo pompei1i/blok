@@ -1,11 +1,16 @@
 import { useMemo, useState } from "react";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Menu, Users } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { CreateServerModal } from "./create-server-modal";
 
-export function TopBar() {
+interface TopBarProps {
+  onOpenLeft?: () => void;
+  onOpenRight?: () => void;
+}
+
+export function TopBar({ onOpenLeft, onOpenRight }: TopBarProps) {
   const { servers, openTabs, activeServerId, setActiveServer, closeTab, openTab } =
     useServerStore();
   const [showAllOpen, setShowAllOpen] = useState(false);
@@ -20,6 +25,17 @@ export function TopBar() {
 
   return (
     <div className="h-10 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center px-2 gap-1">
+      {/* Mobile hamburger — channels */}
+      {onOpenLeft && (
+        <button
+          onClick={onOpenLeft}
+          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors shrink-0"
+          aria-label="Open channels"
+        >
+          <Menu className="w-4 h-4 text-[var(--text-muted)]" />
+        </button>
+      )}
+
       <div className="flex items-center gap-1 flex-1 overflow-x-auto">
         {openServers.map((server) => (
           <div
@@ -119,12 +135,25 @@ export function TopBar() {
         )}
       </div>
 
-      <div className="flex items-center gap-1 ml-auto pl-4">
-        <div className="text-xs text-[var(--text-muted)] font-mono">
-          {"~/blok"}
-          <span className="cursor-blink inline-block w-2 h-4 bg-[var(--text-primary)] ml-1" />
+      {!onOpenLeft && (
+        <div className="flex items-center gap-1 ml-auto pl-4">
+          <div className="text-xs text-[var(--text-muted)] font-mono">
+            {"~/blok"}
+            <span className="cursor-blink inline-block w-2 h-4 bg-[var(--text-primary)] ml-1" />
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Mobile hamburger — friends */}
+      {onOpenRight && (
+        <button
+          onClick={onOpenRight}
+          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors shrink-0"
+          aria-label="Open friends"
+        >
+          <Users className="w-4 h-4 text-[var(--text-muted)]" />
+        </button>
+      )}
       
       {showCreateModal && <CreateServerModal onClose={() => setShowCreateModal(false)} />}
     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 
-const TENOR_KEY = import.meta.env.VITE_TENOR_API_KEY ?? "LIVDSRZULELA";
+const TENOR_KEY = import.meta.env.VITE_TENOR_API_KEY as string | undefined;
 const TENOR_BASE = "https://api.tenor.com/v1";
 
 interface TenorMedia {
@@ -28,6 +28,11 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchGifs = async (q: string) => {
+    if (!TENOR_KEY) {
+      setError("Set VITE_TENOR_API_KEY in desktop/.env");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

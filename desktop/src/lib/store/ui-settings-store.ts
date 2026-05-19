@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { NOISE_GATE_DEFAULT } from "../constants";
 
 export type ThemeMode = "dark" | "light";
 export type Language = "English" | "Polish" | "German" | "Spanish" | "Ukrainian" | "Russian";
@@ -37,7 +38,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       noiseSuppression: false,
       echoCancellation: false,
       inputVolume: 70,
-      noiseGateThreshold: 30,
+      noiseGateThreshold: NOISE_GATE_DEFAULT,
       pushToTalk: false,
       inputDevice: "",
       outputDevice: "",

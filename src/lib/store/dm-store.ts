@@ -239,10 +239,15 @@ export const useDMStore = create<DMState>((set, get) => ({
     const offset = Object.keys(currentDMs).length * 30;
     const fallbackPosition =
       typeof window !== "undefined"
-        ? {
-            x: Math.max(20, window.innerWidth - 380 - offset),
-            y: Math.max(20, window.innerHeight - 500 - offset),
-          }
+        ? (() => {
+            const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+            const popupW = 21.25 * remPx;
+            const popupH = 26.25 * remPx;
+            return {
+              x: Math.max(20, window.innerWidth - popupW - 40 - offset),
+              y: Math.max(20, window.innerHeight - popupH - 80 - offset),
+            };
+          })()
         : { x: 400, y: 200 };
     const position = initialPosition ?? fallbackPosition;
 

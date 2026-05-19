@@ -19,7 +19,7 @@ interface DMPopupProps {
   windowIndex: number;
 }
 
-export function DMPopup({ dmState }: DMPopupProps) {
+export function DMPopup({ dmState, windowIndex }: DMPopupProps) {
   const { t } = useI18n();
   const {
     closeDM,
@@ -40,6 +40,13 @@ export function DMPopup({ dmState }: DMPopupProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const friendRel = friends.find(
     (f) => f.targetId === dmState.userId || f.requesterId === dmState.userId,
@@ -60,8 +67,11 @@ export function DMPopup({ dmState }: DMPopupProps) {
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
-      const x = Math.max(0, Math.min(window.innerWidth - 340, e.clientX - dragOffset.current.x));
-      const y = Math.max(0, Math.min(window.innerHeight - 48, e.clientY - dragOffset.current.y));
+      const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const popupW = 21.25 * remPx;
+      const topBarH = 2.5 * remPx;
+      const x = Math.max(0, Math.min(window.innerWidth - popupW, e.clientX - dragOffset.current.x));
+      const y = Math.max(0, Math.min(window.innerHeight - topBarH, e.clientY - dragOffset.current.y));
       updatePosition(dmState.userId, { x, y });
     };
     const onUp = () => setDragging(false);
@@ -74,7 +84,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
   }, [dragging, dmState.userId, updatePosition]);
 
   const handleHeaderMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("button")) return;
+    if (isMobile || (e.target as HTMLElement).closest("button")) return;
     dragOffset.current = { x: e.clientX - dmState.position.x, y: e.clientY - dmState.position.y };
     setDragging(true);
   };
@@ -130,14 +140,8 @@ export function DMPopup({ dmState }: DMPopupProps) {
     return (
       <button
         onClick={() => restoreDM(dmState.userId)}
-        className="fixed bottom-16 right-4 flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full px-3 py-2 hover:bg-[var(--bg-hover)] transition-colors shadow-lg z-50"
-        style={{
-          right: `${
-            16 +
-            Object.keys(useDMStore.getState().openDMs).indexOf(dmState.userId) *
-              150
-          }px`,
-        }}
+        className="fixed bottom-16 flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full px-3 py-2 hover:bg-[var(--bg-hover)] transition-colors shadow-lg z-50"
+        style={{ right: `calc(${windowIndex} * 9.375rem + 1rem)` }}
       >
         <div className="relative">
           <UserAvatar user={friend} size="sm" />
@@ -161,8 +165,13 @@ export function DMPopup({ dmState }: DMPopupProps) {
 
   return (
     <div
-      className="fixed w-[340px] h-[420px] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden animate-slide-in"
-      style={{
+      className={cn(
+        "fixed bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden animate-slide-in",
+        isMobile
+          ? "left-4 right-4 top-[10vh] h-[75vh]"
+          : "w-[21.25rem] h-[26.25rem]",
+      )}
+      style={isMobile ? undefined : {
         left: `${dmState.position.x}px`,
         top: `${dmState.position.y}px`,
       }}

@@ -4,15 +4,30 @@ import { mapProfile } from "../utils";
 import type { UserRelationship, PresenceStatus } from "./types";
 
 let friendsChannel: ReturnType<typeof import("../supabaseClient").supabase.channel> | null = null;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Threshold: if last_seen is older than this, the user is considered offline. */
+export const ONLINE_THRESHOLD_MS = 90_000;
+
+/** Derive display status from the raw DB status + last_seen timestamp. */
+export function effectiveStatus(
+  status: PresenceStatus | undefined,
+  lastSeen: string | undefined,
+): PresenceStatus {
+  if (!lastSeen || Date.now() - new Date(lastSeen).getTime() > ONLINE_THRESHOLD_MS) return "offline";
+  if (status === "dnd" || status === "afk") return status;
+  return "online";
+}
 
 interface FriendsState {
   friends: UserRelationship[];
   pendingRequests: UserRelationship[];
   outgoingRequests: UserRelationship[];
   presence: Record<string, PresenceStatus>;
+  presenceLastSeen: Record<string, string>;
   currentUserId: string | null;
   loadError: string | null;
-  
+
   initFriendsData: (userId: string) => Promise<void>;
   removeFriend: (relationshipId: string) => Promise<void>;
   updatePresence: (userId: string, status: PresenceStatus) => Promise<void>;
@@ -28,6 +43,7 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
   pendingRequests: [],
   outgoingRequests: [],
   presence: {},
+  presenceLastSeen: {},
   currentUserId: null,
   loadError: null,
 
@@ -132,17 +148,20 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
       const uniqueOutgoing = dedupeByCounterparty(outgoing, "outgoing");
 
       // 2. Fetch presence (all users for simplicity in MVP)
-      const { data: presenceData } = await supabase.from("user_presence").select("*");
+      const { data: presenceData } = await supabase.from("user_presence").select("user_id, status, online_at");
       const presenceMap: Record<string, PresenceStatus> = {};
-      (presenceData || []).forEach(p => {
-         presenceMap[p.user_id] = p.status;
+      const presenceLastSeenMap: Record<string, string> = {};
+      (presenceData || []).forEach((p: any) => {
+        presenceMap[p.user_id] = p.status;
+        if (p.online_at) presenceLastSeenMap[p.user_id] = p.online_at;
       });
 
       set({
         friends: uniqueFriends,
         pendingRequests: uniqueIncoming,
         outgoingRequests: uniqueOutgoing,
-        presence: presenceMap
+        presence: presenceMap,
+        presenceLastSeen: presenceLastSeenMap,
       });
 
       // 3. Realtime setup — unsubscribe previous channel on re-init (e.g. re-login)
@@ -161,6 +180,7 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
               const p = payload.new as any;
               set((state) => ({
                 presence: { ...state.presence, [p.user_id]: p.status },
+                ...(p.online_at ? { presenceLastSeen: { ...state.presenceLastSeen, [p.user_id]: p.online_at } } : {}),
               }));
             }
           },
@@ -195,7 +215,21 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
             });
           },
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            void get().updatePresence(userId, 'online');
+          }
+        });
+
+      // Heartbeat: keep online_at fresh so peers can infer online/offline from timestamp
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      heartbeatInterval = setInterval(() => {
+        void supabase.from("user_presence").upsert({
+          user_id: userId,
+          status: 'online',
+          online_at: new Date().toISOString(),
+        });
+      }, 30_000);
 
     } catch(e) {
       console.error(e);
@@ -215,11 +249,20 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
   },
 
   updatePresence: async (userId, status) => {
-    // Optimistic UI update
-    set((state) => ({
-      presence: { ...state.presence, [userId]: status },
-    }));
-    await supabase.from("user_presence").upsert({ user_id: userId, status, last_seen: new Date().toISOString() });
+    if (status === 'offline') {
+      // Stop heartbeat before writing so it can't race with the offline write
+      if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+      // Don't update online_at — keeps "last seen X ago" accurate
+      set((state) => ({ presence: { ...state.presence, [userId]: status } }));
+      await supabase.from("user_presence").upsert({ user_id: userId, status });
+    } else {
+      const now = new Date().toISOString();
+      set((state) => ({
+        presence: { ...state.presence, [userId]: status },
+        presenceLastSeen: { ...state.presenceLastSeen, [userId]: now },
+      }));
+      await supabase.from("user_presence").upsert({ user_id: userId, status, online_at: now });
+    }
   },
 
   acceptRequest: async (relationshipId) => {

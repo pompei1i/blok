@@ -2,6 +2,16 @@ import { create } from "zustand";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
 import { useAuthStore } from "./auth-store";
+import {
+  DM_PAGE_SIZE,
+  CALL_INVITE_TIMEOUT_MS,
+  DM_WINDOW_OFFSET_PX,
+  DM_WINDOW_W_REM,
+  DM_WINDOW_H_REM,
+  DM_VIEWPORT_PADDING_PX,
+  DM_FALLBACK_X,
+  DM_FALLBACK_Y,
+} from "../constants";
 import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../native-voice-engine";
 import type { DMMessage, Attachment } from "./types";
 
@@ -330,19 +340,19 @@ export const useDMStore = create<DMState>((set, get) => ({
       return;
     }
 
-    const offset = Object.keys(currentDMs).length * 30;
+    const offset = Object.keys(currentDMs).length * DM_WINDOW_OFFSET_PX;
     const fallbackPosition =
       typeof window !== "undefined"
         ? (() => {
             const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
-            const popupW = 21.25 * remPx;
-            const popupH = 26.25 * remPx;
+            const popupW = DM_WINDOW_W_REM * remPx;
+            const popupH = DM_WINDOW_H_REM * remPx;
             return {
               x: Math.max(20, window.innerWidth - popupW - 40 - offset),
-              y: Math.max(20, window.innerHeight - popupH - 80 - offset),
+              y: Math.max(20, window.innerHeight - popupH - DM_VIEWPORT_PADDING_PX - offset),
             };
           })()
-        : { x: 400, y: 200 };
+        : { x: DM_FALLBACK_X, y: DM_FALLBACK_Y };
     const position = initialPosition ?? fallbackPosition;
 
     set({ openDMs: { ...currentDMs, [targetUserId]: { userId: targetUserId, position, minimized: false, messages: [], unreadCount: 0 } } });
@@ -360,7 +370,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       `)
       .eq("dm_channel_id", dmChannelId)
       .order("created_at", { ascending: true })
-      .limit(30);
+      .limit(DM_PAGE_SIZE);
 
     const messages: DMMessage[] = (msgData || []).map(m => ({
       ...(() => {
@@ -549,7 +559,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       if (useDMStore.getState().outgoingCall?.toUserId === targetUserId) {
         useDMStore.getState().cancelCall();
       }
-    }, 45_000);
+    }, CALL_INVITE_TIMEOUT_MS);
   },
 
   cancelCall: () => {

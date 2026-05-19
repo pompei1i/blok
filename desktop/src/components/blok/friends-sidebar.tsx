@@ -1,4 +1,4 @@
-import { useFriendsStore } from "@/lib/store/friends-store";
+import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { PresenceDot } from "./presence-dot";
@@ -9,6 +9,15 @@ import { Search, UserPlus, Check, X, MessageCircle, ChevronDown } from "lucide-r
 import { useState } from "react";
 import { useI18n } from "@/lib/i18n";
 
+function formatLastSeen(iso: string | undefined): string {
+  if (!iso) return "";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 60_000) return "just now";
+  if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}m ago`;
+  if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}h ago`;
+  return `${Math.floor(diffMs / 86_400_000)}d ago`;
+}
+
 export function FriendsSidebar() {
   const { t } = useI18n();
   const { user } = useAuthStore();
@@ -17,6 +26,7 @@ export function FriendsSidebar() {
     pendingRequests,
     outgoingRequests,
     presence,
+    presenceLastSeen,
     acceptRequest,
     declineRequest,
     cancelRequest,
@@ -49,9 +59,9 @@ export function FriendsSidebar() {
   });
 
   const sortedFriends = [...filteredFriends].sort((a, b) => {
-    const statusOrder = { online: 0, afk: 1, offline: 2, dnd: 3 } as const;
-    const statusA = presence[a.friendId] || "offline";
-    const statusB = presence[b.friendId] || "offline";
+    const statusOrder = { online: 0, afk: 1, dnd: 2, offline: 3 } as const;
+    const statusA = effectiveStatus(presence[a.friendId], presenceLastSeen[a.friendId]);
+    const statusB = effectiveStatus(presence[b.friendId], presenceLastSeen[b.friendId]);
     return statusOrder[statusA] - statusOrder[statusB];
   });
 
@@ -212,7 +222,7 @@ export function FriendsSidebar() {
         {/* Friends list */}
         <div className="space-y-0.5">
           {sortedFriends.map((friendship) => {
-            const status = presence[friendship.friendId] || "offline";
+            const status = effectiveStatus(presence[friendship.friendId], presenceLastSeen[friendship.friendId]);
             return (
               <button
                 key={friendship.id}
@@ -234,11 +244,15 @@ export function FriendsSidebar() {
                   <p className="text-xs text-[var(--text-primary)] truncate font-medium">
                     @{friendship.friendUser?.username ?? "unknown"}
                   </p>
-                  {friendship.friendUser?.pronouns && (
+                  {status === "offline" ? (
+                    <p className="text-xs text-[var(--text-muted)] truncate opacity-60">
+                      {formatLastSeen(presenceLastSeen[friendship.friendId])}
+                    </p>
+                  ) : friendship.friendUser?.pronouns ? (
                     <p className="text-xs text-[var(--text-muted)] truncate opacity-60">
                       {friendship.friendUser.pronouns}
                     </p>
-                  )}
+                  ) : null}
                 </div>
                 <MessageCircle className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
               </button>

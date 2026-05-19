@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { MessageCircle, ChevronDown, Search, UserPlus, Check, X } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
-import { useFriendsStore } from "@/lib/store/friends-store";
+import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
@@ -46,7 +46,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
 
 function MembersView() {
   const { activeServerId, members, voiceParticipants } = useServerStore();
-  const { presence } = useFriendsStore();
+  const { presence, presenceLastSeen } = useFriendsStore();
   const { openDM } = useDMStore();
   const { user } = useAuthStore();
   const [search, setSearch] = useState("");
@@ -66,17 +66,17 @@ function MembersView() {
   });
 
   const online = filtered.filter((m) => {
-    const s = presence[m.userId] ?? "offline";
+    const s = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
     return s === "online" || s === "afk" || s === "dnd";
   });
-  const offline = filtered.filter((m) => (presence[m.userId] ?? "offline") === "offline");
+  const offline = filtered.filter((m) => effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]) === "offline");
 
   const inVoice = new Set(
     Object.values(voiceParticipants).flat().map((p) => p.userId),
   );
 
   const MemberRow = ({ m }: { m: ServerMember }) => {
-    const status = presence[m.userId] ?? "offline";
+    const status = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
     const isMe = m.userId === user?.id;
     const name = m.nickname ?? m.user?.displayName ?? m.user?.username ?? m.userId.slice(0, 8);
 
@@ -167,7 +167,7 @@ function MembersView() {
 
 function FriendsView() {
   const { user } = useAuthStore();
-  const { friends, pendingRequests, outgoingRequests, presence, acceptRequest, declineRequest, cancelRequest, loadError } = useFriendsStore();
+  const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, acceptRequest, declineRequest, cancelRequest, loadError } = useFriendsStore();
   const { openDM } = useDMStore();
   const [search, setSearch] = useState("");
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -189,8 +189,10 @@ function FriendsView() {
   );
 
   const sorted = [...filtered].sort((a, b) => {
-    const order = { online: 0, afk: 1, offline: 2, dnd: 3 } as const;
-    return (order[presence[a.friendId] ?? "offline"] ?? 2) - (order[presence[b.friendId] ?? "offline"] ?? 2);
+    const order = { online: 0, afk: 1, dnd: 2, offline: 3 } as const;
+    const sA = effectiveStatus(presence[a.friendId], presenceLastSeen[a.friendId]);
+    const sB = effectiveStatus(presence[b.friendId], presenceLastSeen[b.friendId]);
+    return order[sA] - order[sB];
   });
 
   return (
@@ -292,7 +294,7 @@ function FriendsView() {
             >
               <div className="relative flex-shrink-0">
                 <UserAvatar user={f.friendUser} size="sm" />
-                <PresenceDot status={presence[f.friendId] ?? "offline"} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
+                <PresenceDot status={effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId])} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{f.friendUser?.username ?? "unknown"}</p>

@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from "react";
 import { X, Minus, Send, Smile, PlusCircle, Paperclip, Phone, PhoneOff } from "lucide-react";
+import { DM_WINDOW_W_REM, DM_WINDOW_H_REM } from "@/lib/constants";
 import type { Attachment } from "@/lib/store/types";
 import { useDMStore } from "@/lib/store/dm-store";
-import { useFriendsStore } from "@/lib/store/friends-store";
+import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
@@ -37,7 +38,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
     outgoingCall,
     incomingCall,
   } = useDMStore();
-  const { friends, presence } = useFriendsStore();
+  const { friends, presence, presenceLastSeen } = useFriendsStore();
   const { user } = useAuthStore();
   const [inputValue, setInputValue] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -61,7 +62,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
     friendRel?.targetId === dmState.userId
       ? friendRel?.targetUser
       : friendRel?.requesterUser;
-  const friendPresence = presence[dmState.userId] || "offline";
+  const friendPresence = effectiveStatus(presence[dmState.userId], presenceLastSeen[dmState.userId]);
 
   useEffect(() => {
     if (!dmState.minimized) {
@@ -74,7 +75,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
       const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      const popupW = 21.25 * remPx;
+      const popupW = DM_WINDOW_W_REM * remPx;
       const topBarH = 2.5 * remPx;
       const x = Math.max(0, Math.min(window.innerWidth - popupW, e.clientX - dragOffset.current.x));
       const y = Math.max(0, Math.min(window.innerHeight - topBarH, e.clientY - dragOffset.current.y));
@@ -182,8 +183,10 @@ export function DMPopup({ dmState }: DMPopupProps) {
 
   return (
     <div
-      className="fixed w-[21.25rem] h-[26.25rem] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden animate-slide-in"
+      className="fixed bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden animate-slide-in"
       style={{
+        width: `${DM_WINDOW_W_REM}rem`,
+        height: `${DM_WINDOW_H_REM}rem`,
         left: `${dmState.position.x}px`,
         top: `${dmState.position.y}px`,
       }}

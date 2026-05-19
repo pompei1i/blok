@@ -9,7 +9,12 @@ import { Search, UserPlus, Check, X, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "@/lib/i18n";
 
-export function FriendsSidebar() {
+interface FriendsSidebarProps {
+  isDrawerOpen?: boolean;
+  onDrawerClose?: () => void;
+}
+
+export function FriendsSidebar({ isDrawerOpen, onDrawerClose }: FriendsSidebarProps) {
   const { t } = useI18n();
   const { user } = useAuthStore();
   const {
@@ -76,6 +81,11 @@ export function FriendsSidebar() {
               <span className="text-xs text-[var(--text-muted)]">{t("friends.online")}</span>
             </div>
           </div>
+          {onDrawerClose && (
+            <button onClick={onDrawerClose} className="md:hidden p-1 hover:bg-[var(--bg-hover)] rounded transition-colors">
+              <X className="w-4 h-4 text-[var(--text-muted)]" />
+            </button>
+          )}
         </div>
       </div>
 

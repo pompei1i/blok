@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { MessageCircle, ChevronDown, Search } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
-import { useFriendsStore } from "@/lib/store/friends-store";
+import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
@@ -11,7 +11,7 @@ import type { ServerMember } from "@/lib/store/types";
 
 export function MembersSidebar() {
   const { activeServerId, members, voiceParticipants } = useServerStore();
-  const { presence } = useFriendsStore();
+  const { presence, presenceLastSeen } = useFriendsStore();
   const { openDM } = useDMStore();
   const { user } = useAuthStore();
   const [search, setSearch] = useState("");
@@ -30,10 +30,10 @@ export function MembersSidebar() {
   });
 
   const online = filtered.filter((m) => {
-    const s = presence[m.userId] ?? "offline";
+    const s = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
     return s === "online" || s === "afk" || s === "dnd";
   });
-  const offline = filtered.filter((m) => (presence[m.userId] ?? "offline") === "offline");
+  const offline = filtered.filter((m) => effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]) === "offline");
 
   // Collect all userIds currently in any voice channel on this server
   const inVoice = new Set(
@@ -47,7 +47,7 @@ export function MembersSidebar() {
   };
 
   const MemberRow = ({ m }: { m: ServerMember }) => {
-    const status = presence[m.userId] ?? "offline";
+    const status = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
     const isMe = m.userId === user?.id;
     const inCall = inVoice.has(m.userId);
     const displayName = m.nickname ?? m.user?.displayName ?? m.user?.username ?? m.userId.slice(0, 8);

@@ -8,6 +8,7 @@ import {
   MicOff,
   HeadphoneOff,
   UserPlus,
+  X,
 } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -20,7 +21,12 @@ import { useI18n } from "@/lib/i18n";
 import { CreateChannelModal } from "./create-channel-modal";
 import { InviteUserModal } from "./invite-user-modal";
 
-export function GroupSidebar() {
+interface GroupSidebarProps {
+  isDrawerOpen?: boolean;
+  onDrawerClose?: () => void;
+}
+
+export function GroupSidebar({ isDrawerOpen, onDrawerClose }: GroupSidebarProps) {
   const { t } = useI18n();
   const {
     servers,
@@ -76,7 +82,12 @@ export function GroupSidebar() {
 
   if (!activeServer) {
     return (
-      <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col items-center justify-center text-[var(--text-muted)] text-sm">
+      <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col items-center justify-center text-[var(--text-muted)] text-sm relative">
+        {onDrawerClose && (
+          <button onClick={onDrawerClose} className="absolute top-3 right-3 p-1 hover:bg-[var(--bg-hover)] rounded">
+            <X className="w-4 h-4 text-[var(--text-muted)]" />
+          </button>
+        )}
         <p className="text-center px-4">
           <span className="text-[var(--text-muted)]">$ </span>
           {t("group.noGroupSelected")}
@@ -93,6 +104,11 @@ export function GroupSidebar() {
             {activeServer.name}
           </h2>
           <div className="flex items-center gap-1">
+            {onDrawerClose && (
+              <button onClick={onDrawerClose} className="md:hidden p-1 hover:bg-[var(--bg-hover)] rounded transition-colors">
+                <X className="w-4 h-4 text-[var(--text-muted)]" />
+              </button>
+            )}
             {isServerOwner && (
               <button
                 onClick={() => setShowInviteUser(true)}
