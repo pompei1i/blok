@@ -3,16 +3,22 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { supabase } from "./supabaseClient";
 import type { VoiceCallbacks } from "./voice-engine";
+import { useUiSettingsStore } from "./store/ui-settings-store";
 
 type NativeSignalMsg =
   | { type: "join"; from: string }
   | { type: "hello"; from: string }
   | { type: "leave"; from: string }
   | { type: "audio"; from: string; data: string; rate?: number }
+  | { type: "speaking"; from: string; speaking: boolean }
   | { type: "screenshare_start"; from: string }
-  | { type: "screenshare_stop"; from: string };
+  | { type: "screenshare_stop"; from: string }
+  | { type: "screen_frame"; from: string; data: string; w: number; h: number };
 
 const SPEAKING_TIMEOUT_MS = 400;
+const SCREEN_FRAME_INTERVAL_MS = 1000; // 1 fps — fits within Supabase broadcast limits
+const SCREEN_MAX_WIDTH = 1280;
+const SCREEN_JPEG_QUALITY = 0.6;
 
 function int16ToBase64(samples: number[]): string {
   const bytes = new Uint8Array(new Int16Array(samples).buffer);
@@ -53,6 +59,16 @@ export class NativeVoiceEngine {
   private _subscribeReject: ((err: Error) => void) | null = null;
   private subscribePromise: Promise<void>;
 
+  // Speaking broadcast dedup
+  private _lastSpeaking = false;
+
+  // Screen share — sender side
+  private _screenCaptureTimer: ReturnType<typeof setInterval> | null = null;
+  private _screenVideoEl: HTMLVideoElement | null = null;
+  private _screenCanvasEl: HTMLCanvasElement | null = null;
+  // Screen share — receiver side: one canvas+stream per remote peer
+  private _remoteCanvases = new Map<string, { canvas: HTMLCanvasElement; stream: MediaStream }>();
+
   constructor(channelId: string, userId: string, cb: VoiceCallbacks) {
     this.channelId = channelId;
     this.userId = userId;
@@ -69,11 +85,15 @@ export class NativeVoiceEngine {
     }
     // audio_start returns the actual input sample rate so we can tag every
     // outgoing packet; remote peers resample if their device differs.
-    this.localRate = await invoke<number>("audio_start");
+    const { inputDevice, outputDevice } = useUiSettingsStore.getState();
+    this.localRate = await invoke<number>("audio_start", {
+      inputDevice: inputDevice || null,
+      outputDevice: outputDevice || null,
+    });
     invoke("disable_audio_ducking").catch(() => {});
 
     this.unlistenChunk = await listen<number[]>("audio-chunk", (event) => {
-      if (!this.realtimeCh) return;
+      if (!this.realtimeCh || !this._subscribed) return;
       const base64 = int16ToBase64(event.payload);
       this.realtimeCh
         .send({ type: "broadcast", event: "signal", payload: { type: "audio", from: this.userId, data: base64, rate: this.localRate } })
@@ -82,6 +102,13 @@ export class NativeVoiceEngine {
 
     this.unlistenSpeaking = await listen<boolean>("audio-speaking", (event) => {
       this.updateSpeaking(this.userId, event.payload);
+      // Broadcast speaking state to peers when it changes (at most 2 msgs per
+      // speaking event) so they get a reliable indicator independent of audio
+      // packet loss.
+      if (event.payload !== this._lastSpeaking) {
+        this._lastSpeaking = event.payload;
+        this.broadcast({ type: "speaking", from: this.userId, speaking: event.payload }).catch(() => {});
+      }
     });
 
     this.realtimeCh = supabase
@@ -105,6 +132,11 @@ export class NativeVoiceEngine {
   }
 
   async leave(): Promise<void> {
+    // Stop screen share cleanly before leaving
+    if (this._screenVideoEl) {
+      await this.stopScreenShare();
+    }
+
     await this.broadcast({ type: "leave", from: this.userId });
 
     this.unlistenChunk?.();
@@ -115,6 +147,12 @@ export class NativeVoiceEngine {
     for (const t of this.speakingTimers.values()) clearTimeout(t);
     this.speakingTimers.clear();
     this.speakingState.clear();
+
+    // Clean up any remote peer canvases
+    for (const { stream } of this._remoteCanvases.values()) {
+      stream.getTracks().forEach((t) => t.stop());
+    }
+    this._remoteCanvases.clear();
 
     if (this.realtimeCh) {
       await supabase.removeChannel(this.realtimeCh);
@@ -137,20 +175,63 @@ export class NativeVoiceEngine {
   setNoiseGateThreshold(_value: number): void {}
 
   isScreenSharing(): boolean {
-    return false;
+    return this._screenVideoEl !== null;
   }
 
   async startScreenShare(_sourceId?: string): Promise<void> {
-    // Sources are enumerated natively (get_screen_sources / get_window_sources).
-    // getDisplayMedia is never called — it always triggers the system dialog
-    // which we've replaced with our own picker. Video isn't transmitted to
-    // remote peers yet, so a dummy stream is sufficient.
-    this.screenStream = new MediaStream();
+    if (this._screenVideoEl) return;
+
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      audio: false,
+      video: { width: { max: SCREEN_MAX_WIDTH }, frameRate: { max: 1 } },
+    });
+
+    this.screenStream = stream;
+
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    await new Promise<void>((res) => {
+      video.onloadedmetadata = () => {
+        void video.play().then(res);
+      };
+    });
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+    this._screenVideoEl = video;
+    this._screenCanvasEl = canvas;
+
+    this._screenCaptureTimer = setInterval(() => {
+      if (!this._screenVideoEl || !this._screenCanvasEl) return;
+      const w = this._screenVideoEl.videoWidth;
+      const h = this._screenVideoEl.videoHeight;
+      if (!w || !h) return;
+      // Scale down proportionally to SCREEN_MAX_WIDTH if wider
+      const scale = w > SCREEN_MAX_WIDTH ? SCREEN_MAX_WIDTH / w : 1;
+      const tw = Math.round(w * scale);
+      const th = Math.round(h * scale);
+      if (canvas.width !== tw) canvas.width = tw;
+      if (canvas.height !== th) canvas.height = th;
+      ctx.drawImage(this._screenVideoEl, 0, 0, tw, th);
+      const data = canvas.toDataURL("image/jpeg", SCREEN_JPEG_QUALITY).split(",")[1];
+      this.broadcast({ type: "screen_frame", from: this.userId, data, w: tw, h: th }).catch(() => {});
+    }, SCREEN_FRAME_INTERVAL_MS);
+
     await this.broadcast({ type: "screenshare_start", from: this.userId });
-    this.cb.onScreenShareStart?.(this.userId, this.screenStream);
+    this.cb.onScreenShareStart?.(this.userId, stream);
   }
 
   async stopScreenShare(): Promise<void> {
+    if (this._screenCaptureTimer) {
+      clearInterval(this._screenCaptureTimer);
+      this._screenCaptureTimer = null;
+    }
+    if (this._screenVideoEl) {
+      this._screenVideoEl.srcObject = null;
+      this._screenVideoEl = null;
+    }
+    this._screenCanvasEl = null;
     if (this.screenStream) {
       this.screenStream.getTracks().forEach((t) => t.stop());
       this.screenStream = null;
@@ -176,6 +257,7 @@ export class NativeVoiceEngine {
         this.cb.onParticipantLeave(msg.from);
         this.clearPeerSpeaking(msg.from);
         invoke("audio_remove_peer", { peerId: msg.from }).catch(() => {});
+        this._clearRemoteCanvas(msg.from);
         break;
       case "audio": {
         const samples = base64ToInt16Array(msg.data);
@@ -183,12 +265,51 @@ export class NativeVoiceEngine {
         this.updateSpeaking(msg.from, speaking);
         break;
       }
-      case "screenshare_start":
-        this.cb.onScreenShareStart?.(msg.from, new MediaStream());
+      case "speaking":
+        this.updateSpeaking(msg.from, msg.speaking);
         break;
+      case "screenshare_start": {
+        // Create an off-screen canvas that acts as the video source for this peer.
+        // Each incoming screen_frame will draw a JPEG into it.
+        const canvas = document.createElement("canvas");
+        canvas.width = SCREEN_MAX_WIDTH;
+        canvas.height = 720;
+        // captureStream(0) = manual frame clock via requestFrame()
+        const stream = (canvas as HTMLCanvasElement & { captureStream(fps?: number): MediaStream }).captureStream(0);
+        this._remoteCanvases.set(msg.from, { canvas, stream });
+        this.cb.onScreenShareStart?.(msg.from, stream);
+        break;
+      }
       case "screenshare_stop":
+        this._clearRemoteCanvas(msg.from);
         this.cb.onScreenShareStop?.(msg.from);
         break;
+      case "screen_frame": {
+        const entry = this._remoteCanvases.get(msg.from);
+        if (!entry) break;
+        const { canvas, stream } = entry;
+        if (canvas.width !== msg.w) canvas.width = msg.w;
+        if (canvas.height !== msg.h) canvas.height = msg.h;
+        const img = new Image();
+        img.onload = () => {
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(img, 0, 0);
+          // Tell the captureStream a new frame is ready
+          const track = stream.getVideoTracks()[0] as (CanvasCaptureMediaStreamTrack & { requestFrame?(): void }) | undefined;
+          track?.requestFrame?.();
+        };
+        img.src = `data:image/jpeg;base64,${msg.data}`;
+        break;
+      }
+    }
+  }
+
+  private _clearRemoteCanvas(peerId: string): void {
+    const entry = this._remoteCanvases.get(peerId);
+    if (entry) {
+      entry.stream.getTracks().forEach((t) => t.stop());
+      this._remoteCanvases.delete(peerId);
     }
   }
 

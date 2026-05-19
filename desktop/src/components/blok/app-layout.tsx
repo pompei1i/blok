@@ -1,9 +1,10 @@
 import { GroupSidebar } from "./group-sidebar";
 import { ChatArea } from "./chat-area";
-import { FriendsSidebar } from "./friends-sidebar";
 import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
 import { ScreenShareOverlay } from "./screen-share-overlay";
+import { IncomingCallBanner } from "./incoming-call-banner";
+import { RightSidebar } from "./right-sidebar";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
@@ -46,7 +47,10 @@ export function AppLayout() {
     return () => {
       isCancelled = true;
     };
-  }, [user, initServerData, initFriendsData, initDMData, updatePresence]);
+  // Depend on user?.id (not the full user object) so profile edits don't
+  // trigger a full re-bootstrap — only login/logout should.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, initServerData, initFriendsData, initDMData, updatePresence]);
 
   if (isBootstrapping) {
     return (
@@ -77,7 +81,7 @@ export function AppLayout() {
           <ChatArea />
           {showMemberList && (
             <div className="hidden min-[800px]:contents">
-              <FriendsSidebar />
+              <RightSidebar />
             </div>
           )}
         </div>
@@ -85,6 +89,7 @@ export function AppLayout() {
 
       <DMPortal />
       <ScreenShareOverlay />
+      <IncomingCallBanner />
     </div>
   );
 }

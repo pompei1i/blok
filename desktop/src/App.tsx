@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useAuthStore } from "./lib/store/auth-store";
 import { useFriendsStore } from "./lib/store/friends-store";
 import { useServerStore } from "./lib/store/server-store";
@@ -44,13 +45,31 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    const cleanup = () => {
-      useFriendsStore.getState().updatePresence(user.id, "offline");
-      useServerStore.getState().leaveVoiceChannel();
+    const userId = user.id;
+    const goOffline = () => {
+      void useFriendsStore.getState().updatePresence(userId, "offline");
+      void useServerStore.getState().leaveVoiceChannel();
     };
-    window.addEventListener("beforeunload", cleanup);
-    return () => window.removeEventListener("beforeunload", cleanup);
-  }, [user]);
+
+    // Web fallback (e.g. page reload in dev)
+    window.addEventListener("beforeunload", goOffline);
+
+    // Tauri tray "Quit" — emits this event then exits after 1 s,
+    // giving the async Supabase call time to complete.
+    let tauriUnlisten: (() => void) | null = null;
+    if ("__TAURI_INTERNALS__" in window) {
+      void listen<void>("app:quitting", goOffline).then((fn) => {
+        tauriUnlisten = fn;
+      });
+    }
+
+    return () => {
+      window.removeEventListener("beforeunload", goOffline);
+      tauriUnlisten?.();
+    };
+  // user?.id: only re-run when the user identity changes, not on profile edits
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // Push-to-talk: Space = unmute while held, mute on release
   useEffect(() => {

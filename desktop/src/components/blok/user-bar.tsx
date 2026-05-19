@@ -13,7 +13,6 @@ import { useServerStore } from "@/lib/store/server-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { AccountEditModal } from "./account-edit-modal";
-import { ScreenSharePicker } from "./screen-share-picker";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { playSound } from "@/lib/sounds";
@@ -41,7 +40,6 @@ export function UserBar() {
     : null;
   const isSpeaking = localParticipant?.isSpeaking ?? false;
   const [showSettings, setShowSettings] = useState(false);
-  const [showScreenSharePicker, setShowScreenSharePicker] = useState(false);
 
   const serverChannels = activeServerId ? channels[activeServerId] || [] : [];
   const activeVoiceChannel = serverChannels.find(
@@ -124,37 +122,18 @@ export function UserBar() {
             )}
           </button>
           {activeVoiceChannelId && (
-            <div className="relative">
-              <button
-                onClick={() => {
-                  if (isScreenSharing) {
-                    void toggleScreenShare();
-                  } else {
-                    setShowScreenSharePicker((v) => !v);
-                  }
-                }}
-                className={cn(
-                  "p-2 rounded-lg transition-colors",
-                  isScreenSharing
-                    ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
-                    : showScreenSharePicker
-                      ? "bg-[var(--bg-hover)] text-[var(--text-primary)]"
-                      : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
-                )}
-                title={isScreenSharing ? "Stop sharing" : "Share screen"}
-              >
-                {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-              </button>
-              {showScreenSharePicker && (
-                <ScreenSharePicker
-                  onSelect={(sourceId) => {
-                    setShowScreenSharePicker(false);
-                    void toggleScreenShare(sourceId);
-                  }}
-                  onClose={() => setShowScreenSharePicker(false)}
-                />
+            <button
+              onClick={() => void toggleScreenShare()}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                isScreenSharing
+                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
+                  : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
               )}
-            </div>
+              title={isScreenSharing ? "Stop sharing" : "Share screen"}
+            >
+              {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+            </button>
           )}
           <button
             onClick={() => setShowSettings(true)}

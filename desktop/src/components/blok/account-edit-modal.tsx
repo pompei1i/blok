@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Camera, Save, User, Video, Mic, Keyboard, Layout, Palette, Globe, LogOut, CheckCircle, XCircle, AlertCircle, ExternalLink } from "lucide-react";
+import { X, Camera, Save, User, Video, Mic, Keyboard, Layout, Palette, Globe, LogOut, CheckCircle, XCircle, AlertCircle, ExternalLink, Monitor } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
 import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode } from "@/lib/store/ui-settings-store";
@@ -10,7 +10,7 @@ interface AccountEditModalProps {
   onClose: () => void;
 }
 
-type TabId = "account" | "video" | "audio" | "hotkeys" | "view" | "theme" | "language";
+type TabId = "account" | "video" | "audio" | "hotkeys" | "view" | "theme" | "language" | "system";
 type SettingsDraft = {
   previewVideo: boolean;
   mirrorCamera: boolean;
@@ -20,6 +20,8 @@ type SettingsDraft = {
   inputVolume: number;
   noiseGateThreshold: number;
   pushToTalk: boolean;
+  inputDevice: string;
+  outputDevice: string;
   compactMode: boolean;
   showMemberList: boolean;
   themeMode: ThemeMode;
@@ -35,7 +37,8 @@ const TAB_IDS = [
   { id: "hotkeys", labelKey: "settings.tab.hotkeys" as const, icon: Keyboard },
   { id: "view",    labelKey: "settings.tab.view"    as const, icon: Layout },
   { id: "theme",   labelKey: "settings.tab.theme"   as const, icon: Palette },
-  { id: "language",labelKey: "settings.tab.language"as const, icon: Globe },
+  { id: "language", labelKey: "settings.tab.language" as const, icon: Globe },
+  { id: "system",   labelKey: "settings.tab.system"   as const, icon: Monitor },
 ] as const;
 
 export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
@@ -51,6 +54,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     inputVolume,
     noiseGateThreshold,
     pushToTalk,
+    inputDevice,
+    outputDevice,
     compactMode,
     showMemberList,
     themeMode,
@@ -68,6 +73,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     inputVolume,
     noiseGateThreshold,
     pushToTalk,
+    inputDevice,
+    outputDevice,
     compactMode,
     showMemberList,
     themeMode,
@@ -75,6 +82,9 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     language,
     customCss,
   });
+  const [inputDevices, setInputDevices] = useState<string[]>([]);
+  const [outputDevices, setOutputDevices] = useState<string[]>([]);
+  const [launchOnStartup, setLaunchOnStartup] = useState(false);
   
   const [formData, setFormData] = useState({
     displayName: user?.displayName || "",
@@ -106,6 +116,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
       inputVolume,
       noiseGateThreshold,
       pushToTalk,
+      inputDevice,
+      outputDevice,
       compactMode,
       showMemberList,
       themeMode,
@@ -123,6 +135,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     echoCancellation,
     inputVolume,
     pushToTalk,
+    inputDevice,
+    outputDevice,
     compactMode,
     showMemberList,
     themeMode,
@@ -130,6 +144,23 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     language,
     customCss,
   ]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== "audio") return;
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke<string[]>("audio_list_input_devices").then(setInputDevices).catch(() => {});
+      invoke<string[]>("audio_list_output_devices").then(setOutputDevices).catch(() => {});
+    });
+  }, [isOpen, activeTab]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== "system") return;
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke<boolean>("autostart_is_enabled").then(setLaunchOnStartup).catch(() => {});
+    });
+  }, [isOpen, activeTab]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -536,6 +567,35 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                 </div>
 
                 <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-5">
+                  <label className="block">
+                    <span className="block text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">Input Device (Microphone)</span>
+                    <select
+                      value={draftSettings.inputDevice}
+                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, inputDevice: e.target.value }))}
+                      className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-red)]"
+                    >
+                      <option value="">System Default</option>
+                      {inputDevices.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">Output Device (Speakers)</span>
+                    <select
+                      value={draftSettings.outputDevice}
+                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, outputDevice: e.target.value }))}
+                      className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-red)]"
+                    >
+                      <option value="">System Default</option>
+                      {outputDevices.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-5">
                   <label className="flex items-center justify-between">
                     <span className="text-sm text-[var(--text-primary)]">{t("settings.audio.noiseSuppression")}</span>
                     <input
@@ -687,6 +747,37 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                     placeholder={`/* Example: change accent color */\n:root {\n  --accent-red: #0ac000;\n}\n\n/* Hide scrollbars */\n* { scrollbar-width: none; }`}
                     className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-red)] transition-colors resize-none placeholder:text-[var(--text-muted)]/50"
                   />
+                </div>
+              </div>
+            )}
+
+            {activeTab === "system" && (
+              <div className="max-w-2xl animate-fade-in space-y-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-[var(--text-primary)]">{t("settings.system.title")}</h3>
+                  <p className="text-[var(--text-muted)] mt-1">{t("settings.system.subtitle")}</p>
+                </div>
+                <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-5">
+                  <label className="flex items-center justify-between gap-6">
+                    <div>
+                      <span className="text-sm text-[var(--text-primary)]">{t("settings.system.launchOnStartup")}</span>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{t("settings.system.launchOnStartupHint")}</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={launchOnStartup}
+                      disabled={!("__TAURI_INTERNALS__" in window)}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setLaunchOnStartup(next);
+                        import("@tauri-apps/api/core").then(({ invoke }) => {
+                          invoke("autostart_set", { enabled: next }).catch(() => {
+                            setLaunchOnStartup(!next);
+                          });
+                        });
+                      }}
+                    />
+                  </label>
                 </div>
               </div>
             )}

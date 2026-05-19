@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { X, Minus, Send, Smile, PlusCircle, Paperclip } from "lucide-react";
+import { X, Minus, Send, Smile, PlusCircle, Paperclip, Phone, PhoneOff } from "lucide-react";
 import type { Attachment } from "@/lib/store/types";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
@@ -29,6 +29,13 @@ export function DMPopup({ dmState }: DMPopupProps) {
     addMessage,
     clearUnread,
     deleteDMMessage,
+    callUser,
+    endCall,
+    acceptCall,
+    declineCall,
+    activeCall,
+    outgoingCall,
+    incomingCall,
   } = useDMStore();
   const { friends, presence } = useFriendsStore();
   const { user } = useAuthStore();
@@ -41,6 +48,11 @@ export function DMPopup({ dmState }: DMPopupProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const [callSeconds, setCallSeconds] = useState(0);
+
+  const isActiveCall = activeCall?.peerUserId === dmState.userId;
+  const isOutgoingCall = outgoingCall?.toUserId === dmState.userId;
+  const isIncomingCall = incomingCall?.fromUserId === dmState.userId;
 
   const friendRel = friends.find(
     (f) => f.targetId === dmState.userId || f.requesterId === dmState.userId,
@@ -61,8 +73,11 @@ export function DMPopup({ dmState }: DMPopupProps) {
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
-      const x = Math.max(0, Math.min(window.innerWidth - 340, e.clientX - dragOffset.current.x));
-      const y = Math.max(0, Math.min(window.innerHeight - 48, e.clientY - dragOffset.current.y));
+      const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const popupW = 21.25 * remPx;
+      const topBarH = 2.5 * remPx;
+      const x = Math.max(0, Math.min(window.innerWidth - popupW, e.clientX - dragOffset.current.x));
+      const y = Math.max(0, Math.min(window.innerHeight - topBarH, e.clientY - dragOffset.current.y));
       updatePosition(dmState.userId, { x, y });
     };
     const onUp = () => setDragging(false);
@@ -73,6 +88,15 @@ export function DMPopup({ dmState }: DMPopupProps) {
       document.removeEventListener("mouseup", onUp);
     };
   }, [dragging, dmState.userId, updatePosition]);
+
+  useEffect(() => {
+    if (!isActiveCall || !activeCall) { setCallSeconds(0); return; }
+    setCallSeconds(Math.floor((Date.now() - activeCall.startedAt) / 1000));
+    const id = setInterval(() => {
+      setCallSeconds(Math.floor((Date.now() - activeCall.startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isActiveCall, activeCall]);
 
   const handleHeaderMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -133,11 +157,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
         onClick={() => restoreDM(dmState.userId)}
         className="fixed bottom-16 right-4 flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full px-3 py-2 hover:bg-[var(--bg-hover)] transition-colors shadow-lg z-50"
         style={{
-          right: `${
-            16 +
-            Object.keys(useDMStore.getState().openDMs).indexOf(dmState.userId) *
-              150
-          }px`,
+          right: `calc(${Object.keys(useDMStore.getState().openDMs).indexOf(dmState.userId)} * 9.375rem + 1rem)`,
         }}
       >
         <div className="relative">
@@ -162,7 +182,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
 
   return (
     <div
-      className="fixed w-[340px] h-[420px] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden animate-slide-in"
+      className="fixed w-[21.25rem] h-[26.25rem] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden animate-slide-in"
       style={{
         left: `${dmState.position.x}px`,
         top: `${dmState.position.y}px`,
@@ -178,6 +198,49 @@ export function DMPopup({ dmState }: DMPopupProps) {
         <span className="flex-1 text-sm font-medium text-[var(--text-primary)]">
           @{friend?.username ?? dmState.userId.slice(0, 8)}
         </span>
+
+        {isActiveCall ? (
+          <>
+            <span className="text-xs font-mono text-[var(--online)]">
+              {String(Math.floor(callSeconds / 60)).padStart(2, "0")}:{String(callSeconds % 60).padStart(2, "0")}
+            </span>
+            <button
+              onClick={() => endCall()}
+              className="p-1 bg-[var(--accent-red)] hover:opacity-90 text-white rounded transition-opacity"
+              title="End call"
+            >
+              <PhoneOff className="w-3.5 h-3.5" />
+            </button>
+          </>
+        ) : isIncomingCall ? (
+          <>
+            <Phone className="w-3.5 h-3.5 text-[var(--online)] animate-pulse flex-shrink-0" />
+            <button
+              onClick={() => void acceptCall()}
+              className="p-1 bg-[var(--online)] hover:opacity-90 text-white rounded transition-opacity"
+              title="Accept"
+            >
+              <Phone className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => declineCall()}
+              className="p-1 bg-[var(--accent-red)] hover:opacity-90 text-white rounded transition-opacity"
+              title="Decline"
+            >
+              <PhoneOff className="w-3 h-3" />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => void callUser(dmState.userId, friend?.username ?? dmState.userId)}
+            disabled={friendPresence === "offline" || isOutgoingCall}
+            className="p-1 hover:bg-[var(--bg-hover)] disabled:opacity-30 rounded transition-colors"
+            title={friendPresence === "offline" ? "User is offline" : "Call"}
+          >
+            <Phone className={cn("w-3.5 h-3.5", isOutgoingCall ? "text-[var(--online)] animate-pulse" : "text-[var(--text-muted)]")} />
+          </button>
+        )}
+
         <button
           onClick={() => minimizeDM(dmState.userId)}
           className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"

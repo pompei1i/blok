@@ -14,6 +14,8 @@ interface UiSettingsState {
   inputVolume: number;
   noiseGateThreshold: number; // 0 = off, 1–100
   pushToTalk: boolean;
+  inputDevice: string; // empty = system default
+  outputDevice: string; // empty = system default
   compactMode: boolean;
   showMemberList: boolean;
   themeMode: ThemeMode;
@@ -37,6 +39,8 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       inputVolume: 70,
       noiseGateThreshold: 30,
       pushToTalk: false,
+      inputDevice: "",
+      outputDevice: "",
       compactMode: false,
       showMemberList: true,
       themeMode: "dark",

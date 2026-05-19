@@ -2,7 +2,46 @@ import { create } from "zustand";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
 import { useAuthStore } from "./auth-store";
+import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../native-voice-engine";
 import type { DMMessage, Attachment } from "./types";
+
+type CallSignal =
+  | { type: "call_invite"; to: string; from: string; fromUsername: string; dmChannelId: string }
+  | { type: "call_accept"; to: string; from: string }
+  | { type: "call_decline"; to: string; from: string }
+  | { type: "call_cancel"; to: string; from: string }
+  | { type: "call_end"; to: string; from: string };
+
+export interface IncomingCall {
+  fromUserId: string;
+  fromUsername: string;
+  dmChannelId: string;
+}
+
+export interface OutgoingCall {
+  toUserId: string;
+  toUsername: string;
+  dmChannelId: string;
+}
+
+export interface ActiveDMCall {
+  peerUserId: string;
+  peerUsername: string;
+  dmChannelId: string;
+  startedAt: number;
+}
+
+let _callChannel: ReturnType<typeof supabase.channel> | null = null;
+let _callInviteTimer: ReturnType<typeof setTimeout> | null = null;
+let _dmVoiceEngine: NativeVoiceEngine | null = null;
+
+function stopDMVoiceLocally() {
+  if (_dmVoiceEngine) {
+    void _dmVoiceEngine.leave();
+    _dmVoiceEngine = null;
+    if (getActiveNativeVoiceEngine()) setActiveNativeVoiceEngine(null);
+  }
+}
 
 interface DMWindowState {
   userId: string; // the target user
@@ -15,7 +54,10 @@ interface DMWindowState {
 
 interface DMState {
   openDMs: Record<string, DMWindowState>; // keyed by target userId
-  
+  incomingCall: IncomingCall | null;
+  outgoingCall: OutgoingCall | null;
+  activeCall: ActiveDMCall | null;
+
   initDMData: (userId: string) => Promise<void>;
   openDM: (currentUserId: string, targetUserId: string, initialPosition?: { x: number; y: number }) => Promise<void>;
   closeDM: (userId: string) => void;
@@ -31,11 +73,17 @@ interface DMState {
   ) => Promise<boolean>;
   clearUnread: (userId: string) => void;
   deleteDMMessage: (messageId: string, targetUserId: string) => Promise<void>;
+
+  callUser: (targetUserId: string, targetUsername: string) => Promise<void>;
+  cancelCall: () => void;
+  acceptCall: () => Promise<void>;
+  declineCall: () => void;
+  endCall: () => void;
 }
 
-const DM_PAYLOAD_PREFIX = "__blok_dm_payload__:";
+export const DM_PAYLOAD_PREFIX = "__blok_dm_payload__:";
 
-function parseDMContent(rawContent: string): { content: string; attachments: Attachment[] } {
+export function parseDMContent(rawContent: string): { content: string; attachments: Attachment[] } {
   if (!rawContent.startsWith(DM_PAYLOAD_PREFIX)) {
     return { content: rawContent, attachments: [] };
   }
@@ -71,7 +119,7 @@ function parseDMContent(rawContent: string): { content: string; attachments: Att
   }
 }
 
-function buildDMContent(text: string, attachments: Attachment[]): string {
+export function buildDMContent(text: string, attachments: Attachment[]): string {
   if (attachments.length === 0) return text;
   return `${DM_PAYLOAD_PREFIX}${JSON.stringify({
     text,
@@ -144,9 +192,58 @@ async function resolveOrCreateDMChannel(
 
 export const useDMStore = create<DMState>((set, get) => ({
   openDMs: {},
+  incomingCall: null,
+  outgoingCall: null,
+  activeCall: null,
 
   initDMData: async (userId) => {
     try {
+      // Persistent call-signaling channel — lives for the entire session.
+      // All call signals are routed through one shared broadcast channel;
+      // each client filters by `payload.to === myUserId`.
+      if (_callChannel) {
+        await supabase.removeChannel(_callChannel);
+      }
+      _callChannel = supabase
+        .channel("dm_calls", { config: { broadcast: { self: false } } })
+        .on("broadcast", { event: "call" }, ({ payload }) => {
+          const sig = payload as CallSignal;
+          if (sig.to !== userId) return;
+          switch (sig.type) {
+            case "call_invite":
+              if (!get().activeCall && !get().incomingCall) {
+                set({ incomingCall: { fromUserId: sig.from, fromUsername: sig.fromUsername, dmChannelId: sig.dmChannelId } });
+              }
+              break;
+            case "call_accept": {
+              const outgoing = get().outgoingCall;
+              if (!outgoing || outgoing.toUserId !== sig.from) return;
+              if (_callInviteTimer) { clearTimeout(_callInviteTimer); _callInviteTimer = null; }
+              const engine = new NativeVoiceEngine(outgoing.dmChannelId, userId, {
+                onParticipantJoin: () => {},
+                onParticipantLeave: () => { stopDMVoiceLocally(); useDMStore.setState({ activeCall: null }); },
+                onSpeakingChange: () => {},
+              });
+              void engine.join().then(() => {
+                _dmVoiceEngine = engine;
+                setActiveNativeVoiceEngine(engine);
+                set({ outgoingCall: null, activeCall: { peerUserId: sig.from, peerUsername: outgoing.toUsername, dmChannelId: outgoing.dmChannelId, startedAt: Date.now() } });
+              }).catch(() => set({ outgoingCall: null }));
+              break;
+            }
+            case "call_decline":
+            case "call_cancel":
+              if (_callInviteTimer) { clearTimeout(_callInviteTimer); _callInviteTimer = null; }
+              set({ outgoingCall: null, incomingCall: null });
+              break;
+            case "call_end":
+              stopDMVoiceLocally();
+              set({ activeCall: null });
+              break;
+          }
+        })
+        .subscribe();
+
       // Setup Realtime hook for incoming DM Messages
       // In advanced implementations, you'd only subscribe to channels you are part of
       supabase
@@ -225,15 +322,10 @@ export const useDMStore = create<DMState>((set, get) => ({
       if (!resolvedChannelId) {
         resolvedChannelId = await resolveOrCreateDMChannel(currentUserId, targetUserId) ?? undefined;
       }
-      set({
-        openDMs: {
-          ...currentDMs,
-          [targetUserId]: {
-            ...dm,
-            minimized: false,
-            dmChannelId: resolvedChannelId,
-          },
-        },
+      set(state => {
+        const existing = state.openDMs[targetUserId];
+        if (!existing) return state;
+        return { openDMs: { ...state.openDMs, [targetUserId]: { ...existing, minimized: false, dmChannelId: resolvedChannelId } } };
       });
       return;
     }
@@ -241,10 +333,15 @@ export const useDMStore = create<DMState>((set, get) => ({
     const offset = Object.keys(currentDMs).length * 30;
     const fallbackPosition =
       typeof window !== "undefined"
-        ? {
-            x: Math.max(20, window.innerWidth - 380 - offset),
-            y: Math.max(20, window.innerHeight - 500 - offset),
-          }
+        ? (() => {
+            const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+            const popupW = 21.25 * remPx;
+            const popupH = 26.25 * remPx;
+            return {
+              x: Math.max(20, window.innerWidth - popupW - 40 - offset),
+              y: Math.max(20, window.innerHeight - popupH - 80 - offset),
+            };
+          })()
         : { x: 400, y: 200 };
     const position = initialPosition ?? fallbackPosition;
 
@@ -286,16 +383,16 @@ export const useDMStore = create<DMState>((set, get) => ({
       author: m.author ? mapProfile(m.author) : undefined,
     }));
 
-    set(state => ({
-       openDMs: {
-         ...state.openDMs,
-         [targetUserId]: {
-            ...state.openDMs[targetUserId],
-            dmChannelId,
-            messages
-         }
-       }
-    }));
+    set(state => {
+      const existing = state.openDMs[targetUserId];
+      if (!existing) return state; // closed before async completed — don't re-add
+      return {
+        openDMs: {
+          ...state.openDMs,
+          [targetUserId]: { ...existing, dmChannelId, messages },
+        },
+      };
+    });
   },
 
   closeDM: (userId) => {
@@ -425,6 +522,102 @@ export const useDMStore = create<DMState>((set, get) => ({
         openDMs: { ...currentDMs, [userId]: { ...dm, unreadCount: 0 } },
       });
     }
+  },
+
+  callUser: async (targetUserId, targetUsername) => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    const currentUsername = useAuthStore.getState().user?.username ?? "unknown";
+    if (!currentUserId) return;
+    if (getActiveNativeVoiceEngine()) return; // already in a call/voice channel
+
+    let dmChannelId = get().openDMs[targetUserId]?.dmChannelId;
+    if (!dmChannelId) {
+      dmChannelId = (await resolveOrCreateDMChannel(currentUserId, targetUserId)) ?? undefined;
+    }
+    if (!dmChannelId) return;
+
+    set({ outgoingCall: { toUserId: targetUserId, toUsername: targetUsername, dmChannelId } });
+
+    _callChannel?.send({
+      type: "broadcast",
+      event: "call",
+      payload: { type: "call_invite", to: targetUserId, from: currentUserId, fromUsername: currentUsername, dmChannelId } satisfies CallSignal,
+    }).catch(() => {});
+
+    if (_callInviteTimer) clearTimeout(_callInviteTimer);
+    _callInviteTimer = setTimeout(() => {
+      if (useDMStore.getState().outgoingCall?.toUserId === targetUserId) {
+        useDMStore.getState().cancelCall();
+      }
+    }, 45_000);
+  },
+
+  cancelCall: () => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    const { outgoingCall } = get();
+    if (!outgoingCall || !currentUserId) return;
+    if (_callInviteTimer) { clearTimeout(_callInviteTimer); _callInviteTimer = null; }
+    _callChannel?.send({
+      type: "broadcast",
+      event: "call",
+      payload: { type: "call_cancel", to: outgoingCall.toUserId, from: currentUserId } satisfies CallSignal,
+    }).catch(() => {});
+    set({ outgoingCall: null });
+  },
+
+  acceptCall: async () => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    const { incomingCall } = get();
+    if (!incomingCall || !currentUserId) return;
+
+    await _callChannel?.send({
+      type: "broadcast",
+      event: "call",
+      payload: { type: "call_accept", to: incomingCall.fromUserId, from: currentUserId } satisfies CallSignal,
+    });
+
+    const engine = new NativeVoiceEngine(incomingCall.dmChannelId, currentUserId, {
+      onParticipantJoin: () => {},
+      onParticipantLeave: () => { stopDMVoiceLocally(); useDMStore.setState({ activeCall: null }); },
+      onSpeakingChange: () => {},
+    });
+
+    try {
+      await engine.join();
+      _dmVoiceEngine = engine;
+      setActiveNativeVoiceEngine(engine);
+      set({
+        incomingCall: null,
+        activeCall: { peerUserId: incomingCall.fromUserId, peerUsername: incomingCall.fromUsername, dmChannelId: incomingCall.dmChannelId, startedAt: Date.now() },
+      });
+    } catch {
+      set({ incomingCall: null });
+    }
+  },
+
+  declineCall: () => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    const { incomingCall } = get();
+    if (!incomingCall || !currentUserId) return;
+    _callChannel?.send({
+      type: "broadcast",
+      event: "call",
+      payload: { type: "call_decline", to: incomingCall.fromUserId, from: currentUserId } satisfies CallSignal,
+    }).catch(() => {});
+    set({ incomingCall: null });
+  },
+
+  endCall: () => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    const { activeCall } = get();
+    if (!activeCall || !currentUserId) return;
+    _callChannel?.send({
+      type: "broadcast",
+      event: "call",
+      payload: { type: "call_end", to: activeCall.peerUserId, from: currentUserId } satisfies CallSignal,
+    }).catch(() => {});
+    stopDMVoiceLocally();
+    set({ activeCall: null });
   },
 
   deleteDMMessage: async (messageId, targetUserId) => {

@@ -33,12 +33,15 @@ export function ChatArea() {
     messages,
     messagesLoading,
     typingUsers,
+    servers,
     deleteMessage,
     pinMessage,
     addReaction,
     removeReaction,
   } = useServerStore();
   const { user } = useAuthStore();
+
+  const isServerOwner = user?.id === servers.find((s) => s.id === activeServerId)?.ownerId;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -192,7 +195,7 @@ export function ChatArea() {
                   >
                     Jump
                   </button>
-                  {activeChannelId && (
+                  {activeChannelId && isServerOwner && (
                     <button
                       onClick={() => pinMessage(msg.id, activeChannelId)}
                       className="text-xs text-[var(--text-muted)] hover:text-[var(--destructive)] flex-shrink-0"
@@ -255,7 +258,7 @@ export function ChatArea() {
                     replyToId={message.replyToId}
                     onReply={(msg) => chat.setReplyTo(msg as Message)}
                     onDelete={activeChannelId ? (id) => deleteMessage(id, activeChannelId) : undefined}
-                    onPin={activeChannelId ? (id) => pinMessage(id, activeChannelId) : undefined}
+                    onPin={isServerOwner && activeChannelId ? (id) => pinMessage(id, activeChannelId) : undefined}
                     onJumpTo={scrollToMessage}
                     onReact={activeChannelId && user ? (emoji) => addReaction(message.id, activeChannelId, emoji, user.id) : undefined}
                     onRemoveReact={activeChannelId && user ? (emoji) => removeReaction(message.id, activeChannelId, emoji, user.id) : undefined}

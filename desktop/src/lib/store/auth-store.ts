@@ -40,7 +40,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
   return data ? mapProfile(data) : null;
 }
 
-function normalizeUsername(value: string): string {
+export function normalizeUsername(value: string): string {
   const cleaned = value
     .trim()
     .toLowerCase()

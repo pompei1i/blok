@@ -1,142 +1,136 @@
-# $blok Desktop
+# $blok
 
-Desktop-клиент мессенджера в стиле Discord/Slack на базе `React + Vite + Zustand + Supabase`, упакованный как нативное приложение через Tauri 2.
+Мессенджер в стиле Discord/Slack — **нативный десктоп** (Tauri 2) + **веб-приложение** (Next.js 15).
 
-## Стек технологий
+## Стек
 
-| Слой | Технология |
-|---|---|
-| UI | React 19, Tailwind CSS 4, Lucide React |
-| Язык | TypeScript (strict mode, ES2020) |
-| Сборка | Vite 7 (порт 1420 для дева) |
-| Состояние | Zustand 4 (5 сторов) |
-| Бэкенд | Supabase (Auth, Realtime, PostgreSQL) |
-| Desktop | Tauri 2 (NSIS-установщик для Windows) |
-| GIF | Tenor API v1 |
-| Голос | cpal (native audio engine, Rust) |
+| Слой | Десктоп (`desktop/`) | Веб (`/`) |
+|---|---|---|
+| UI | React 19, Tailwind CSS 4, Lucide | React 19, Tailwind CSS 4, Lucide |
+| Язык | TypeScript strict | TypeScript strict |
+| Сборка | Vite 7 | Next.js 15 (Turbopack) |
+| Состояние | Zustand 4 | Zustand 4 |
+| Бэкенд | Supabase (Auth, Realtime, PostgreSQL) | Supabase (Auth, Realtime, PostgreSQL) |
+| Desktop | Tauri 2 (NSIS-установщик, Windows) | — |
+| Голос | cpal (Rust, native audio engine) | WebRTC (getUserMedia + RTCPeerConnection) |
+| Локализация | 6 языков, 140+ ключей (JSON) | 6 языков, 140+ ключей (JSON) |
 
 ## Архитектура
 
 ```
-src/
-├── components/blok/     # React-компоненты
-├── hooks/               # Кастомные хуки (useChatInput, ...)
+blok/
+├── app/                     # Next.js App Router (браузер)
+│   ├── layout.tsx
+│   └── page.tsx
+├── components/blok/         # React-компоненты (браузер)
 ├── lib/
-│   ├── store/           # Zustand-сторы (auth, server, friends, dm, ui-settings)
-│   ├── constants.ts     # Именованные константы (пороги, размеры, таймауты)
-│   ├── native-voice-engine.ts  # cpal-обёртка (Rust ↔ TS IPC)
-│   ├── supabaseClient.ts
-│   ├── i18n.ts          # Локализация (5 языков, 130+ ключей)
-│   ├── sounds.ts        # Аудио-эффекты
+│   ├── store/               # Zustand-сторы (auth, group, friends, dm, ui-settings)
+│   ├── voice-engine.ts      # WebRTC голос (браузер)
+│   ├── supabaseClient.ts    # Supabase клиент (NEXT_PUBLIC_*)
 │   └── utils.ts
-└── styles/globals.css   # Tailwind + терминальная тема
+├── hooks/                   # use-mobile и др.
+├── styles/                  # Tailwind + терминальная тема
+└── desktop/                 # Tauri 2 десктоп-приложение
+    ├── src/
+    │   ├── components/blok/
+    │   ├── lib/
+    │   │   ├── native-voice-engine.ts   # cpal (Rust ↔ TS IPC)
+    │   │   ├── voice-engine.ts          # WebRTC fallback
+    │   │   └── store/
+    │   └── App.tsx
+    └── src-tauri/           # Rust backend (audio, tray, updater)
 ```
-
-**Точка входа:** `src/main.tsx` → `App.tsx` → `app-layout.tsx`
-
-**Сторы:**
-- `auth-store` — сессия, профиль, логин/логаут, presence on/offline
-- `server-store` — серверы, каналы, участники, сообщения, голосовое состояние
-- `friends-store` — список друзей, запросы в реальном времени, presence
-- `dm-store` — плавающие DM-окна, история, вложения, GIF
-- `ui-settings-store` — тема, язык, scale, compact mode, custom CSS, аудио-настройки (persist в localStorage)
 
 ## Что реализовано
 
 ### Аутентификация и профиль
 - Регистрация и вход через Supabase Auth
-- Инициализация сессии при старте приложения
-- Редактирование профиля: display name, username, email, статус, bio, pronouns
-- Автонормализация username (lowercase, спецсимволы → `_`, макс. 24 символа)
-- Presence: автоматически `online` при входе, `offline` при выходе или закрытии окна
+- Редактирование профиля: display name, username, email, статус, bio, pronouns, акцент-цвет
+- Presence: автоматически `online` при входе, `offline` при выходе
 
 ### Серверы и каналы
-- Загрузка серверов, каналов, категорий и участников из Supabase (параллельные запросы)
-- Создание сервера с автоматическим каналом `general`
-- Создание текстовых и голосовых каналов
-- Приглашение пользователей на сервер по username (только владелец)
-- Ленивая загрузка истории сообщений при переключении канала
+- Загрузка серверов, каналов, категорий и участников из Supabase
+- Создание сервера, текстовых и голосовых каналов
+- Приглашение пользователей на сервер по username
 
 ### Текстовый чат
 - Отправка и получение сообщений в реальном времени (Supabase Realtime)
-- История сообщений с вложениями (загружается из `attachments` join)
-- Вложения: изображения, видео, аудио, документы (Base64 data URLs)
-- Прогресс загрузки вложений: реальный прогресс FileReader + спиннер на кнопке отправки
-- GIF-пикер (Tenor API) — поиск и отправка GIF прямо в чат
-- Emoji-пикер с категориями и поиском
-- Mention picker (`@username`)
+- Вложения: изображения, видео, аудио, документы (Base64 data URLs) + drag-and-drop
+- GIF-пикер (Tenor API), emoji-пикер, mention picker (`@username`)
 - Ответы на сообщения (reply system) с quote-preview
 - Закреплённые сообщения (pin bar, jump-to)
-- Lazy-loading медиа через IntersectionObserver
-- Markdown-подобное форматирование (bold / italic / code / links) с XSS-защитой (DOMPurify)
-- Emoji-реакции: быстрый пикер при ховере, пилюли под сообщением, realtime + DB
+- Emoji-реакции: realtime + DB
+- Markdown-подобное форматирование + XSS-защита (DOMPurify)
 
 ### Голосовые каналы
-- Native audio engine на базе cpal (Rust) через Tauri IPC
-- Mute / deafen с отображением иконок статуса у каждого участника:
-  - `MicOff` — микрофон выключен или включён деафен
-  - `VolumeX` — деафен (не слышит других)
-  - `Monitor` — демонстрация экрана (кликабельна: открывает оверлей просмотра)
-- Speaking-индикатор в реальном времени (ring вокруг аватара)
-- Presence-трекинг через Supabase Realtime Presence (isMuted, isDeafened, isScreenSharing)
-- Настройки: noise suppression, echo cancellation, input volume, push-to-talk (Space)
-- Демонстрация экрана с оверлеем просмотра (ScreenShareOverlay)
+- **Десктоп**: native audio engine на базе cpal (Rust) через Tauri IPC
+- **Браузер**: WebRTC (getUserMedia + RTCPeerConnection + Supabase Realtime signaling)
+- Mute / deafen с отображением иконок у каждого участника
+- Speaking-индикатор в реальном времени
+- Presence-трекинг через Supabase Realtime
+- Настройки: noise suppression, echo cancellation, input volume, push-to-talk
+- Демонстрация экрана (десктоп: native picker; браузер: getDisplayMedia)
 
 ### Друзья и личные сообщения (DM)
-- Система друзей: запросы, принятие/отклонение, удаление
-- Realtime — заявки приходят мгновенно без обновления страницы
-- Поиск по друзьям, presence-статусы
-- Плавающие DM-попапы: перетаскивание за заголовок, минимизация, счётчик непрочитанных
+- Система друзей: запросы, принятие/отклонение, presence-статусы
+- Плавающие DM-попапы с перетаскиванием, минимизацией, счётчиком непрочитанных
 - История DM с вложениями и GIF
-- Поддержка нескольких открытых DM одновременно
 
-### Безопасность
-- RLS политики на всех таблицах: `messages`, `dm_messages`, `profiles`, `user_relationships`, `dm_channels`, `channels`, `attachments`, `message_reactions`, `user_presence`
-- `author_id` guard на стороне клиента для delete-операций (defense-in-depth)
-- Content Security Policy: `script-src 'self'`, без `unsafe-inline`/`unsafe-eval`
-- XSS-защита: HTML-экранирование → markdown-замены → DOMPurify allowlist
-
-### Настройки
+### Настройки (7 вкладок)
 | Раздел | Работает |
 |---|---|
-| Аудио: noise suppression / echo cancellation | применяется к `getUserMedia` |
-| Аудио: input volume (0–100%) | GainNode, меняется live |
-| Аудио: push-to-talk (Space) | глобальный keydown/keyup |
-| View: compact mode | CSS-правила по `data-compact-mode` |
-| View: member list toggle | показывает/скрывает FriendsSidebar |
-| View: UI scale | `fontSize` на `<html>` |
-| Theme: dark / light / darker | CSS-переменные |
-| Theme: Custom CSS | инжектируется в `<style>` тег live |
-| Language | 5 языков (EN/RU/PL/DE/ES/UA) |
+| Аудио: noise suppression / echo cancellation | getUserMedia constraints |
+| Аудио: input volume (0–100%) | GainNode |
+| Аудио: push-to-talk (Space) | keydown/keyup |
+| View: compact mode, member list toggle, UI scale | CSS-переменные |
+| Theme: dark / light / darker, Custom CSS | CSS-переменные + live inject |
+| Language | 6 языков (EN/RU/UA/PL/DE/ES) |
 
-### UI/UX
-- Терминальный визуальный стиль: grid-фон, CSS-анимации, monospace шрифт
-- Custom CSS — пользователь вставляет свой CSS, применяется мгновенно
-- Compact mode — плотная верстка без перезагрузки
-- Звуки при входе/выходе из голосового канала
-- Push-уведомления на новые сообщения (browser Notification API)
-- Unread-счётчики: бейджи на каналах и серверных табах
-- Системный трей: минимизация вместо закрытия
-- Авто-обновление через GitHub Releases (Tauri updater)
+### Безопасность
+- RLS политики на всех таблицах Supabase
+- XSS-защита: HTML-экранирование + DOMPurify allowlist
+- CSP в tauri.conf.json (без `unsafe-inline`/`unsafe-eval`)
 
 ## Запуск
 
+### Браузерное веб-приложение
+
 ```bash
+# из корня d:\blok
 npm install
-npm run dev          # dev-сервер (http://localhost:1420)
-npm run tauri dev    # Tauri desktop (нативное окно)
-npm run tauri build  # сборка .exe установщика (NSIS)
+npm run dev        # http://localhost:3000
+npm run build      # production build
+npm start          # production server
 ```
 
-Или через скрипт (автоматически установит Rust если не установлен):
+Переменные окружения (`.env.local`):
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
+### Десктопное приложение (Tauri)
+
+```bash
+# из desktop/
+npm install
+npm run tauri dev    # нативное окно (dev)
+npm run tauri build  # сборка .exe (NSIS)
+```
+
+Или через скрипт (устанавливает Rust автоматически):
 ```powershell
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-## База данных
+Переменные окружения (`desktop/.env`):
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+VITE_TENOR_API_KEY=...   # опционально
+```
 
-Схема управляется напрямую в Supabase-консоли. Основные таблицы:
+## База данных
 
 | Таблица | Назначение |
 |---|---|
@@ -149,31 +143,16 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `attachments` | Вложения к сообщениям |
 | `message_reactions` | Emoji-реакции |
 | `user_relationships` | Друзья / запросы |
-| `dm_channels` | DM-каналы (user_a_id + user_b_id) |
+| `dm_channels` | DM-каналы |
 | `dm_messages` | Сообщения в DM |
 | `user_presence` | Статусы присутствия |
 
-Конфигурация Supabase — в `.env` (не коммитится):
-```
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
-VITE_TENOR_API_KEY=...   # опционально, по умолчанию demo-ключ
-```
-
-### RLS (обязательно)
-
-Все таблицы защищены Row Level Security. Политики зафиксированы в `supabase/policies.sql`.
-
-Дополнительно для Realtime:
+RLS схема — `supabase/policies.sql`. Для Realtime:
 ```sql
 ALTER TABLE user_relationships REPLICA IDENTITY FULL;
 ALTER TABLE user_presence REPLICA IDENTITY FULL;
 ```
 
-Таблицы `user_relationships` и `user_presence` должны быть добавлены в Supabase Replication publication.
+## Релизы
 
-## Ограничения текущей версии
-
-- **Вложения** — хранятся как Base64 в БД, без Supabase Storage. Крупные файлы (>3MB) могут замедлять отправку.
-- **Редактирование сообщений** — не реализовано.
-- **Пагинация сообщений** — история ограничена последними 50 сообщениями.
+Релизы десктопного приложения публикуются автоматически через GitHub Actions при push тега `v*`. Воркфлоу собирает NSIS-установщик и публикует GitHub Release с автоапдейтером (Tauri updater).
