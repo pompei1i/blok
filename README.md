@@ -13,7 +13,7 @@
 | Бэкенд | Supabase (Auth, Realtime, PostgreSQL) | Supabase (Auth, Realtime, PostgreSQL) |
 | Desktop | Tauri 2 (NSIS-установщик, Windows) | — |
 | Голос | cpal (Rust, native audio engine) | WebRTC (getUserMedia + RTCPeerConnection) |
-| Локализация | 6 языков, 155+ ключей (JSON) | 6 языков, 155+ ключей (JSON) |
+| Локализация | 6 языков, 165+ ключей (JSON) | 6 языков, 165+ ключей (JSON) |
 
 ## Архитектура
 
@@ -74,6 +74,7 @@ blok/
 - Presence-трекинг через Supabase Realtime
 - Настройки: noise suppression, echo cancellation, input volume, push-to-talk
 - Демонстрация экрана (десктоп: native picker; браузер: getDisplayMedia)
+- Настройки качества демонстрации: FPS (1–30), разрешение (720p/1080p/1440p/native), JPEG quality (Low/Medium/High)
 
 ### Presence
 - Статус-точка на аватаре в чате: зелёная (online), жёлтая (afk), красная (offline/dnd)
@@ -92,6 +93,8 @@ blok/
 | Аудио: noise suppression / echo cancellation | getUserMedia constraints |
 | Аудио: input volume (0–100%) | GainNode |
 | Аудио: push-to-talk (Space) | keydown/keyup |
+| Видео: camera quality | getUserMedia constraints |
+| Видео: screen share FPS / resolution / quality | Rust encoder + ui-settings-store |
 | View: compact mode, member list toggle, UI scale | CSS-переменные |
 | Theme: dark / light / darker, Custom CSS | CSS-переменные + live inject |
 | Language | 6 языков (EN/RU/UA/PL/DE/ES) |
@@ -100,6 +103,8 @@ blok/
 - RLS политики на всех таблицах Supabase
 - XSS-защита: HTML-экранирование + DOMPurify allowlist
 - CSP в tauri.conf.json (без `unsafe-inline`/`unsafe-eval`)
+- Входящие screen_frame-кадры ограничены до 3840 × 2160 и 400 KB (защита от canvas DoS)
+- Invite-коды генерируются через `crypto.getRandomValues` (CSPRNG, 40 бит)
 
 ## Запуск
 

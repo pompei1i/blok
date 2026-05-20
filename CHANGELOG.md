@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.6] — 2026-05-20
+
+### Fixed
+- **Screen share hang under load** — replaced `setInterval` with a self-scheduling `setTimeout` loop; next frame is only queued after the previous capture + Supabase broadcast fully completes, eliminating unbounded Tauri invocation pile-up
+- **Audio thread infinite loop** — `Cmd::AddSamples` used a one-pop-at-a-time `while` loop that deadlocked when an incoming batch exceeded the 2-second buffer cap; replaced with bulk `drain()` + tail truncation (O(1))
+- **GDI capture timer leaked after leaving voice** — `leave()` checked `_screenVideoEl` only, which is never set in the Tauri GDI path; capture kept running post-leave, allocating bitmaps and encoding JPEG indefinitely; now checks `_screenCaptureTimer !== null`
+- `isScreenSharing()` returned `false` while GDI capture was active; fixed to include `_screenCaptureTimer` in the check
+- Audio capture listeners left orphaned when Supabase channel subscription failed (CHANNEL_ERROR / TIMED_OUT); added cleanup in the rejection path of `join()`
+
+### Security
+- **Canvas DoS** — incoming `screen_frame` dimensions clamped to 3840 × 2160 and payload to 400 KB before touching the canvas; prevented memory-exhaustion crash from a malicious peer
+- **MediaStreamTrack leak** — duplicate `screenshare_start` from the same peer now calls `_clearRemoteCanvas` first, stopping the old track before creating a new entry
+- **`onScreenShareStop` ignored `userId`** — any peer stopping their share wiped the local viewer state for everyone; now only clears state when `screenShareUserId` matches
+- **Double-join guard** — `join()` now returns early if `realtimeCh !== null`, preventing duplicate subscriptions and dual audio engines
+- **Invite code CSPRNG** — replaced `Math.random()` (PRNG, ~41 bits, enumerable) with `crypto.getRandomValues` producing a 10-character hex code
+
+---
+
 ## [0.2.5] — 2026-05-20
 
 ### Added
