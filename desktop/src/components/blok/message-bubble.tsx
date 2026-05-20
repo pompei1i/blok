@@ -157,10 +157,10 @@ export function MessageBubble({
   const { t } = useI18n();
   const { presence, presenceLastSeen } = useFriendsStore();
   const { user: me } = useAuthStore();
-  const authorId = message.authorId;
+  const authorId = "authorId" in message ? message.authorId : undefined;
   const authorStatus = authorId === me?.id
     ? ("online" as const)
-    : effectiveStatus(presence[authorId], presenceLastSeen[authorId]);
+    : effectiveStatus(presence[authorId ?? ""], presenceLastSeen[authorId ?? ""]);
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showQuickEmoji, setShowQuickEmoji] = useState(false);
