@@ -112,7 +112,9 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         activeVoiceChannelId: null,
         voiceParticipants: { ...state.voiceParticipants, [channelId]: [] },
       }));
-      return err instanceof Error ? err.message : "Failed to access microphone";
+      return typeof err === "string" ? err
+        : err instanceof Error ? err.message
+        : "Failed to access microphone";
     }
   },
 

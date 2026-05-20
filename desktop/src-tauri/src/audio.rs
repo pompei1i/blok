@@ -144,7 +144,12 @@ fn run_audio(
         host.default_output_device().ok_or("no default output device")?
     };
 
-    // --- input config: prefer 48 kHz mono ---
+    // --- input config: prefer 48 kHz at the device's native channel count ---
+    // Forcing channels: 1 (mono) causes WASAPI to reject the stream on most
+    // Windows devices that only expose stereo in shared mode.  Use the native
+    // channel count here and downmix to mono inside the capture callback.
+    let input_default = input_device.default_input_config()?;
+    let input_channels = input_default.channels() as usize;
     let input_config: cpal::StreamConfig = {
         let supports_target = input_device
             .supported_input_configs()
@@ -158,12 +163,12 @@ fn run_audio(
 
         if supports_target {
             cpal::StreamConfig {
-                channels: 1,
+                channels: input_default.channels(),
                 sample_rate: cpal::SampleRate(TARGET_RATE),
                 buffer_size: cpal::BufferSize::Default,
             }
         } else {
-            input_device.default_input_config()?.config()
+            input_default.config()
         }
     };
 
@@ -221,7 +226,15 @@ fn run_audio(
             if state.muted {
                 return;
             }
-            state.accumulator.extend_from_slice(data);
+            // Downmix multichannel (e.g. stereo) to mono by averaging channels.
+            if input_channels <= 1 {
+                state.accumulator.extend_from_slice(data);
+            } else {
+                state.accumulator.extend(
+                    data.chunks_exact(input_channels)
+                        .map(|ch| ch.iter().sum::<f32>() / input_channels as f32),
+                );
+            }
             let fs = state.frame_size;
             while state.accumulator.len() >= fs {
                 let frame: Vec<f32> = state.accumulator.drain(..fs).collect();
