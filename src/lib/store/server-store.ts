@@ -43,6 +43,8 @@ interface ServerState {
   createChannel: (data: { serverId: string; name: string; type: "text" | "voice"; categoryId?: string }) => Promise<void>;
   removeServer: (serverId: string) => void;
   addMessage: (channelId: string, message: Message) => Promise<void>;
+  editMessage: (channelId: string, messageId: string, content: string) => Promise<void>;
+  deleteChannel: (channelId: string) => Promise<void>;
   setTyping: (channelId: string, userId: string, isTyping: boolean) => void;
   openTab: (serverId: string) => void;
   closeTab: (serverId: string) => void;
@@ -332,6 +334,41 @@ export const useServerStore = create<ServerState>((set, get) => ({
           }
         )
         .subscribe();
+
+      supabase
+        .channel("public:messages:update")
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, (payload) => {
+          const m = payload.new;
+          if (!get().messagesLoaded.has(m.channel_id)) return;
+          set((state) => ({
+            messages: {
+              ...state.messages,
+              [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
+                msg.id === m.id ? { ...msg, content: m.content, isEdited: m.is_edited, updatedAt: m.updated_at } : msg
+              ),
+            },
+          }));
+        })
+        .subscribe();
+
+      supabase
+        .channel("public:channels:delete")
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: "channels" }, (payload) => {
+          const channelId = payload.old.id;
+          set((state) => {
+            const newChannels: Record<string, Channel[]> = {};
+            for (const [sid, chs] of Object.entries(state.channels)) {
+              newChannels[sid] = chs.filter((c) => c.id !== channelId);
+            }
+            return {
+              channels: newChannels,
+              activeChannelId: state.activeChannelId === channelId
+                ? Object.values(newChannels).flat().find((c) => c.type === "text")?.id ?? null
+                : state.activeChannelId,
+            };
+          });
+        })
+        .subscribe();
     } catch (e) {
       console.error(e);
     }
@@ -473,6 +510,36 @@ export const useServerStore = create<ServerState>((set, get) => ({
       openTabs: state.openTabs.filter((id) => id !== serverId),
       activeServerId: state.activeServerId === serverId ? null : state.activeServerId,
     })),
+
+  editMessage: async (channelId, messageId, content) => {
+    const { error } = await supabase.from("messages").update({ content, is_edited: true }).eq("id", messageId);
+    if (error) { console.error("Edit message failed", error); return; }
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [channelId]: (state.messages[channelId] ?? []).map((m) =>
+          m.id === messageId ? { ...m, content, isEdited: true } : m
+        ),
+      },
+    }));
+  },
+
+  deleteChannel: async (channelId) => {
+    const { error } = await supabase.from("channels").delete().eq("id", channelId);
+    if (error) { console.error("Delete channel failed", error); return; }
+    set((state) => {
+      const newChannels: Record<string, Channel[]> = {};
+      for (const [sid, chs] of Object.entries(state.channels)) {
+        newChannels[sid] = chs.filter((c) => c.id !== channelId);
+      }
+      return {
+        channels: newChannels,
+        activeChannelId: state.activeChannelId === channelId
+          ? Object.values(newChannels).flat().find((c) => c.type === "text")?.id ?? null
+          : state.activeChannelId,
+      };
+    });
+  },
 
   addMessage: async (channelId, message) => {
     const { data: insertedMsg, error } = await supabase

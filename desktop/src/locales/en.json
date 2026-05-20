@@ -138,5 +138,8 @@
   "attachment.image": "Image",
   "attachment.video": "Video",
   "attachment.document": "Document",
-  "attachment.audio": "Audio"
+  "attachment.audio": "Audio",
+  "channel.delete": "Delete Channel",
+  "channel.deleteConfirm": "Delete #{name}?",
+  "offline.noConnection": "No internet connection"
 }

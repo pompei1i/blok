@@ -4,6 +4,7 @@ import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
 import { ScreenShareOverlay } from "./screen-share-overlay";
 import { IncomingCallBanner } from "./incoming-call-banner";
+import { OfflineBanner } from "./offline-banner";
 import { RightSidebar } from "./right-sidebar";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { useServerStore } from "@/lib/store/server-store";
@@ -75,6 +76,7 @@ export function AppLayout() {
 
       {/* Main App Container */}
       <div className="relative z-10 flex flex-1 h-full w-full flex-col">
+        <OfflineBanner />
         <TopBar />
         <div className="flex flex-1 overflow-hidden">
           <GroupSidebar />

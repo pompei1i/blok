@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
 import type { Message, DMMessage, User, Reaction } from "@/lib/store/types";
 import { useState, useRef, useEffect } from "react";
-import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile } from "lucide-react";
+import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X as XIcon } from "lucide-react";
 import { AudioPlayer } from "./audio-player";
 import { VideoPlayer } from "./video-player";
 import { useI18n } from "@/lib/i18n";
@@ -130,6 +130,7 @@ interface MessageBubbleProps {
   onJumpTo?: (messageId: string) => void;
   onReact?: (emoji: string) => void;
   onRemoveReact?: (emoji: string) => void;
+  onEdit?: (messageId: string, newContent: string) => void;
   currentUserId?: string;
 }
 
@@ -147,13 +148,38 @@ export function MessageBubble({
   onJumpTo,
   onReact,
   onRemoveReact,
+  onEdit,
   currentUserId,
 }: MessageBubbleProps) {
   const { t } = useI18n();
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showQuickEmoji, setShowQuickEmoji] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isEditing) editRef.current?.focus();
+  }, [isEditing]);
+
+  const startEdit = () => {
+    setEditValue(message.content ?? "");
+    setIsEditing(true);
+    setShowMenu(false);
+  };
+
+  const commitEdit = () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== message.content) onEdit?.(message.id, trimmed);
+    setIsEditing(false);
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitEdit(); }
+    if (e.key === "Escape") setIsEditing(false);
+  };
 
   useEffect(() => {
     if (!showMenu) return;
@@ -348,17 +374,37 @@ export function MessageBubble({
             <span className="text-xs text-[var(--text-muted)]">
               {formatTime(message.createdAt)}
             </span>
-            {"editedAt" in message && message.editedAt && (
+            {(("isEdited" in message && message.isEdited) || ("editedAt" in message && message.editedAt)) && (
               <span className="text-xs text-[var(--text-muted)]">{t("message.edited")}</span>
             )}
           </div>
         )}
-        {message.content && (
+        {isEditing ? (
+          <div className="flex flex-col gap-1">
+            <textarea
+              ref={editRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={handleEditKeyDown}
+              rows={2}
+              className="w-full bg-[var(--bg-base)] border border-[var(--accent-red)] rounded px-2 py-1 text-sm text-[var(--text-primary)] resize-none focus:outline-none"
+            />
+            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+              <span>Enter to save · Esc to cancel</span>
+              <button onClick={commitEdit} className="ml-auto p-0.5 hover:text-[var(--online)] transition-colors">
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setIsEditing(false)} className="p-0.5 hover:text-[var(--destructive)] transition-colors">
+                <XIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : message.content ? (
           <p
             className="text-sm text-[var(--text-primary)] leading-relaxed"
             dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
           />
-        )}
+        ) : null}
 
         {"attachments" in message && message.attachments && message.attachments.length > 0 && (
           <div className="flex flex-col gap-2 mt-2">
@@ -478,6 +524,14 @@ export function MessageBubble({
               >
                 <Pin className="w-3 h-3" />
                 {"isPinned" in message && message.isPinned ? "Unpin" : "Pin"}
+              </button>
+            )}
+            {isOwn && onEdit && (
+              <button
+                onClick={startEdit}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                <Edit2 className="w-3 h-3" /> {t("message.edit")}
               </button>
             )}
             {isOwn && onDelete && (

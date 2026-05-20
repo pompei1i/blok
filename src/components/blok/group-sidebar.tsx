@@ -9,6 +9,7 @@ import {
   HeadphoneOff,
   UserPlus,
   X,
+  Trash2,
 } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -38,6 +39,7 @@ export function GroupSidebar({ isDrawerOpen, onDrawerClose }: GroupSidebarProps)
     voiceParticipants,
     joinVoiceChannel,
     leaveVoiceChannel,
+    deleteChannel,
   } = useServerStore();
   const { user } = useAuthStore();
   const [expandedSections, setExpandedSections] = useState({
@@ -61,6 +63,7 @@ export function GroupSidebar({ isDrawerOpen, onDrawerClose }: GroupSidebarProps)
   const [showInviteUser, setShowInviteUser] = useState(false);
   const [joiningChannel, setJoiningChannel] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [confirmDeleteChannelId, setConfirmDeleteChannelId] = useState<string | null>(null);
 
   const handleVoiceChannelClick = async (channelId: string) => {
     if (!user || joiningChannel) return;
@@ -171,19 +174,49 @@ export function GroupSidebar({ isDrawerOpen, onDrawerClose }: GroupSidebarProps)
           {expandedSections.text && (
             <div className="space-y-0.5">
               {textChannels.map((channel) => (
-                <button
-                  key={channel.id}
-                  onClick={() => setActiveChannel(channel.id)}
-                  className={cn(
-                    "flex items-center gap-2 w-full px-2 py-1.5 rounded text-sm transition-all duration-120",
-                    activeChannelId === channel.id
-                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] border-l-2 border-[var(--accent-red)]"
-                      : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+                <div key={channel.id} className="group/ch relative">
+                  {confirmDeleteChannelId === channel.id ? (
+                    <div className="flex items-center gap-1 px-2 py-1.5 rounded bg-[var(--bg-elevated)] border border-[var(--destructive)]/40 text-xs">
+                      <span className="text-[var(--destructive)] truncate flex-1">
+                        {t("channel.deleteConfirm").replace("{name}", channel.name)}
+                      </span>
+                      <button
+                        onClick={() => { void deleteChannel(channel.id); setConfirmDeleteChannelId(null); }}
+                        className="px-1.5 py-0.5 rounded bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity"
+                      >
+                        {t("message.delete")}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteChannelId(null)}
+                        className="p-0.5 hover:text-[var(--text-primary)] transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setActiveChannel(channel.id)}
+                      className={cn(
+                        "flex items-center gap-2 w-full px-2 py-1.5 rounded text-sm transition-all duration-120",
+                        activeChannelId === channel.id
+                          ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] border-l-2 border-[var(--accent-red)]"
+                          : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+                      )}
+                    >
+                      <Hash className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate flex-1 text-left">{channel.name}</span>
+                      {isServerOwner && (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
+                          className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all rounded"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </span>
+                      )}
+                    </button>
                   )}
-                >
-                  <Hash className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">{channel.name}</span>
-                </button>
+                </div>
               ))}
             </div>
           )}

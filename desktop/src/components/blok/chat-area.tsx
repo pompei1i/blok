@@ -35,6 +35,7 @@ export function ChatArea() {
     typingUsers,
     servers,
     deleteMessage,
+    editMessage,
     pinMessage,
     addReaction,
     removeReaction,
@@ -257,6 +258,7 @@ export function ChatArea() {
                     replyToMessage={replyToMsg}
                     replyToId={message.replyToId}
                     onReply={(msg) => chat.setReplyTo(msg as Message)}
+                    onEdit={activeChannelId ? (id, content) => void editMessage(activeChannelId, id, content) : undefined}
                     onDelete={activeChannelId ? (id) => deleteMessage(id, activeChannelId) : undefined}
                     onPin={isServerOwner && activeChannelId ? (id) => pinMessage(id, activeChannelId) : undefined}
                     onJumpTo={scrollToMessage}

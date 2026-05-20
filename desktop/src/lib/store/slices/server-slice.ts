@@ -29,6 +29,7 @@ export interface ServerSlice {
   setActiveChannel: (channelId: string | null) => void;
   createServer: (data: { name: string; description?: string; ownerId: string }) => Promise<void>;
   createChannel: (data: { serverId: string; name: string; type: "text" | "voice"; categoryId?: string }) => Promise<void>;
+  deleteChannel: (channelId: string) => Promise<void>;
   removeServer: (serverId: string) => void;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
   openTab: (serverId: string) => void;
@@ -278,6 +279,46 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         }
       ).subscribe();
 
+      supabase.channel("public:messages:update").on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        (payload) => {
+          const m = payload.new;
+          if (!get().messagesLoaded.has(m.channel_id)) return;
+          set((state) => ({
+            messages: {
+              ...state.messages,
+              [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
+                msg.id === m.id ? { ...msg, content: m.content, isEdited: m.is_edited, updatedAt: m.updated_at } : msg
+              ),
+            },
+          }));
+        }
+      ).subscribe();
+
+      supabase.channel("public:channels:delete").on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "channels" },
+        (payload) => {
+          const channelId = payload.old.id;
+          set((state) => {
+            const newChannels: Record<string, Channel[]> = {};
+            const newChannelIndex = { ...state.channelIndex };
+            delete newChannelIndex[channelId];
+            for (const [sid, chs] of Object.entries(state.channels)) {
+              newChannels[sid] = chs.filter((c) => c.id !== channelId);
+            }
+            return {
+              channels: newChannels,
+              channelIndex: newChannelIndex,
+              activeChannelId: state.activeChannelId === channelId
+                ? Object.values(newChannels).flat().find((c) => c.type === "text")?.id ?? null
+                : state.activeChannelId,
+            };
+          });
+        }
+      ).subscribe();
+
       supabase.channel("public:message_reactions").on(
         "postgres_changes",
         { event: "*", schema: "public", table: "message_reactions" },
@@ -363,6 +404,26 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       name: data.name, type: data.type, position: pos,
     });
     if (error) { console.error("Failed to create channel", error); throw error; }
+  },
+
+  deleteChannel: async (channelId) => {
+    const { error } = await supabase.from("channels").delete().eq("id", channelId);
+    if (error) { console.error("Delete channel failed", error); return; }
+    set((state) => {
+      const newChannels: Record<string, Channel[]> = {};
+      const newChannelIndex = { ...state.channelIndex };
+      delete newChannelIndex[channelId];
+      for (const [sid, chs] of Object.entries(state.channels)) {
+        newChannels[sid] = chs.filter((c) => c.id !== channelId);
+      }
+      return {
+        channels: newChannels,
+        channelIndex: newChannelIndex,
+        activeChannelId: state.activeChannelId === channelId
+          ? Object.values(newChannels).flat().find((c) => c.type === "text")?.id ?? null
+          : state.activeChannelId,
+      };
+    });
   },
 
   removeServer: (serverId) =>

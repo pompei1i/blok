@@ -17,6 +17,7 @@ export interface MessageSlice {
   loadMessages: (channelId: string) => Promise<void>;
   addMessage: (channelId: string, message: Message) => Promise<void>;
   setTyping: (channelId: string, userId: string, isTyping: boolean) => void;
+  editMessage: (channelId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string, channelId: string) => Promise<void>;
   pinMessage: (messageId: string, channelId: string) => Promise<void>;
   addReaction: (messageId: string, channelId: string, emoji: string, userId: string) => Promise<void>;
@@ -132,6 +133,19 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       const updated = isTyping ? [...new Set([...current, userId])] : current.filter((id) => id !== userId);
       return { typingUsers: { ...state.typingUsers, [channelId]: updated } };
     }),
+
+  editMessage: async (channelId, messageId, content) => {
+    const { error } = await supabase.from("messages").update({ content, is_edited: true }).eq("id", messageId);
+    if (error) { console.error("Edit message failed", error); return; }
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [channelId]: (state.messages[channelId] ?? []).map((m) =>
+          m.id === messageId ? { ...m, content, isEdited: true } : m
+        ),
+      },
+    }));
+  },
 
   deleteMessage: async (messageId, channelId) => {
     set((state) => {

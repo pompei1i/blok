@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff, Terminal, ChevronRight, Loader2 } from "lucide-react";
 import { useAuthStore } from "../../lib/store/auth-store";
 import { cn } from "../../lib/utils";
@@ -10,6 +10,19 @@ export function AuthScreen() {
   const { login, register, isLoading, error, clearError } = useAuthStore();
   const { t } = useI18n();
   const [mode, setMode] = useState<AuthMode>("login");
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow, LogicalSize }) => {
+      void getCurrentWindow().setSize(new LogicalSize(480, 580));
+    });
+    return () => {
+      if (!("__TAURI_INTERNALS__" in window)) return;
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow, LogicalSize }) => {
+        void getCurrentWindow().setSize(new LogicalSize(800, 600));
+      });
+    };
+  }, []);
   const [showPassword, setShowPassword] = useState(false);
 
   const [username, setUsername] = useState("");

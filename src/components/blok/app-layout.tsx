@@ -4,6 +4,7 @@ import { FriendsSidebar } from "./friends-sidebar";
 import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
 import { ScreenShareOverlay } from "./screen-share-overlay";
+import { OfflineBanner } from "./offline-banner";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
@@ -110,6 +111,7 @@ export function AppLayout() {
 
       {/* Main App Container */}
       <div className="relative z-10 flex flex-1 h-full w-full flex-col">
+        <OfflineBanner />
         <TopBar
           onOpenLeft={isMobile ? () => setShowLeftDrawer(true) : undefined}
           onOpenRight={isMobile && showMemberList ? () => setShowRightDrawer(true) : undefined}

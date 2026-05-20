@@ -29,6 +29,7 @@ export function ChatArea() {
     messagesLoading,
     typingUsers,
     addMessage,
+    editMessage,
   } = useServerStore();
   const { user } = useAuthStore();
   const [inputValue, setInputValue] = useState("");
@@ -211,6 +212,7 @@ export function ChatArea() {
                   user={message.author || user || undefined}
                   isOwn={message.authorId === user?.id}
                   showAvatar={showAvatar}
+                  onEdit={activeChannelId ? (id, content) => void editMessage(activeChannelId, id, content) : undefined}
                 />
               );
             })}
