@@ -32,6 +32,8 @@ export interface ServerSlice {
   deleteChannel: (channelId: string) => Promise<void>;
   removeServer: (serverId: string) => void;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
+  generateInviteCode: (serverId: string) => Promise<string | null>;
+  joinByInviteCode: (code: string, userId: string) => Promise<string | null>;
   openTab: (serverId: string) => void;
   closeTab: (serverId: string) => void;
   patchUser: (user: User) => void;
@@ -454,6 +456,29 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         [profile.id]: [...(state.memberUserIndex[profile.id] ?? []), { serverId, memberId: newMember.id }],
       },
     }));
+    return null;
+  },
+
+  generateInviteCode: async (serverId) => {
+    const code = Math.random().toString(36).slice(2, 10);
+    const { error } = await supabase.from("servers").update({ invite_code: code }).eq("id", serverId);
+    if (error) return null;
+    set((state) => ({
+      servers: state.servers.map((s) => s.id === serverId ? { ...s, inviteCode: code } : s),
+    }));
+    return code;
+  },
+
+  joinByInviteCode: async (code, userId) => {
+    const { data: server, error } = await supabase
+      .from("servers").select("*").eq("invite_code", code.trim()).maybeSingle();
+    if (error || !server) return "Invalid or expired invite code";
+    const members = get().members[server.id] || [];
+    if (members.some((m) => m.userId === userId)) return null;
+    const { error: insertError } = await supabase
+      .from("server_members").insert({ server_id: server.id, user_id: userId });
+    if (insertError) return "Failed to join server";
+    await get().initData(userId);
     return null;
   },
 

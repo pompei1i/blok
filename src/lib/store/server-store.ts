@@ -25,6 +25,7 @@ interface ServerState {
   messages: Record<string, Message[]>;
   messagesLoaded: Set<string>;
   messagesLoading: Set<string>;
+  messagesAtStart: Set<string>;
   typingUsers: Record<string, string[]>;
   openTabs: string[];
   activeVoiceChannelId: string | null;
@@ -37,6 +38,7 @@ interface ServerState {
 
   initData: (userId: string) => Promise<void>;
   loadMessages: (channelId: string) => Promise<void>;
+  loadMoreMessages: (channelId: string) => Promise<void>;
   setActiveServer: (serverId: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
   createServer: (data: { name: string; description?: string; ownerId: string }) => Promise<void>;
@@ -54,6 +56,8 @@ interface ServerState {
   toggleDeafen: () => void;
   toggleScreenShare: () => Promise<void>;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
+  generateInviteCode: (serverId: string) => Promise<string | null>;
+  joinByInviteCode: (code: string, userId: string) => Promise<string | null>;
 }
 
 export const useServerStore = create<ServerState>((set, get) => ({
@@ -66,6 +70,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   messages: {},
   messagesLoaded: new Set(),
   messagesLoading: new Set(),
+  messagesAtStart: new Set(),
   typingUsers: {},
   openTabs: [],
   activeVoiceChannelId: null,
@@ -426,13 +431,84 @@ export const useServerStore = create<ServerState>((set, get) => ({
         : [],
     }));
 
+    const isAtStart = (data || []).length < 30;
+
     set((state) => {
       const loading = new Set(state.messagesLoading);
       loading.delete(channelId);
+      const atStart = new Set(state.messagesAtStart);
+      if (isAtStart) atStart.add(channelId);
       return {
         messages: { ...state.messages, [channelId]: messages },
         messagesLoaded: new Set([...state.messagesLoaded, channelId]),
         messagesLoading: loading,
+        messagesAtStart: atStart,
+      };
+    });
+  },
+
+  loadMoreMessages: async (channelId) => {
+    const { messages, messagesAtStart, messagesLoading } = get();
+    if (messagesAtStart.has(channelId) || messagesLoading.has(channelId)) return;
+
+    const existing = messages[channelId] ?? [];
+    if (existing.length === 0) return;
+    const oldestCreatedAt = existing[0].createdAt;
+
+    set((state) => ({ messagesLoading: new Set([...state.messagesLoading, channelId]) }));
+
+    const { data, error } = await supabase
+      .from("messages")
+      .select(`
+        id, channel_id, author_id, reply_to_id, content, is_edited, created_at, updated_at,
+        author:profiles(id, username, display_name, avatar_url, accent_color),
+        attachments(id, message_id, url, filename, media_type, size_bytes, created_at)
+      `)
+      .eq("channel_id", channelId)
+      .lt("created_at", oldestCreatedAt)
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    if (error) {
+      console.error("loadMoreMessages error", error);
+      set((state) => {
+        const loading = new Set(state.messagesLoading);
+        loading.delete(channelId);
+        return { messagesLoading: loading };
+      });
+      return;
+    }
+
+    const older: Message[] = (data || []).reverse().map((m) => ({
+      id: m.id,
+      channelId: m.channel_id,
+      authorId: m.author_id,
+      replyToId: m.reply_to_id,
+      content: m.content,
+      isEdited: m.is_edited,
+      createdAt: m.created_at,
+      updatedAt: m.updated_at,
+      author: m.author ? mapProfile(m.author) : undefined,
+      attachments: Array.isArray(m.attachments)
+        ? m.attachments.map((a: any) => ({
+            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
+            mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
+          }))
+        : [],
+    }));
+
+    set((state) => {
+      const loading = new Set(state.messagesLoading);
+      loading.delete(channelId);
+      const atStart = new Set(state.messagesAtStart);
+      if ((data || []).length < 30) atStart.add(channelId);
+      return {
+        messages: {
+          ...state.messages,
+          [channelId]: [...older, ...(state.messages[channelId] ?? [])],
+        },
+        messagesLoading: loading,
+        messagesAtStart: atStart,
       };
     });
   },
@@ -753,6 +829,29 @@ export const useServerStore = create<ServerState>((set, get) => ({
       },
     }));
 
+    return null;
+  },
+
+  generateInviteCode: async (serverId) => {
+    const code = Math.random().toString(36).slice(2, 10);
+    const { error } = await supabase.from("servers").update({ invite_code: code }).eq("id", serverId);
+    if (error) return null;
+    set((state) => ({
+      servers: state.servers.map((s) => s.id === serverId ? { ...s, inviteCode: code } : s),
+    }));
+    return code;
+  },
+
+  joinByInviteCode: async (code, userId) => {
+    const { data: server, error } = await supabase
+      .from("servers").select("*").eq("invite_code", code.trim()).maybeSingle();
+    if (error || !server) return "Invalid or expired invite code";
+    const members = get().members[server.id] || [];
+    if (members.some((m) => m.userId === userId)) return null;
+    const { error: insertError } = await supabase
+      .from("server_members").insert({ server_id: server.id, user_id: userId });
+    if (insertError) return "Failed to join server";
+    await get().initData(userId);
     return null;
   },
 

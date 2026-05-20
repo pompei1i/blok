@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useLayoutEffect, useState } from "react";
 import {
   Hash,
   Send,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { supabase } from "@/lib/supabaseClient";
 import { MessageBubble } from "./message-bubble";
 import { EmojiPicker } from "./emoji-picker";
 import { GifPicker } from "./gif-picker";
@@ -19,6 +20,8 @@ import type { Attachment } from "@/lib/store/types";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 export function ChatArea() {
   const { t } = useI18n();
   const {
@@ -27,9 +30,11 @@ export function ChatArea() {
     channels,
     messages,
     messagesLoading,
+    messagesAtStart,
     typingUsers,
     addMessage,
     editMessage,
+    loadMoreMessages,
   } = useServerStore();
   const { user } = useAuthStore();
   const [inputValue, setInputValue] = useState("");
@@ -39,7 +44,11 @@ export function ChatArea() {
   const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [gifAttachments, setGifAttachments] = useState<Attachment[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const prevScrollHeightRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const serverChannels = activeServerId ? channels[activeServerId] || [] : [];
@@ -49,9 +58,30 @@ export function ChatArea() {
     : [];
   const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const isAtStart = activeChannelId ? messagesAtStart.has(activeChannelId) : true;
+  const isLoadingMore = activeChannelId ? messagesLoading.has(activeChannelId) : false;
+
+  useLayoutEffect(() => {
+    if (prevScrollHeightRef.current !== null && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop =
+        messagesContainerRef.current.scrollHeight - prevScrollHeightRef.current;
+      prevScrollHeightRef.current = null;
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [channelMessages]);
+
+  const handleLoadMore = async () => {
+    if (!activeChannelId || !messagesContainerRef.current) return;
+    prevScrollHeightRef.current = messagesContainerRef.current.scrollHeight;
+    await loadMoreMessages(activeChannelId);
+  };
+
+  const handleMessagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (e.currentTarget.scrollTop < 80 && !isAtStart && !isLoadingMore) {
+      void handleLoadMore();
+    }
+  };
 
   const handleGifSelect = (url: string) => {
     setGifAttachments((prev) => [
@@ -72,50 +102,55 @@ export function ChatArea() {
     if ((!inputValue.trim() && attachments.length === 0 && gifAttachments.length === 0) || !activeChannelId || !user) return;
 
     const messageId = `m${Date.now()}`;
-    
-    // Read all files synchronously into Base64 Data URLs so they persist stably inside normal text limits mapping directly over the DB payload
-    const base64Attachments = await Promise.all(
-      attachments.map((file, i) => {
-        return new Promise<any>((resolve) => {
-           const reader = new FileReader();
-           reader.onloadend = () => {
-              resolve({
-                id: `att${Date.now()}-${i}`,
-                messageId,
-                url: reader.result as string, // Safe Base64 
-                filename: file.name,
-                mediaType: file.type,
-                sizeBytes: file.size,
-                createdAt: new Date().toISOString(),
-              });
-           };
-           reader.readAsDataURL(file);
+    const hasFiles = attachments.length > 0;
+
+    if (hasFiles) setIsUploading(true);
+    try {
+      const uploadedAttachments: Attachment[] = [];
+      for (let i = 0; i < attachments.length; i++) {
+        const file = attachments[i];
+        const path = `${activeChannelId}/${messageId}-${i}-${file.name}`;
+        const { error } = await supabase.storage.from("attachments").upload(path, file, { upsert: false });
+        if (error) { console.error("Upload failed", file.name, error); continue; }
+        const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
+        uploadedAttachments.push({
+          id: `att${Date.now()}-${i}`,
+          messageId,
+          url: publicUrl,
+          filename: file.name,
+          mediaType: file.type,
+          sizeBytes: file.size,
+          createdAt: new Date().toISOString(),
         });
-      })
-    );
+      }
 
-    const allAttachments = [
-      ...base64Attachments,
-      ...gifAttachments.map((a) => ({ ...a, messageId })),
-    ];
+      const allAttachments = [
+        ...uploadedAttachments,
+        ...gifAttachments.map((a) => ({ ...a, messageId })),
+      ];
 
-    const newMessage = {
-      id: messageId,
-      channelId: activeChannelId,
-      authorId: user.id,
-      content: inputValue.trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isEdited: false,
-      author: user,
-      attachments: allAttachments,
-    };
+      const newMessage = {
+        id: messageId,
+        channelId: activeChannelId,
+        authorId: user.id,
+        content: inputValue.trim(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isEdited: false,
+        author: user,
+        attachments: allAttachments,
+      };
 
-    addMessage(activeChannelId, newMessage);
-    setInputValue("");
-    setAttachments([]);
-    setGifAttachments([]);
-    setShowGifPicker(false);
+      addMessage(activeChannelId, newMessage);
+      setInputValue("");
+      setAttachments([]);
+      setGifAttachments([]);
+      setShowGifPicker(false);
+    } catch (err) {
+      console.error("Failed to send message", err);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -136,6 +171,14 @@ export function ChatArea() {
   };
 
   const handleAttach = (files: File[]) => {
+    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversized.length > 0) {
+      setFileError(`File too large (max 10 MB): ${oversized.map((f) => f.name).join(", ")}`);
+      const valid = files.filter((f) => f.size <= MAX_FILE_SIZE);
+      if (valid.length > 0) setAttachments((prev) => [...prev, ...valid]);
+      return;
+    }
+    setFileError(null);
     setAttachments((prev) => [...prev, ...files]);
   };
 
@@ -177,8 +220,23 @@ export function ChatArea() {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4">
-        {activeChannelId && messagesLoading.has(activeChannelId) ? (
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto py-4">
+        {isLoadingMore && (
+          <div className="flex items-center justify-center py-2 text-xs text-[var(--text-muted)] font-mono">
+            <span className="cursor-blink mr-1">$</span> loading older messages...
+          </div>
+        )}
+        {!isAtStart && !isLoadingMore && channelMessages.length > 0 && (
+          <div className="flex items-center justify-center py-1">
+            <button
+              onClick={() => void handleLoadMore()}
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline font-mono"
+            >
+              Load older messages
+            </button>
+          </div>
+        )}
+        {activeChannelId && messagesLoading.has(activeChannelId) && channelMessages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[var(--text-muted)] font-mono text-sm">
             <span className="cursor-blink mr-2">$</span> loading...
           </div>
@@ -256,6 +314,9 @@ export function ChatArea() {
       )}
 
       <div className="p-4 border-t border-[var(--border)] bg-[var(--bg-surface)]">
+        {fileError && (
+          <p className="mb-1 text-xs text-[var(--destructive)] font-mono">{fileError}</p>
+        )}
         {gifAttachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {gifAttachments.map((att, idx) => (
@@ -379,11 +440,11 @@ export function ChatArea() {
           </div>
 
           <button
-            onClick={handleSendMessage}
-            disabled={!inputValue.trim() && attachments.length === 0 && gifAttachments.length === 0}
+            onClick={() => void handleSendMessage()}
+            disabled={isUploading || (!inputValue.trim() && attachments.length === 0 && gifAttachments.length === 0)}
             className={cn(
               "p-1.5 rounded transition-colors",
-              inputValue.trim() || attachments.length > 0 || gifAttachments.length > 0
+              !isUploading && (inputValue.trim() || attachments.length > 0 || gifAttachments.length > 0)
                 ? "bg-[var(--accent-red)] hover:opacity-90 text-white"
                 : "bg-[var(--bg-hover)] text-[var(--text-muted)]",
             )}

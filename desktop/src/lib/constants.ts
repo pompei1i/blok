@@ -1,3 +1,8 @@
+// ── Files / attachments ───────────────────────────────────────────────────────
+
+/** Maximum allowed file attachment size (10 MB). */
+export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 // ── Chat / messages ───────────────────────────────────────────────────────────
 
 /** Messages from the same author within this window are visually grouped. */

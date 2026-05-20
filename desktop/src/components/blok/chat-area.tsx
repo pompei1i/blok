@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useLayoutEffect, useState } from "react";
 import {
   Hash,
   Send,
@@ -39,14 +39,19 @@ export function ChatArea() {
     pinMessage,
     addReaction,
     removeReaction,
+    loadMoreMessages,
+    messagesAtStart,
+    messagesLoading,
   } = useServerStore();
   const { user } = useAuthStore();
 
   const isServerOwner = user?.id === servers.find((s) => s.id === activeServerId)?.ownerId;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const prevScrollHeightRef = useRef<number | null>(null);
   const [showPinnedList, setShowPinnedList] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -58,10 +63,30 @@ export function ChatArea() {
   const channelMessages = activeChannelId ? messages[activeChannelId] || [] : [];
   const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
   const pinnedMessages = channelMessages.filter((m) => m.isPinned);
+  const isAtStart = activeChannelId ? messagesAtStart.has(activeChannelId) : true;
+  const isLoadingMore = activeChannelId ? messagesLoading.has(activeChannelId) : false;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  useLayoutEffect(() => {
+    if (prevScrollHeightRef.current !== null && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop =
+        messagesContainerRef.current.scrollHeight - prevScrollHeightRef.current;
+      prevScrollHeightRef.current = null;
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [channelMessages]);
+
+  const handleLoadMore = async () => {
+    if (!activeChannelId || !messagesContainerRef.current) return;
+    prevScrollHeightRef.current = messagesContainerRef.current.scrollHeight;
+    await loadMoreMessages(activeChannelId);
+  };
+
+  const handleMessagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (e.currentTarget.scrollTop < 80 && !isAtStart && !isLoadingMore) {
+      void handleLoadMore();
+    }
+  };
 
   // Keep focus on input after emoji/mention selection
   const handleEmojiSelect = (emoji: string) => {
@@ -213,8 +238,23 @@ export function ChatArea() {
       )}
 
       {/* Messages list */}
-      <div className="flex-1 overflow-y-auto py-4">
-        {activeChannelId && messagesLoading.has(activeChannelId) ? (
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto py-4">
+        {isLoadingMore && (
+          <div className="flex items-center justify-center py-2 text-xs text-[var(--text-muted)] font-mono">
+            <span className="cursor-blink mr-1">$</span> loading older messages...
+          </div>
+        )}
+        {!isAtStart && !isLoadingMore && channelMessages.length > 0 && (
+          <div className="flex items-center justify-center py-1">
+            <button
+              onClick={() => void handleLoadMore()}
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline font-mono"
+            >
+              Load older messages
+            </button>
+          </div>
+        )}
+        {activeChannelId && messagesLoading.has(activeChannelId) && channelMessages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[var(--text-muted)] font-mono text-sm">
             <span className="cursor-blink mr-2">$</span> loading...
           </div>
@@ -352,10 +392,14 @@ export function ChatArea() {
           </div>
         )}
 
+        {chat.fileError && (
+          <p className="mb-1 text-xs text-[var(--destructive)] font-mono">{chat.fileError}</p>
+        )}
+
         {chat.isUploading && (
           <div className="mb-2">
             <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] mb-1">
-              <span>{chat.fileProgress < 100 ? `Reading files… ${chat.fileProgress}%` : "Sending…"}</span>
+              <span>{chat.fileProgress < 100 ? `Uploading… ${chat.fileProgress}%` : "Sending…"}</span>
             </div>
             <div className="h-0.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
               {chat.fileProgress < 100 ? (

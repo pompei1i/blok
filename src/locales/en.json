@@ -141,5 +141,16 @@
   "attachment.audio": "Audio",
   "channel.delete": "Delete Channel",
   "channel.deleteConfirm": "Delete #{name}?",
-  "offline.noConnection": "No internet connection"
+  "offline.noConnection": "No internet connection",
+  "invite.byUsername": "By Username",
+  "invite.byCode": "Invite Code",
+  "invite.code": "Invite Code",
+  "invite.copy": "Copy",
+  "invite.copied": "Copied!",
+  "invite.generate": "Generate New Code",
+  "invite.generating": "Generating...",
+  "invite.joinByCode": "Join by Code",
+  "invite.enterCode": "Enter invite code...",
+  "invite.join": "Join",
+  "invite.joining": "Joining..."
 }

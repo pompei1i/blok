@@ -12,9 +12,11 @@ export interface MessageSlice {
   lruChannelOrder: string[];
   messagesLoaded: Set<string>;
   messagesLoading: Set<string>;
+  messagesAtStart: Set<string>;
   typingUsers: Record<string, string[]>;
 
   loadMessages: (channelId: string) => Promise<void>;
+  loadMoreMessages: (channelId: string) => Promise<void>;
   addMessage: (channelId: string, message: Message) => Promise<void>;
   setTyping: (channelId: string, userId: string, isTyping: boolean) => void;
   editMessage: (channelId: string, messageId: string, content: string) => Promise<void>;
@@ -30,6 +32,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
   lruChannelOrder: [],
   messagesLoaded: new Set(),
   messagesLoading: new Set(),
+  messagesAtStart: new Set(),
   typingUsers: {},
 
   loadMessages: async (channelId) => {
@@ -85,6 +88,8 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
         : [],
     }));
 
+    const isAtStart = (data || []).length < MESSAGE_PAGE_SIZE;
+
     set((state) => {
       const loading = new Set(state.messagesLoading);
       loading.delete(channelId);
@@ -94,11 +99,14 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       let updatedMessages: Record<string, Message[]> = { ...state.messages, [channelId]: messages };
       let updatedIndex = { ...state.messageChannelIndex, ...newIndex };
       const updatedLoaded = new Set([...state.messagesLoaded, channelId]);
+      const updatedAtStart = new Set(state.messagesAtStart);
+      if (isAtStart) updatedAtStart.add(channelId);
       if (order.length > MESSAGE_LRU_LIMIT) {
         const evictId = order[order.length - 1];
         delete updatedMessages[evictId];
         updatedIndex = Object.fromEntries(Object.entries(updatedIndex).filter(([, chId]) => chId !== evictId));
         updatedLoaded.delete(evictId);
+        updatedAtStart.delete(evictId);
       }
       return {
         messages: updatedMessages,
@@ -106,6 +114,84 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
         lruChannelOrder: order.slice(0, MESSAGE_LRU_LIMIT),
         messagesLoaded: updatedLoaded,
         messagesLoading: loading,
+        messagesAtStart: updatedAtStart,
+      };
+    });
+  },
+
+  loadMoreMessages: async (channelId) => {
+    const { messages, messagesAtStart, messagesLoading } = get();
+    if (messagesAtStart.has(channelId) || messagesLoading.has(channelId)) return;
+
+    const existing = messages[channelId] ?? [];
+    if (existing.length === 0) return;
+    const oldestCreatedAt = existing[0].createdAt;
+
+    set((state) => ({ messagesLoading: new Set([...state.messagesLoading, channelId]) }));
+
+    const { data, error } = await supabase
+      .from("messages")
+      .select(`
+        id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
+        author:profiles(id, username, display_name, avatar_url, accent_color, pronouns),
+        attachments(id, message_id, url, filename, media_type, size_bytes, created_at),
+        message_reactions(id, message_id, user_id, emoji, created_at)
+      `)
+      .eq("channel_id", channelId)
+      .lt("created_at", oldestCreatedAt)
+      .order("created_at", { ascending: false })
+      .limit(MESSAGE_PAGE_SIZE);
+
+    if (error) {
+      console.error("loadMoreMessages error", error);
+      set((state) => {
+        const loading = new Set(state.messagesLoading);
+        loading.delete(channelId);
+        return { messagesLoading: loading };
+      });
+      return;
+    }
+
+    const older: Message[] = (data || []).reverse().map((m) => ({
+      id: m.id,
+      channelId: m.channel_id,
+      authorId: m.author_id,
+      replyToId: m.reply_to_id,
+      content: m.content,
+      isEdited: m.is_edited,
+      isPinned: m.pinned ?? false,
+      createdAt: m.created_at,
+      updatedAt: m.updated_at,
+      author: m.author ? mapProfile(m.author) : undefined,
+      attachments: Array.isArray(m.attachments)
+        ? m.attachments.map((a: any) => ({
+            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
+            mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
+          }))
+        : [],
+      reactions: Array.isArray(m.message_reactions)
+        ? m.message_reactions.map((r: any) => ({
+            id: r.id, messageId: r.message_id, userId: r.user_id,
+            emoji: r.emoji, createdAt: r.created_at,
+          }))
+        : [],
+    }));
+
+    set((state) => {
+      const loading = new Set(state.messagesLoading);
+      loading.delete(channelId);
+      const atStart = new Set(state.messagesAtStart);
+      if ((data || []).length < MESSAGE_PAGE_SIZE) atStart.add(channelId);
+      const newIndex: Record<string, string> = { ...state.messageChannelIndex };
+      for (const m of older) newIndex[m.id] = channelId;
+      return {
+        messages: {
+          ...state.messages,
+          [channelId]: [...older, ...(state.messages[channelId] ?? [])],
+        },
+        messageChannelIndex: newIndex,
+        messagesLoading: loading,
+        messagesAtStart: atStart,
       };
     });
   },

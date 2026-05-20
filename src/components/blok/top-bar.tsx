@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { X, Plus, Menu, Users } from "lucide-react";
+import { X, Plus, Menu, Users, Hash } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
+import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { CreateServerModal } from "./create-server-modal";
@@ -11,11 +12,31 @@ interface TopBarProps {
 }
 
 export function TopBar({ onOpenLeft, onOpenRight }: TopBarProps) {
-  const { servers, openTabs, activeServerId, setActiveServer, closeTab, openTab } =
+  const { servers, openTabs, activeServerId, setActiveServer, closeTab, openTab, joinByInviteCode } =
     useServerStore();
+  const { user } = useAuthStore();
   const [showAllOpen, setShowAllOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joinStatus, setJoinStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [joinError, setJoinError] = useState("");
   const { t } = useI18n();
+
+  const handleJoin = async () => {
+    if (!joinCode.trim() || !user) return;
+    setJoinStatus("loading");
+    setJoinError("");
+    const error = await joinByInviteCode(joinCode.trim(), user.id);
+    if (error) {
+      setJoinStatus("error");
+      setJoinError(error);
+    } else {
+      setJoinStatus("idle");
+      setJoinCode("");
+      setShowJoinModal(false);
+    }
+  };
 
   const openServers = servers.filter((s) => openTabs.includes(s.id));
   const closedServers = useMemo(
@@ -96,6 +117,12 @@ export function TopBar({ onOpenLeft, onOpenRight }: TopBarProps) {
           <Plus className="w-3 h-3" /> {t("topBar.createServer")}
         </button>
         <button
+          onClick={() => { setShowJoinModal(true); setJoinCode(""); setJoinStatus("idle"); setJoinError(""); }}
+          className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          <Hash className="w-3 h-3" /> {t("invite.joinByCode")}
+        </button>
+        <button
           onClick={() => setShowAllOpen((v) => !v)}
           className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
         >
@@ -156,6 +183,53 @@ export function TopBar({ onOpenLeft, onOpenRight }: TopBarProps) {
       )}
       
       {showCreateModal && <CreateServerModal onClose={() => setShowCreateModal(false)} />}
+
+      {showJoinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-[340px] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+              <div className="flex items-center gap-2">
+                <Hash className="w-4 h-4 text-[var(--accent-red)]" />
+                <span className="font-semibold text-sm text-[var(--text-primary)]">{t("invite.joinByCode")}</span>
+              </div>
+              <button onClick={() => setShowJoinModal(false)} className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors">
+                <X className="w-4 h-4 text-[var(--text-muted)]" />
+              </button>
+            </div>
+            <div className="px-4 py-4 space-y-4">
+              <input
+                autoFocus
+                type="text"
+                value={joinCode}
+                onChange={(e) => { setJoinCode(e.target.value); if (joinStatus !== "idle") { setJoinStatus("idle"); setJoinError(""); } }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleJoin(); if (e.key === "Escape") setShowJoinModal(false); }}
+                placeholder={t("invite.enterCode")}
+                className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)]"
+              />
+              {joinError && (
+                <p className="text-xs text-[var(--destructive)] font-mono">{joinError}</p>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => setShowJoinModal(false)} className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleJoin()}
+                  disabled={!joinCode.trim() || joinStatus === "loading"}
+                  className={cn(
+                    "flex-1 px-3 py-2 text-sm rounded-lg transition-colors font-medium",
+                    joinCode.trim() && joinStatus !== "loading"
+                      ? "bg-[var(--accent-red)] hover:opacity-90 text-white"
+                      : "bg-[var(--bg-elevated)] text-[var(--text-muted)] cursor-not-allowed"
+                  )}
+                >
+                  {joinStatus === "loading" ? t("invite.joining") : t("invite.join")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

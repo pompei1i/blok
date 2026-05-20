@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useServerStore } from "@/lib/store/server-store";
+import { supabase } from "@/lib/supabaseClient";
+import { MAX_FILE_SIZE } from "@/lib/constants";
 import type { Message, Attachment, User } from "@/lib/store/types";
 
 interface UseChatInputOptions {
@@ -20,6 +22,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [fileProgress, setFileProgress] = useState(0);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   const canSend =
     inputValue.trim().length > 0 ||
@@ -48,46 +51,31 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     ]);
   };
 
-  const readFilesWithProgress = (files: File[]): Promise<Attachment[]> => {
-    if (files.length === 0) return Promise.resolve([]);
+  const uploadFilesToStorage = async (files: File[], messageId: string, channelId: string): Promise<Attachment[]> => {
+    const results: Attachment[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const path = `${channelId}/${messageId}-${i}-${file.name}`;
+      setFileProgress(Math.round((i / files.length) * 100));
 
-    const messageId = `m${Date.now()}`;
-    const fileLoaded = new Array(files.length).fill(0);
-    const totalSize = files.reduce((s, f) => s + f.size, 0) || 1;
-
-    return new Promise((resolve, reject) => {
-      const results: (Attachment | null)[] = new Array(files.length).fill(null);
-      let completed = 0;
-
-      files.forEach((file, i) => {
-        const reader = new FileReader();
-
-        reader.onprogress = (e) => {
-          if (e.lengthComputable) {
-            fileLoaded[i] = e.loaded;
-            const loaded = fileLoaded.reduce((s, l: number) => s + l, 0);
-            setFileProgress(Math.round((loaded / totalSize) * 100));
-          }
-        };
-
-        reader.onloadend = () => {
-          results[i] = {
-            id: `att${Date.now()}-${i}`,
-            messageId,
-            url: reader.result as string,
-            filename: file.name,
-            mediaType: file.type,
-            sizeBytes: file.size,
-            createdAt: new Date().toISOString(),
-          };
-          completed++;
-          if (completed === files.length) resolve(results as Attachment[]);
-        };
-
-        reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-        reader.readAsDataURL(file);
+      const { error } = await supabase.storage.from("attachments").upload(path, file, { upsert: false });
+      if (error) {
+        console.error("Upload failed", file.name, error);
+        continue;
+      }
+      const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
+      results.push({
+        id: `att${Date.now()}-${i}`,
+        messageId,
+        url: publicUrl,
+        filename: file.name,
+        mediaType: file.type,
+        sizeBytes: file.size,
+        createdAt: new Date().toISOString(),
       });
-    });
+    }
+    setFileProgress(100);
+    return results;
   };
 
   const handleSendMessage = async () => {
@@ -102,7 +90,9 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     try {
       const messageId = `m${Date.now()}`;
 
-      const base64Attachments = await readFilesWithProgress(attachments);
+      const uploadedAttachments = hasFiles
+        ? await uploadFilesToStorage(attachments, messageId, activeChannelId)
+        : [];
 
       if (hasFiles) setFileProgress(100);
 
@@ -117,7 +107,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
         isEdited: false,
         author: user,
         attachments: [
-          ...base64Attachments,
+          ...uploadedAttachments,
           ...gifAttachments.map((a) => ({ ...a, messageId })),
         ],
       };
@@ -153,6 +143,14 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
   };
 
   const handleAttach = (files: File[]) => {
+    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversized.length > 0) {
+      setFileError(`File too large (max 10 MB): ${oversized.map((f) => f.name).join(", ")}`);
+      const valid = files.filter((f) => f.size <= MAX_FILE_SIZE);
+      if (valid.length > 0) setAttachments((prev) => [...prev, ...valid]);
+      return;
+    }
+    setFileError(null);
     setAttachments((prev) => [...prev, ...files]);
   };
 
@@ -182,6 +180,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     canSend,
     isUploading,
     fileProgress,
+    fileError,
     closeAllPickers,
     handleGifSelect,
     handleSendMessage,
