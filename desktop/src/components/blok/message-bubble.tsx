@@ -1,12 +1,15 @@
 import DOMPurify from "dompurify";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
+import { PresenceDot } from "./presence-dot";
 import type { Message, DMMessage, User, Reaction } from "@/lib/store/types";
 import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X as XIcon } from "lucide-react";
 import { AudioPlayer } from "./audio-player";
 import { VideoPlayer } from "./video-player";
 import { useI18n } from "@/lib/i18n";
+import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
+import { useAuthStore } from "@/lib/store/auth-store";
 import {
   QUICK_EMOJIS,
   LAZY_LOAD_ROOT_MARGIN,
@@ -152,6 +155,12 @@ export function MessageBubble({
   currentUserId,
 }: MessageBubbleProps) {
   const { t } = useI18n();
+  const { presence, presenceLastSeen } = useFriendsStore();
+  const { user: me } = useAuthStore();
+  const authorId = message.authorId;
+  const authorStatus = authorId === me?.id
+    ? ("online" as const)
+    : effectiveStatus(presence[authorId], presenceLastSeen[authorId]);
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showQuickEmoji, setShowQuickEmoji] = useState(false);
@@ -330,7 +339,10 @@ export function MessageBubble({
       onMouseLeave={() => { setShowTimestamp(false); setShowMenu(false); }}
     >
       {showAvatar ? (
-        <UserAvatar user={user} size="md" />
+        <div className="relative flex-shrink-0 self-start">
+          <UserAvatar user={user} size="md" />
+          <PresenceDot status={authorStatus} size="sm" className="absolute -bottom-1 -right-1 ring-2 ring-[var(--bg-surface)]" />
+        </div>
       ) : (
         <div className="w-8 flex-shrink-0" />
       )}

@@ -138,5 +138,19 @@
   "attachment.image": "Зображення",
   "attachment.video": "Відео",
   "attachment.document": "Документ",
-  "attachment.audio": "Аудіо"
+  "attachment.audio": "Аудіо",
+  "channel.delete": "Видалити канал",
+  "channel.deleteConfirm": "Видалити #{name}?",
+  "offline.noConnection": "Немає підключення до інтернету",
+  "invite.byUsername": "За іменем користувача",
+  "invite.byCode": "Код запрошення",
+  "invite.code": "Код запрошення",
+  "invite.copy": "Копіювати",
+  "invite.copied": "Скопійовано!",
+  "invite.generate": "Створити новий код",
+  "invite.generating": "Створення...",
+  "invite.joinByCode": "Приєднатися за кодом",
+  "invite.enterCode": "Введіть код запрошення...",
+  "invite.join": "Приєднатися",
+  "invite.joining": "Приєднання..."
 }

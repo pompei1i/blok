@@ -45,7 +45,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
 // ─── Members view ─────────────────────────────────────────────────────────────
 
 function MembersView() {
-  const { activeServerId, members, voiceParticipants } = useServerStore();
+  const { activeServerId, members, channels, voiceParticipants } = useServerStore();
   const { presence, presenceLastSeen } = useFriendsStore();
   const { openDM } = useDMStore();
   const { user } = useAuthStore();
@@ -55,6 +55,24 @@ function MembersView() {
 
   const serverMembers: ServerMember[] = activeServerId ? (members[activeServerId] ?? []) : [];
   const query = search.toLowerCase().trim();
+
+  // Presence helper — current user is always online (they're using the app)
+  const getStatus = (userId: string) =>
+    userId === user?.id
+      ? ("online" as const)
+      : effectiveStatus(presence[userId], presenceLastSeen[userId]);
+
+  // "in voice" only for channels that belong to this server
+  const serverVoiceIds = new Set(
+    (activeServerId ? channels[activeServerId] ?? [] : [])
+      .filter((c) => c.type === "voice")
+      .map((c) => c.id),
+  );
+  const inVoice = new Set(
+    Object.entries(voiceParticipants)
+      .filter(([chId]) => serverVoiceIds.has(chId))
+      .flatMap(([, ps]) => ps.map((p) => p.userId)),
+  );
 
   const filtered = serverMembers.filter((m) => {
     if (!query) return true;
@@ -66,17 +84,13 @@ function MembersView() {
   });
 
   const online = filtered.filter((m) => {
-    const s = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
+    const s = getStatus(m.userId);
     return s === "online" || s === "afk" || s === "dnd";
   });
-  const offline = filtered.filter((m) => effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]) === "offline");
-
-  const inVoice = new Set(
-    Object.values(voiceParticipants).flat().map((p) => p.userId),
-  );
+  const offline = filtered.filter((m) => getStatus(m.userId) === "offline");
 
   const MemberRow = ({ m }: { m: ServerMember }) => {
-    const status = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
+    const status = getStatus(m.userId);
     const isMe = m.userId === user?.id;
     const name = m.nickname ?? m.user?.displayName ?? m.user?.username ?? m.userId.slice(0, 8);
 
@@ -317,7 +331,9 @@ function FriendsView() {
 
 export function RightSidebar() {
   const { activeServerId, members } = useServerStore();
+  const { friends } = useFriendsStore();
   const memberCount = activeServerId ? (members[activeServerId]?.length ?? 0) : 0;
+  const friendCount = friends.length;
   const [tab, setTab] = useState<Tab>("members");
 
   const activeTab = activeServerId ? tab : "friends";
@@ -330,10 +346,10 @@ export function RightSidebar() {
           {activeServerId ? (
             <>
               <TabBtn label="members" count={memberCount} active={activeTab === "members"} onClick={() => setTab("members")} />
-              <TabBtn label="friends" active={activeTab === "friends"} onClick={() => setTab("friends")} />
+              <TabBtn label="friends" count={friendCount} active={activeTab === "friends"} onClick={() => setTab("friends")} />
             </>
           ) : (
-            <TabBtn label="friends" active />
+            <TabBtn label="friends" count={friendCount} active />
           )}
         </div>
       </div>

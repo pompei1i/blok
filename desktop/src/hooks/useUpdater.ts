@@ -48,14 +48,8 @@ export function useUpdater() {
         } catch (err: unknown) {
           if (cancelled) return;
           console.warn(`Update check failed (attempt ${attempt + 1}):`, err);
-          if (attempt + 1 < RETRY_DELAYS_MS.length) {
-            tryCheck(attempt + 1);
-          } else {
-            setState((s) => ({
-              ...s,
-              error: err instanceof Error ? err.message : "Update check failed",
-            }));
-          }
+          if (attempt + 1 < RETRY_DELAYS_MS.length) tryCheck(attempt + 1);
+          // Silent fail after last attempt — background check errors are not user-facing
         }
       }, RETRY_DELAYS_MS[attempt]);
     };

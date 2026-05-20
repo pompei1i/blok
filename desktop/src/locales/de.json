@@ -138,5 +138,19 @@
   "attachment.image": "Bild",
   "attachment.video": "Video",
   "attachment.document": "Dokument",
-  "attachment.audio": "Audio"
+  "attachment.audio": "Audio",
+  "channel.delete": "Kanal löschen",
+  "channel.deleteConfirm": "#{name} löschen?",
+  "offline.noConnection": "Keine Internetverbindung",
+  "invite.byUsername": "Per Benutzername",
+  "invite.byCode": "Einladungscode",
+  "invite.code": "Einladungscode",
+  "invite.copy": "Kopieren",
+  "invite.copied": "Kopiert!",
+  "invite.generate": "Neuen Code generieren",
+  "invite.generating": "Generierung...",
+  "invite.joinByCode": "Per Code beitreten",
+  "invite.enterCode": "Einladungscode eingeben...",
+  "invite.join": "Beitreten",
+  "invite.joining": "Beitritt..."
 }

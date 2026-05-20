@@ -41,7 +41,6 @@ export function ChatArea() {
     removeReaction,
     loadMoreMessages,
     messagesAtStart,
-    messagesLoading,
   } = useServerStore();
   const { user } = useAuthStore();
 

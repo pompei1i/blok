@@ -20,7 +20,7 @@ export function PresenceDot({
 
   const statusClasses = {
     online: "bg-[var(--online)] presence-online",
-    offline: "bg-[var(--offline)]",
+    offline: "bg-[var(--destructive)]",
     afk: "bg-[var(--afk)] presence-afk",
     dnd: "bg-[var(--destructive)]",
   } as const;

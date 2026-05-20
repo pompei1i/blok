@@ -138,5 +138,19 @@
   "attachment.image": "Изображение",
   "attachment.video": "Видео",
   "attachment.document": "Документ",
-  "attachment.audio": "Аудио"
+  "attachment.audio": "Аудио",
+  "channel.delete": "Удалить канал",
+  "channel.deleteConfirm": "Удалить #{name}?",
+  "offline.noConnection": "Нет подключения к интернету",
+  "invite.byUsername": "По имени пользователя",
+  "invite.byCode": "Код приглашения",
+  "invite.code": "Код приглашения",
+  "invite.copy": "Копировать",
+  "invite.copied": "Скопировано!",
+  "invite.generate": "Создать новый код",
+  "invite.generating": "Создание...",
+  "invite.joinByCode": "Войти по коду",
+  "invite.enterCode": "Введите код приглашения...",
+  "invite.join": "Войти",
+  "invite.joining": "Вход..."
 }
