@@ -232,41 +232,41 @@ struct ScreenFrame {
     h: u32,
 }
 
-const SCREEN_MAX_W: u32 = 1280;
-
-fn encode_bgra_to_frame(bgra: Vec<u8>, w: u32, h: u32) -> Option<ScreenFrame> {
+fn encode_bgra_to_frame(bgra: Vec<u8>, w: u32, h: u32, max_width: u32, jpeg_quality: u8) -> Option<ScreenFrame> {
     let rgb: Vec<u8> = bgra.chunks(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
     let img = image::RgbImage::from_raw(w, h, rgb)?;
-    let img = if w > SCREEN_MAX_W {
-        let new_h = (h as f64 * SCREEN_MAX_W as f64 / w as f64).round() as u32;
-        image::imageops::resize(&img, SCREEN_MAX_W, new_h, image::imageops::FilterType::Nearest)
+    let img = if max_width > 0 && w > max_width {
+        let new_h = (h as f64 * max_width as f64 / w as f64).round() as u32;
+        image::imageops::resize(&img, max_width, new_h, image::imageops::FilterType::Triangle)
     } else {
         img
     };
     let (fw, fh) = img.dimensions();
     let mut buf = std::io::Cursor::new(Vec::new());
     let dynamic: image::DynamicImage = img.into();
-    dynamic.write_to(&mut buf, image::ImageFormat::Jpeg).ok()?;
+    let quality = jpeg_quality.clamp(1, 100);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
+    dynamic.write_with_encoder(encoder).ok()?;
     use base64::Engine as _;
     let data = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
     Some(ScreenFrame { data, w: fw, h: fh })
 }
 
 #[tauri::command]
-fn capture_screen_frame(source_id: String) -> Option<ScreenFrame> {
+fn capture_screen_frame(source_id: String, max_width: u32, jpeg_quality: u8) -> Option<ScreenFrame> {
     if let Some(rest) = source_id.strip_prefix("screen:") {
         let idx: u32 = rest.split(':').next()?.parse().ok()?;
-        capture_monitor(idx)
+        capture_monitor(idx, max_width, jpeg_quality)
     } else if let Some(rest) = source_id.strip_prefix("window:") {
         let hwnd_val: isize = rest.split(':').next()?.parse().ok()?;
-        capture_window(hwnd_val)
+        capture_window(hwnd_val, max_width, jpeg_quality)
     } else {
         None
     }
 }
 
 #[cfg(target_os = "windows")]
-fn capture_monitor(index: u32) -> Option<ScreenFrame> {
+fn capture_monitor(index: u32, max_width: u32, jpeg_quality: u8) -> Option<ScreenFrame> {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
@@ -321,12 +321,12 @@ fn capture_monitor(index: u32) -> Option<ScreenFrame> {
         let _ = DeleteDC(mdc);
         let _ = ReleaseDC(None, sdc);
 
-        encode_bgra_to_frame(px, w, h)
+        encode_bgra_to_frame(px, w, h, max_width, jpeg_quality)
     }
 }
 
 #[cfg(target_os = "windows")]
-fn capture_window(hwnd_val: isize) -> Option<ScreenFrame> {
+fn capture_window(hwnd_val: isize, max_width: u32, jpeg_quality: u8) -> Option<ScreenFrame> {
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
@@ -365,14 +365,14 @@ fn capture_window(hwnd_val: isize) -> Option<ScreenFrame> {
         let _ = DeleteDC(mdc);
         let _ = ReleaseDC(Some(hwnd), wdc);
 
-        encode_bgra_to_frame(px, w, h)
+        encode_bgra_to_frame(px, w, h, max_width, jpeg_quality)
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn capture_monitor(_: u32) -> Option<ScreenFrame> { None }
+fn capture_monitor(_: u32, _: u32, _: u8) -> Option<ScreenFrame> { None }
 #[cfg(not(target_os = "windows"))]
-fn capture_window(_: isize) -> Option<ScreenFrame> { None }
+fn capture_window(_: isize, _: u32, _: u8) -> Option<ScreenFrame> { None }
 
 /// Returns one entry per monitor. IDs use the Chromium desktop-capture format
 /// ("screen:INDEX:0") so they can be passed directly to getUserMedia with

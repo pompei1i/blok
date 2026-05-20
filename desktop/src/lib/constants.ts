@@ -78,3 +78,26 @@ export const AVATAR_CANVAS_SIZE = 256;
 
 /** JPEG quality used when compressing avatars. */
 export const AVATAR_JPEG_QUALITY = 0.8;
+
+// ── Screen share ──────────────────────────────────────────────────────────────
+
+export type ScreenShareFps = 1 | 5 | 10 | 15 | 30;
+export type ScreenShareResolution = "720p" | "1080p" | "1440p" | "native";
+export type ScreenShareQuality = "low" | "medium" | "high";
+
+export const SCREEN_SHARE_FPS_OPTIONS: ScreenShareFps[] = [1, 5, 10, 15, 30];
+
+/** Max capture width per resolution label. 0 = no resize (native). */
+export const SCREEN_RES_TO_MAX_WIDTH: Record<ScreenShareResolution, number> = {
+  "720p":   1280,
+  "1080p":  1920,
+  "1440p":  2560,
+  "native": 0,
+};
+
+/** JPEG quality 0–1 per quality label. */
+export const SCREEN_QUALITY_TO_JPEG: Record<ScreenShareQuality, number> = {
+  low:    0.40,
+  medium: 0.65,
+  high:   0.85,
+};

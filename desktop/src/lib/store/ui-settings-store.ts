@@ -1,15 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { NOISE_GATE_DEFAULT } from "../constants";
+import { NOISE_GATE_DEFAULT, type ScreenShareFps, type ScreenShareResolution, type ScreenShareQuality } from "../constants";
 
 export type ThemeMode = "dark" | "light";
 export type Language = "English" | "Polish" | "German" | "Spanish" | "Ukrainian" | "Russian";
 export type CameraQuality = "720p" | "1080p" | "1440p";
+export type { ScreenShareFps, ScreenShareResolution, ScreenShareQuality };
 
 interface UiSettingsState {
   previewVideo: boolean;
   mirrorCamera: boolean;
   cameraQuality: CameraQuality;
+  screenShareFps: ScreenShareFps;
+  screenShareResolution: ScreenShareResolution;
+  screenShareQuality: ScreenShareQuality;
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number;
@@ -35,6 +39,9 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       previewVideo: true,
       mirrorCamera: true,
       cameraQuality: "1080p",
+      screenShareFps: 5,
+      screenShareResolution: "1080p",
+      screenShareQuality: "medium",
       noiseSuppression: false,
       echoCancellation: false,
       inputVolume: 70,

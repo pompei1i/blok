@@ -4,6 +4,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { supabase } from "./supabaseClient";
 import type { VoiceCallbacks } from "./voice-engine";
 import { useUiSettingsStore } from "./store/ui-settings-store";
+import { SCREEN_RES_TO_MAX_WIDTH, SCREEN_QUALITY_TO_JPEG } from "./constants";
 
 type NativeSignalMsg =
   | { type: "join"; from: string }
@@ -16,9 +17,6 @@ type NativeSignalMsg =
   | { type: "screen_frame"; from: string; data: string; w: number; h: number };
 
 const SPEAKING_TIMEOUT_MS = 400;
-const SCREEN_FRAME_INTERVAL_MS = 1000; // 1 fps — fits within Supabase broadcast limits
-const SCREEN_MAX_WIDTH = 1280;
-const SCREEN_JPEG_QUALITY = 0.6;
 
 function int16ToBase64(samples: number[]): string {
   const bytes = new Uint8Array(new Int16Array(samples).buffer);
@@ -181,24 +179,33 @@ export class NativeVoiceEngine {
   async startScreenShare(sourceId?: string): Promise<void> {
     if (this._screenCaptureTimer !== null) return;
 
+    const { screenShareFps, screenShareResolution, screenShareQuality } = useUiSettingsStore.getState();
+    const intervalMs = Math.round(1000 / screenShareFps);
+    const maxWidth = SCREEN_RES_TO_MAX_WIDTH[screenShareResolution];
+    const jpegQuality = SCREEN_QUALITY_TO_JPEG[screenShareQuality]; // 0–1 for canvas
+    const jpegQualityRust = Math.round(jpegQuality * 100) as number; // 1–100 for Rust
+
     // In Tauri with a specific source: use Rust GDI capture — no OS picker at all
     if (sourceId && "__TAURI_INTERNALS__" in window) {
       this._screenCaptureTimer = setInterval(() => {
         void invoke<{ data: string; w: number; h: number } | null>(
-          "capture_screen_frame", { sourceId }
+          "capture_screen_frame", { sourceId, maxWidth, jpegQuality: jpegQualityRust }
         ).then((frame) => {
           if (frame) {
             this.broadcast({ type: "screen_frame", from: this.userId, data: frame.data, w: frame.w, h: frame.h }).catch(() => {});
           }
         }).catch(() => {});
-      }, SCREEN_FRAME_INTERVAL_MS);
+      }, intervalMs);
       await this.broadcast({ type: "screenshare_start", from: this.userId });
       this.cb.onScreenShareStart?.(this.userId, new MediaStream());
       return;
     }
 
     // Browser fallback: getDisplayMedia (shows OS picker)
-    const stream = await navigator.mediaDevices.getDisplayMedia({ audio: false, video: { width: { max: SCREEN_MAX_WIDTH }, frameRate: { max: 1 } } });
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      audio: false,
+      video: { width: { max: maxWidth > 0 ? maxWidth : 3840 }, frameRate: { max: screenShareFps } },
+    });
 
     this.screenStream = stream;
 
@@ -221,16 +228,15 @@ export class NativeVoiceEngine {
       const w = this._screenVideoEl.videoWidth;
       const h = this._screenVideoEl.videoHeight;
       if (!w || !h) return;
-      // Scale down proportionally to SCREEN_MAX_WIDTH if wider
-      const scale = w > SCREEN_MAX_WIDTH ? SCREEN_MAX_WIDTH / w : 1;
+      const scale = maxWidth > 0 && w > maxWidth ? maxWidth / w : 1;
       const tw = Math.round(w * scale);
       const th = Math.round(h * scale);
       if (canvas.width !== tw) canvas.width = tw;
       if (canvas.height !== th) canvas.height = th;
       ctx.drawImage(this._screenVideoEl, 0, 0, tw, th);
-      const data = canvas.toDataURL("image/jpeg", SCREEN_JPEG_QUALITY).split(",")[1];
+      const data = canvas.toDataURL("image/jpeg", jpegQuality).split(",")[1];
       this.broadcast({ type: "screen_frame", from: this.userId, data, w: tw, h: th }).catch(() => {});
-    }, SCREEN_FRAME_INTERVAL_MS);
+    }, intervalMs);
 
     await this.broadcast({ type: "screenshare_start", from: this.userId });
     this.cb.onScreenShareStart?.(this.userId, stream);
@@ -286,8 +292,8 @@ export class NativeVoiceEngine {
         // Create an off-screen canvas that acts as the video source for this peer.
         // Each incoming screen_frame will draw a JPEG into it.
         const canvas = document.createElement("canvas");
-        canvas.width = SCREEN_MAX_WIDTH;
-        canvas.height = 720;
+        canvas.width = 1920;
+        canvas.height = 1080;
         // captureStream(0) = manual frame clock via requestFrame()
         const stream = (canvas as HTMLCanvasElement & { captureStream(fps?: number): MediaStream }).captureStream(0);
         this._remoteCanvases.set(msg.from, { canvas, stream });

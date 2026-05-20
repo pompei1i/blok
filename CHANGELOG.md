@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.5] — 2026-05-20
+
+### Added
+- **Configurable screen share quality** — new "Screen Share" section in Video settings lets users choose frame rate (1/5/10/15/30 FPS), resolution (720p/1080p/1440p/native), and JPEG quality (Low/Medium/High)
+- **Rust-side configurable JPEG quality** — `capture_screen_frame` and GDI monitor/window capture commands accept `max_width` and `jpeg_quality` parameters; uses `JpegEncoder::new_with_quality` and `Triangle` resize filter
+- Screen share settings persisted via Zustand `ui-settings-store`; i18n keys added to all 6 locales
+
+### Fixed
+- **"Failed to access microphone"** on stereo WASAPI devices — audio engine now reads native channel count and downmixes to mono in the capture callback instead of forcing `channels: 1`
+- Error messages from Tauri `audio_start` now surface to the UI instead of always showing the generic fallback string
+
+---
+
 ## [0.2.3] — 2026-05-20
 
 ### Added
