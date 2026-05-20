@@ -329,7 +329,7 @@ fn run_audio(
                 if total > max {
                     buf.drain(..total - max);
                 }
-                buf.extend_from_slice(incoming);
+                buf.extend(incoming);
             }
             Ok(Cmd::RemovePeer(id)) => {
                 play_shared.lock().unwrap_or_else(|e| e.into_inner()).buffers.remove(&id);
