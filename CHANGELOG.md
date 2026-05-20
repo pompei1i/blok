@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7] — 2026-05-20
+
+### Fixed
+- **Auto-updater non-functional** — `updater:default` and `process:allow-restart` permissions were missing from `capabilities/default.json`; every `check()` and `relaunch()` IPC call was blocked at the Tauri permission boundary, so no update notification was ever shown
+- **CI release workflow** — removed unrecognised `updaterJsonKeepUniversal` input (no-op in `tauri-action@v0`); added `updaterJsonPreferNsis: true` so the updater JSON correctly references the NSIS bundle rather than a non-existent MSI/WiX artifact
+
+---
+
 ## [0.2.6] — 2026-05-20
 
 ### Fixed
