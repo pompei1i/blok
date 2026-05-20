@@ -95,7 +95,14 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
       onScreenShareStart: (userId, stream) => {
         if (userId !== _currentUserId) set({ screenShareUserId: userId, remoteScreenStream: stream });
       },
-      onScreenShareStop: () => set({ screenShareUserId: null, remoteScreenStream: null }),
+      onScreenShareStop: (userId) => {
+        // Only clear viewer state when the specific sharing peer stops.
+        // Ignoring userId caused any peer's stop event to wipe the local viewer.
+        set((state) => {
+          if (state.screenShareUserId !== userId) return state;
+          return { screenShareUserId: null, remoteScreenStream: null };
+        });
+      },
     });
 
     try {

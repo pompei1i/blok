@@ -460,7 +460,9 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   generateInviteCode: async (serverId) => {
-    const code = Math.random().toString(36).slice(2, 10);
+    const bytes = new Uint8Array(5);
+    crypto.getRandomValues(bytes);
+    const code = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""); // 10 hex chars, CSPRNG
     const { error } = await supabase.from("servers").update({ invite_code: code }).eq("id", serverId);
     if (error) return null;
     set((state) => ({

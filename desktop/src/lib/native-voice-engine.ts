@@ -78,6 +78,7 @@ export class NativeVoiceEngine {
   }
 
   async join(): Promise<void> {
+    if (this.realtimeCh) return; // already joined — prevent double subscription
     if (!("__TAURI_INTERNALS__" in window)) {
       throw new Error("Native voice requires the desktop app");
     }
@@ -313,8 +314,9 @@ export class NativeVoiceEngine {
         this.updateSpeaking(msg.from, msg.speaking);
         break;
       case "screenshare_start": {
-        // Create an off-screen canvas that acts as the video source for this peer.
-        // Each incoming screen_frame will draw a JPEG into it.
+        // Stop any existing canvas/stream for this peer before creating a new one,
+        // preventing MediaStreamTrack leaks on duplicate screenshare_start messages.
+        this._clearRemoteCanvas(msg.from);
         const canvas = document.createElement("canvas");
         canvas.width = 1920;
         canvas.height = 1080;
@@ -331,9 +333,14 @@ export class NativeVoiceEngine {
       case "screen_frame": {
         const entry = this._remoteCanvases.get(msg.from);
         if (!entry) break;
+        // Clamp dimensions to 4K max to prevent canvas memory exhaustion crash.
+        const fw = Math.min(msg.w, 3840);
+        const fh = Math.min(msg.h, 2160);
+        // Reject oversized payloads (~300 KB JPEG max) before hitting the image decoder.
+        if (msg.data.length > 400_000) break;
         const { canvas, stream } = entry;
-        if (canvas.width !== msg.w) canvas.width = msg.w;
-        if (canvas.height !== msg.h) canvas.height = msg.h;
+        if (canvas.width !== fw) canvas.width = fw;
+        if (canvas.height !== fh) canvas.height = fh;
         const img = new Image();
         img.onload = () => {
           const ctx = canvas.getContext("2d");
