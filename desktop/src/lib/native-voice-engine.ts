@@ -61,7 +61,7 @@ export class NativeVoiceEngine {
   private _lastSpeaking = false;
 
   // Screen share — sender side
-  private _screenCaptureTimer: ReturnType<typeof setInterval> | null = null;
+  private _screenCaptureTimer: ReturnType<typeof setTimeout> | null = null;
   private _screenVideoEl: HTMLVideoElement | null = null;
   private _screenCanvasEl: HTMLCanvasElement | null = null;
   // Screen share — receiver side: one canvas+stream per remote peer
@@ -187,15 +187,25 @@ export class NativeVoiceEngine {
 
     // In Tauri with a specific source: use Rust GDI capture — no OS picker at all
     if (sourceId && "__TAURI_INTERNALS__" in window) {
-      this._screenCaptureTimer = setInterval(() => {
-        void invoke<{ data: string; w: number; h: number } | null>(
+      // Self-scheduling loop: next frame is only queued after the previous capture
+      // + broadcast fully completes, preventing unbounded queue buildup under load.
+      const step = () => {
+        if (this._screenCaptureTimer === null) return;
+        const t0 = performance.now();
+        invoke<{ data: string; w: number; h: number } | null>(
           "capture_screen_frame", { sourceId, maxWidth, jpegQuality: jpegQualityRust }
         ).then((frame) => {
-          if (frame) {
-            this.broadcast({ type: "screen_frame", from: this.userId, data: frame.data, w: frame.w, h: frame.h }).catch(() => {});
+          if (frame && this._screenCaptureTimer !== null) {
+            return this.broadcast({ type: "screen_frame", from: this.userId, data: frame.data, w: frame.w, h: frame.h });
           }
-        }).catch(() => {});
-      }, intervalMs);
+        }).catch(() => {}).finally(() => {
+          if (this._screenCaptureTimer !== null) {
+            const wait = Math.max(0, intervalMs - (performance.now() - t0));
+            this._screenCaptureTimer = setTimeout(step, wait);
+          }
+        });
+      };
+      this._screenCaptureTimer = setTimeout(step, 0);
       await this.broadcast({ type: "screenshare_start", from: this.userId });
       this.cb.onScreenShareStart?.(this.userId, new MediaStream());
       return;
@@ -223,11 +233,17 @@ export class NativeVoiceEngine {
     this._screenVideoEl = video;
     this._screenCanvasEl = canvas;
 
-    this._screenCaptureTimer = setInterval(() => {
+    const stepBrowser = () => {
+      if (this._screenCaptureTimer === null) return;
       if (!this._screenVideoEl || !this._screenCanvasEl) return;
+      const t0 = performance.now();
       const w = this._screenVideoEl.videoWidth;
       const h = this._screenVideoEl.videoHeight;
-      if (!w || !h) return;
+      if (!w || !h) {
+        const wait = Math.max(0, intervalMs - (performance.now() - t0));
+        this._screenCaptureTimer = setTimeout(stepBrowser, wait);
+        return;
+      }
       const scale = maxWidth > 0 && w > maxWidth ? maxWidth / w : 1;
       const tw = Math.round(w * scale);
       const th = Math.round(h * scale);
@@ -235,8 +251,16 @@ export class NativeVoiceEngine {
       if (canvas.height !== th) canvas.height = th;
       ctx.drawImage(this._screenVideoEl, 0, 0, tw, th);
       const data = canvas.toDataURL("image/jpeg", jpegQuality).split(",")[1];
-      this.broadcast({ type: "screen_frame", from: this.userId, data, w: tw, h: th }).catch(() => {});
-    }, intervalMs);
+      this.broadcast({ type: "screen_frame", from: this.userId, data, w: tw, h: th })
+        .catch(() => {})
+        .finally(() => {
+          if (this._screenCaptureTimer !== null) {
+            const wait = Math.max(0, intervalMs - (performance.now() - t0));
+            this._screenCaptureTimer = setTimeout(stepBrowser, wait);
+          }
+        });
+    };
+    this._screenCaptureTimer = setTimeout(stepBrowser, 0);
 
     await this.broadcast({ type: "screenshare_start", from: this.userId });
     this.cb.onScreenShareStart?.(this.userId, stream);
@@ -244,7 +268,7 @@ export class NativeVoiceEngine {
 
   async stopScreenShare(): Promise<void> {
     if (this._screenCaptureTimer) {
-      clearInterval(this._screenCaptureTimer);
+      clearTimeout(this._screenCaptureTimer);
       this._screenCaptureTimer = null;
     }
     if (this._screenVideoEl) {
