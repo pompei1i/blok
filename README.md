@@ -13,7 +13,7 @@
 | Бэкенд | Supabase (Auth, Realtime, PostgreSQL) | Supabase (Auth, Realtime, PostgreSQL) |
 | Desktop | Tauri 2 (NSIS-установщик, Windows) | — |
 | Голос | cpal (Rust, native audio engine) | WebRTC (getUserMedia + RTCPeerConnection) |
-| Локализация | 6 языков, 140+ ключей (JSON) | 6 языков, 140+ ключей (JSON) |
+| Локализация | 6 языков, 155+ ключей (JSON) | 6 языков, 155+ ключей (JSON) |
 
 ## Архитектура
 
@@ -51,16 +51,20 @@ blok/
 ### Серверы и каналы
 - Загрузка серверов, каналов, категорий и участников из Supabase
 - Создание сервера, текстовых и голосовых каналов
-- Приглашение пользователей на сервер по username
+- Приглашение пользователей по username или по invite-коду (8 символов, генерируется владельцем)
+- Удаление канала с диалогом подтверждения
 
 ### Текстовый чат
 - Отправка и получение сообщений в реальном времени (Supabase Realtime)
-- Вложения: изображения, видео, аудио, документы (Base64 data URLs) + drag-and-drop
+- Вложения: изображения, видео, аудио, документы (Supabase Storage, до 10 МБ) + drag-and-drop
 - GIF-пикер (Tenor API), emoji-пикер, mention picker (`@username`)
 - Ответы на сообщения (reply system) с quote-preview
+- Редактирование и удаление сообщений
 - Закреплённые сообщения (pin bar, jump-to)
 - Emoji-реакции: realtime + DB
+- Пагинация истории: подгрузка по 30 сообщений при скролле к началу, позиция сохраняется
 - Markdown-подобное форматирование + XSS-защита (DOMPurify)
+- Оффлайн-баннер при потере соединения
 
 ### Голосовые каналы
 - **Десктоп**: native audio engine на базе cpal (Rust) через Tauri IPC
@@ -70,6 +74,12 @@ blok/
 - Presence-трекинг через Supabase Realtime
 - Настройки: noise suppression, echo cancellation, input volume, push-to-talk
 - Демонстрация экрана (десктоп: native picker; браузер: getDisplayMedia)
+
+### Presence
+- Статус-точка на аватаре в чате: зелёная (online), жёлтая (afk), красная (offline/dnd)
+- DB-based heartbeat каждые 30 с — статус по давности, не по lifecycle-событиям
+- «Был в сети X назад» для офлайн-друзей
+- Собственный пользователь всегда отображается как online
 
 ### Друзья и личные сообщения (DM)
 - Система друзей: запросы, принятие/отклонение, presence-статусы
@@ -145,13 +155,28 @@ VITE_TENOR_API_KEY=...   # опционально
 | `user_relationships` | Друзья / запросы |
 | `dm_channels` | DM-каналы |
 | `dm_messages` | Сообщения в DM |
-| `user_presence` | Статусы присутствия |
+| `user_presence` | Статусы присутствия (heartbeat `online_at`) |
+
+`servers.invite_code` — nullable VARCHAR, генерируется по запросу владельца.
 
 RLS схема — `supabase/policies.sql`. Для Realtime:
 ```sql
 ALTER TABLE user_relationships REPLICA IDENTITY FULL;
 ALTER TABLE user_presence REPLICA IDENTITY FULL;
 ```
+
+## Тесты
+
+Десктопное приложение покрыто интеграционными тестами (Vitest + jsdom):
+
+```bash
+# из desktop/
+npm run test          # однократный прогон
+npm run test:watch    # watch-режим
+npm run test:ui       # UI в браузере
+```
+
+Покрытие: store-экшены (`generateInviteCode`, `joinByInviteCode`, `loadMoreMessages`), DM-store, friends-store, auth-store, UI-settings-store, утилиты, i18n-покрытие всех локалей.
 
 ## Релизы
 
