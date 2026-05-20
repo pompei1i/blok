@@ -127,12 +127,22 @@ export class NativeVoiceEngine {
         }
       });
 
-    await this.subscribePromise;
+    try {
+      await this.subscribePromise;
+    } catch (err) {
+      // Subscription failed — tear down audio capture so it doesn't run orphaned
+      this.unlistenChunk?.(); this.unlistenChunk = null;
+      this.unlistenSpeaking?.(); this.unlistenSpeaking = null;
+      if (this.realtimeCh) { await supabase.removeChannel(this.realtimeCh); this.realtimeCh = null; }
+      await invoke("audio_stop");
+      throw err;
+    }
   }
 
   async leave(): Promise<void> {
-    // Stop screen share cleanly before leaving
-    if (this._screenVideoEl) {
+    // Stop screen share cleanly before leaving.
+    // Check both paths: _screenVideoEl (browser) and _screenCaptureTimer (Tauri GDI).
+    if (this._screenCaptureTimer !== null || this._screenVideoEl) {
       await this.stopScreenShare();
     }
 
@@ -174,7 +184,7 @@ export class NativeVoiceEngine {
   setNoiseGateThreshold(_value: number): void {}
 
   isScreenSharing(): boolean {
-    return this._screenVideoEl !== null;
+    return this._screenCaptureTimer !== null || this._screenVideoEl !== null;
   }
 
   async startScreenShare(sourceId?: string): Promise<void> {

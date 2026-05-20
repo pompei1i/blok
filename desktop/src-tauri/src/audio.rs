@@ -319,12 +319,17 @@ fn run_audio(
             Ok(Cmd::AddSamples { from, samples }) => {
                 let mut state = play_shared.lock().unwrap_or_else(|e| e.into_inner());
                 let buf = state.buffers.entry(from).or_default();
-                // Playback samples are always at TARGET_RATE (resampled before add).
+                // 2 seconds of mono audio at TARGET_RATE
                 let max = TARGET_RATE as usize * 2;
-                while buf.len() + samples.len() > max {
-                    buf.pop_front();
+                // If the batch alone exceeds the cap, keep only its most-recent tail.
+                let tail_start = samples.len().saturating_sub(max);
+                let incoming = &samples[tail_start..];
+                // Bulk-drain oldest buffered samples to make room (O(1) range drop).
+                let total = buf.len() + incoming.len();
+                if total > max {
+                    buf.drain(..total - max);
                 }
-                buf.extend(samples);
+                buf.extend_from_slice(incoming);
             }
             Ok(Cmd::RemovePeer(id)) => {
                 play_shared.lock().unwrap_or_else(|e| e.into_inner()).buffers.remove(&id);
