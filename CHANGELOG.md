@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.11] — 2026-05-21
+
+### Fixed
+- **Installer default path showed wrong drive** — `$blok` product name contains `$` which NSIS treats as a variable prefix, causing the default install path to resolve incorrectly. Fixed by explicitly setting `installDir` to `$LOCALAPPDATA\blok`.
+
+---
+
 ## [0.2.10] — 2026-05-21
 
 ### Changed
