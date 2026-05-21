@@ -2,6 +2,13 @@ import { Monitor, AppWindow, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
+import {
+  SCREEN_SHARE_FPS_OPTIONS,
+  type ScreenShareFps,
+  type ScreenShareResolution,
+  type ScreenShareQuality,
+} from "@/lib/constants";
 
 interface ScreenSource {
   id: string;
@@ -16,6 +23,55 @@ interface WindowSource {
 interface ScreenSharePickerProps {
   onSelect: (sourceId: string) => void;
   onClose: () => void;
+}
+
+const RES_OPTIONS: { value: ScreenShareResolution; label: string }[] = [
+  { value: "720p",   label: "720p" },
+  { value: "1080p",  label: "1080p" },
+  { value: "1440p",  label: "1440p" },
+  { value: "native", label: "src" },
+];
+
+const QUALITY_OPTIONS: { value: ScreenShareQuality; label: string }[] = [
+  { value: "low",    label: "lo" },
+  { value: "medium", label: "med" },
+  { value: "high",   label: "hi" },
+];
+
+function OptionGroup<T extends string | number>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider w-8 flex-shrink-0">
+        {label}
+      </span>
+      <div className="flex gap-0.5 flex-wrap justify-end">
+        {options.map((opt) => (
+          <button
+            key={String(opt.value)}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "px-1.5 py-0.5 text-[9px] font-mono rounded transition-colors",
+              value === opt.value
+                ? "bg-[var(--online)] text-white"
+                : "bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function SourceRow({
@@ -56,6 +112,10 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
 
+  const { screenShareFps, screenShareResolution, screenShareQuality, setSetting } = useUiSettingsStore();
+
+  const fpsOptions = SCREEN_SHARE_FPS_OPTIONS.map((fps) => ({ value: fps, label: String(fps) }));
+
   useEffect(() => {
     Promise.all([
       invoke<ScreenSource[]>("get_screen_sources").catch(() => []),
@@ -68,8 +128,10 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
   }, []);
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-68 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-50"
-      style={{ width: "17rem" }}>
+    <div
+      className="absolute bottom-full left-0 mb-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-50"
+      style={{ width: "17rem" }}
+    >
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] bg-[var(--bg-surface)]">
         <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
           <span className="text-[var(--online)] mr-1">$</span>select source
@@ -82,6 +144,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
         </button>
       </div>
 
+      {/* Source list */}
       <div className="overflow-y-auto max-h-60 p-1.5 space-y-0.5">
         {loading ? (
           <div className="flex items-center justify-center py-6">
@@ -99,7 +162,6 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
                 ))}
               </>
             )}
-
             {windows.length > 0 && (
               <>
                 <p className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-2 pb-0.5 opacity-60">
@@ -110,7 +172,6 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
                 ))}
               </>
             )}
-
             {!loading && screens.length === 0 && windows.length === 0 && (
               <p className="text-xs text-[var(--text-muted)] text-center py-4">No sources found</p>
             )}
@@ -118,6 +179,29 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
         )}
       </div>
 
+      {/* Quality settings */}
+      <div className="px-2.5 py-2 border-t border-[var(--border)] space-y-1.5">
+        <OptionGroup
+          label="fps"
+          options={fpsOptions}
+          value={screenShareFps}
+          onChange={(v) => setSetting("screenShareFps", v as ScreenShareFps)}
+        />
+        <OptionGroup
+          label="res"
+          options={RES_OPTIONS}
+          value={screenShareResolution}
+          onChange={(v) => setSetting("screenShareResolution", v)}
+        />
+        <OptionGroup
+          label="qual"
+          options={QUALITY_OPTIONS}
+          value={screenShareQuality}
+          onChange={(v) => setSetting("screenShareQuality", v)}
+        />
+      </div>
+
+      {/* Start button */}
       <div className="px-1.5 pb-1.5 pt-1 border-t border-[var(--border)]">
         <button
           disabled={!selected || loading}

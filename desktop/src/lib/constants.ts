@@ -81,11 +81,11 @@ export const AVATAR_JPEG_QUALITY = 0.8;
 
 // ── Screen share ──────────────────────────────────────────────────────────────
 
-export type ScreenShareFps = 1 | 5 | 10 | 15 | 30;
+export type ScreenShareFps = 1 | 5 | 10 | 15 | 30 | 60;
 export type ScreenShareResolution = "720p" | "1080p" | "1440p" | "native";
 export type ScreenShareQuality = "low" | "medium" | "high";
 
-export const SCREEN_SHARE_FPS_OPTIONS: ScreenShareFps[] = [1, 5, 10, 15, 30];
+export const SCREEN_SHARE_FPS_OPTIONS: ScreenShareFps[] = [1, 5, 10, 15, 30, 60];
 
 /** Max capture width per resolution label. 0 = no resize (native). */
 export const SCREEN_RES_TO_MAX_WIDTH: Record<ScreenShareResolution, number> = {

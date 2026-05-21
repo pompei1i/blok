@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { X, Camera, Save, User, Video, Mic, Keyboard, Layout, Palette, Globe, LogOut, CheckCircle, XCircle, AlertCircle, ExternalLink, Monitor } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
-import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode, type ScreenShareFps, type ScreenShareResolution, type ScreenShareQuality } from "@/lib/store/ui-settings-store";
-import { SCREEN_SHARE_FPS_OPTIONS } from "@/lib/constants";
+import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode } from "@/lib/store/ui-settings-store";
 import { useI18n } from "@/lib/i18n";
+import { useUpdater } from "@/hooks/useUpdater";
 
 interface AccountEditModalProps {
   isOpen: boolean;
@@ -16,9 +16,6 @@ type SettingsDraft = {
   previewVideo: boolean;
   mirrorCamera: boolean;
   cameraQuality: CameraQuality;
-  screenShareFps: ScreenShareFps;
-  screenShareResolution: ScreenShareResolution;
-  screenShareQuality: ScreenShareQuality;
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number;
@@ -53,9 +50,6 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     previewVideo,
     mirrorCamera,
     cameraQuality,
-    screenShareFps,
-    screenShareResolution,
-    screenShareQuality,
     noiseSuppression,
     echoCancellation,
     inputVolume,
@@ -75,9 +69,6 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     previewVideo,
     mirrorCamera,
     cameraQuality,
-    screenShareFps,
-    screenShareResolution,
-    screenShareQuality,
     noiseSuppression,
     echoCancellation,
     inputVolume,
@@ -114,6 +105,12 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
   } | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [isApplyingSettings, setIsApplyingSettings] = useState(false);
+  const { available: updateAvailable, version: updateVersion, installing: updateInstalling, installUpdate } = useUpdater();
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    import("@tauri-apps/api/app").then(({ getVersion }) => getVersion().then(setAppVersion)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -121,9 +118,6 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
       previewVideo,
       mirrorCamera,
       cameraQuality,
-      screenShareFps,
-      screenShareResolution,
-      screenShareQuality,
       noiseSuppression,
       echoCancellation,
       inputVolume,
@@ -144,9 +138,6 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     previewVideo,
     mirrorCamera,
     cameraQuality,
-    screenShareFps,
-    screenShareResolution,
-    screenShareQuality,
     noiseSuppression,
     echoCancellation,
     inputVolume,
@@ -528,46 +519,6 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                   </label>
                 </div>
 
-                <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-5">
-                  <span className="block text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{t("settings.video.screenShare")}</span>
-                  <label className="block">
-                    <span className="block text-xs text-[var(--text-muted)] mb-2">{t("settings.video.screenShareFps")}</span>
-                    <select
-                      value={draftSettings.screenShareFps}
-                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, screenShareFps: Number(e.target.value) as ScreenShareFps }))}
-                      className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-red)]"
-                    >
-                      {SCREEN_SHARE_FPS_OPTIONS.map((fps) => (
-                        <option key={fps} value={fps}>{fps} fps</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="block text-xs text-[var(--text-muted)] mb-2">{t("settings.video.screenShareResolution")}</span>
-                    <select
-                      value={draftSettings.screenShareResolution}
-                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, screenShareResolution: e.target.value as ScreenShareResolution }))}
-                      className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-red)]"
-                    >
-                      <option value="720p">720p (1280px)</option>
-                      <option value="1080p">1080p (1920px)</option>
-                      <option value="1440p">1440p (2560px)</option>
-                      <option value="native">{t("settings.video.screenShareNative")}</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="block text-xs text-[var(--text-muted)] mb-2">{t("settings.video.screenShareQuality")}</span>
-                    <select
-                      value={draftSettings.screenShareQuality}
-                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, screenShareQuality: e.target.value as ScreenShareQuality }))}
-                      className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-red)]"
-                    >
-                      <option value="low">{t("settings.video.qualityLow")}</option>
-                      <option value="medium">{t("settings.video.qualityMedium")}</option>
-                      <option value="high">{t("settings.video.qualityHigh")}</option>
-                    </select>
-                  </label>
-                </div>
               </div>
             )}
 
@@ -835,6 +786,31 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                       }}
                     />
                   </label>
+                </div>
+
+                <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-4">
+                  <span className="block text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                    {t("settings.system.updates")}
+                  </span>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <span className="text-sm text-[var(--text-primary)]">{t("settings.system.currentVersion")}</span>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5 font-mono">
+                        {appVersion ? `v${appVersion}` : "—"}
+                      </p>
+                    </div>
+                    {updateAvailable ? (
+                      <button
+                        onClick={installUpdate}
+                        disabled={updateInstalling}
+                        className="px-3 py-1.5 bg-[var(--accent-red)] hover:opacity-90 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-opacity"
+                      >
+                        {updateInstalling ? t("settings.system.installingUpdate") : `${t("settings.system.installUpdate")} v${updateVersion}`}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-[var(--online)] font-mono">{t("settings.system.upToDate")}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
