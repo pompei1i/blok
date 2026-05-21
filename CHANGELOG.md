@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.12] — 2026-05-21
+
+### Fixed
+- **Build error** — `installDir` is not a valid Tauri 2.x NSIS config field; removed it. `installMode: currentUser` alone is sufficient — Tauri correctly resolves `%LocalAppData%` at install time.
+
+---
+
 ## [0.2.11] — 2026-05-21
 
 ### Fixed
