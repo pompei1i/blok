@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
@@ -11,6 +12,12 @@ struct CaptureShared {
     muted: bool,
     accumulator: Vec<f32>,
     frame_size: usize,
+    noise_suppression: bool,
+    echo_cancel: bool,
+    // Running noise floor estimate (updated from quiet frames)
+    noise_floor: f32,
+    // Smoothed gate gain (0.0 = silent, 1.0 = full pass-through)
+    gate_gain: f32,
 }
 
 struct PlaybackShared {
@@ -26,6 +33,8 @@ pub enum Cmd {
     SetDeafened(bool),
     AddSamples { from: String, samples: Vec<f32> },
     RemovePeer(String),
+    SetNoiseSuppression(bool),
+    SetEchoCancellation(bool),
     Stop,
 }
 
@@ -92,13 +101,19 @@ pub fn list_output_devices() -> Vec<String> {
 impl NativeAudio {
     /// Start the native audio engine. Returns `(engine, actual_sample_rate)`.
     /// Pass `None` for either device to use the system default.
-    pub fn start(app: tauri::AppHandle, input_device: Option<String>, output_device: Option<String>) -> Result<(Self, u32), String> {
+    pub fn start(
+        app: tauri::AppHandle,
+        input_device: Option<String>,
+        output_device: Option<String>,
+        noise_suppression: bool,
+        echo_cancellation: bool,
+    ) -> Result<(Self, u32), String> {
         let (tx, rx) = std::sync::mpsc::sync_channel::<Cmd>(128);
         let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<u32>(1);
         std::thread::Builder::new()
             .name("blok-audio".into())
             .spawn(move || {
-                if let Err(e) = run_audio(app, rx, rate_tx, input_device, output_device) {
+                if let Err(e) = run_audio(app, rx, rate_tx, input_device, output_device, noise_suppression, echo_cancellation) {
                     eprintln!("[audio] engine error: {e}");
                 }
             })
@@ -138,12 +153,79 @@ fn rms_f32(s: &[f32]) -> f32 {
     (s.iter().map(|x| x * x).sum::<f32>() / s.len() as f32).sqrt()
 }
 
+/// Noise suppression + echo cancellation gate applied to each outgoing frame.
+///
+/// NS: estimates a running noise floor from quiet frames and attenuates signals
+/// near the floor; clear speech (energy well above floor) passes unmodified.
+///
+/// EC: when `echo_cancel` is set and `playback_active` is true (peers are
+/// audible through the speakers), the mic gate threshold is raised 4× to
+/// prevent speaker bleed from being re-transmitted to other participants.
+fn apply_voice_processing(
+    frame: &mut [f32],
+    noise_floor: &mut f32,
+    gate_gain: &mut f32,
+    noise_suppression: bool,
+    echo_cancel: bool,
+    playback_active: bool,
+) {
+    // Skip entirely when processing is off, or EC is on but nobody is playing
+    if !noise_suppression && !(echo_cancel && playback_active) {
+        return;
+    }
+
+    let rms = rms_f32(frame);
+
+    // Raise the gate when speaker audio is playing (echo-cancellation effect)
+    let threshold = if echo_cancel && playback_active {
+        SPEAKING_THRESHOLD * 4.0
+    } else {
+        SPEAKING_THRESHOLD
+    };
+
+    let target_gain = if noise_suppression {
+        // Update noise floor from clearly sub-speech frames (slow adaptive EMA)
+        if rms < SPEAKING_THRESHOLD * 0.3 {
+            *noise_floor = (*noise_floor * 0.98 + rms * 0.02).max(1e-6);
+        }
+        let floor = *noise_floor;
+        let speech_level = threshold.max(floor * 8.0);
+        if rms >= speech_level {
+            1.0_f32
+        } else if rms > floor * 1.5 {
+            // Soft-knee region between noise floor and speech level
+            ((rms - floor * 1.5) / (speech_level - floor * 1.5)).sqrt()
+        } else {
+            0.05 // ~26 dB attenuation at the noise floor
+        }
+    } else {
+        // EC-only: binary gate on the raised threshold
+        if rms >= threshold { 1.0 } else { 0.0 }
+    };
+
+    // Smooth gate gain: fast open (speech starts abruptly), slower close
+    // (prevents choppy audio on brief pauses). EC path closes fast to avoid echo.
+    let (open_speed, close_speed) = if echo_cancel && playback_active {
+        (0.9, 0.7)
+    } else {
+        (0.9, 0.25)
+    };
+    let speed = if target_gain > *gate_gain { open_speed } else { close_speed };
+    *gate_gain = (*gate_gain * (1.0 - speed) + target_gain * speed).clamp(0.0, 1.0);
+
+    for s in frame.iter_mut() {
+        *s *= *gate_gain;
+    }
+}
+
 fn run_audio(
     app: tauri::AppHandle,
     rx: std::sync::mpsc::Receiver<Cmd>,
     rate_tx: std::sync::mpsc::SyncSender<u32>,
     input_device_name: Option<String>,
     output_device_name: Option<String>,
+    noise_suppression: bool,
+    echo_cancellation: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let host = cpal::default_host();
 
@@ -221,10 +303,18 @@ fn run_audio(
     let actual_rate = input_config.sample_rate.0 as usize;
     let frame_size = actual_rate * FRAME_MS / 1000;
 
+    // Shared flag: output callback sets this true when peer audio is actively playing.
+    // Input callback reads it to apply echo-cancellation gating.
+    let playback_active = Arc::new(AtomicBool::new(false));
+
     let cap_shared = Arc::new(Mutex::new(CaptureShared {
         muted: false,
         accumulator: Vec::with_capacity(frame_size * 2),
         frame_size,
+        noise_suppression,
+        echo_cancel: echo_cancellation,
+        noise_floor: SPEAKING_THRESHOLD * 0.2,
+        gate_gain: 1.0,
     }));
 
     let play_shared = Arc::new(Mutex::new(PlaybackShared {
@@ -236,6 +326,7 @@ fn run_audio(
 
     // --- input stream ---
     let cap = cap_shared.clone();
+    let playback_active_in = playback_active.clone();
     let app_in = app.clone();
     let app_in_err = app.clone();
     let input_stream = input_device.build_input_stream(
@@ -258,8 +349,21 @@ fn run_audio(
                 );
             }
             let fs = state.frame_size;
+            let pa = playback_active_in.load(Ordering::Relaxed);
+            // Reborrow through Deref so Rust can see distinct fields for split borrows.
+            let state: &mut CaptureShared = &mut *state;
+            let ns = state.noise_suppression;
+            let ec = state.echo_cancel;
             while state.accumulator.len() >= fs {
-                let frame: Vec<f32> = state.accumulator.drain(..fs).collect();
+                let mut frame: Vec<f32> = state.accumulator.drain(..fs).collect();
+                apply_voice_processing(
+                    &mut frame,
+                    &mut state.noise_floor,
+                    &mut state.gate_gain,
+                    ns,
+                    ec,
+                    pa,
+                );
                 let speaking = rms_f32(&frame) > SPEAKING_THRESHOLD;
                 let samples_i16: Vec<i16> = frame
                     .iter()
@@ -278,6 +382,7 @@ fn run_audio(
 
     // --- output stream ---
     let play = play_shared.clone();
+    let playback_active_out = playback_active.clone();
     let app_out_err = app.clone();
     let output_stream = output_device.build_output_stream(
         &output_config,
@@ -289,6 +394,12 @@ fn run_audio(
                 Ok(g) => g,
                 Err(_) => return,
             };
+            // Inform the input callback whether peers are currently sending audio
+            // (used for echo-cancellation gating of the microphone).
+            let had_audio = !state.buffers.is_empty()
+                && state.buffers.values().any(|b| !b.is_empty());
+            playback_active_out.store(had_audio, Ordering::Relaxed);
+
             if state.deafened {
                 return;
             }
@@ -363,6 +474,12 @@ fn run_audio(
             }
             Ok(Cmd::RemovePeer(id)) => {
                 play_shared.lock().unwrap_or_else(|e| e.into_inner()).buffers.remove(&id);
+            }
+            Ok(Cmd::SetNoiseSuppression(v)) => {
+                cap_shared.lock().unwrap_or_else(|e| e.into_inner()).noise_suppression = v;
+            }
+            Ok(Cmd::SetEchoCancellation(v)) => {
+                cap_shared.lock().unwrap_or_else(|e| e.into_inner()).echo_cancel = v;
             }
         }
     }

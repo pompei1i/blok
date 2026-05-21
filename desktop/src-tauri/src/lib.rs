@@ -20,10 +20,27 @@ fn audio_start(
     app: tauri::AppHandle,
     input_device: Option<String>,
     output_device: Option<String>,
+    noise_suppression: bool,
+    echo_cancellation: bool,
 ) -> Result<u32, String> {
-    let (engine, actual_rate) = NativeAudio::start(app, input_device, output_device)?;
+    let (engine, actual_rate) =
+        NativeAudio::start(app, input_device, output_device, noise_suppression, echo_cancellation)?;
     *state.0.lock().unwrap() = Some(engine);
     Ok(actual_rate)
+}
+
+#[tauri::command]
+fn audio_set_noise_suppression(enabled: bool, state: tauri::State<AudioState>) {
+    if let Some(engine) = state.0.lock().unwrap().as_ref() {
+        engine.send(Cmd::SetNoiseSuppression(enabled));
+    }
+}
+
+#[tauri::command]
+fn audio_set_echo_cancellation(enabled: bool, state: tauri::State<AudioState>) {
+    if let Some(engine) = state.0.lock().unwrap().as_ref() {
+        engine.send(Cmd::SetEchoCancellation(enabled));
+    }
 }
 
 #[tauri::command]
@@ -541,6 +558,8 @@ pub fn run() {
             audio_stop,
             audio_set_muted,
             audio_set_deafened,
+            audio_set_noise_suppression,
+            audio_set_echo_cancellation,
             audio_receive,
             audio_remove_peer,
             audio_list_input_devices,

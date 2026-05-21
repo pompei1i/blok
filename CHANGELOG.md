@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.9] — 2026-05-21
+
+### Added
+- **Native noise suppression** — adaptive spectral gate implemented in Rust: estimates a running noise floor from quiet frames; signals near the floor (~26 dB suppression) pass through a smooth gain envelope while clear speech passes unmodified. Enabled by default for all users.
+- **Playback-aware echo cancellation** — when peers are actively sending audio (output buffers non-empty), the microphone gate threshold is raised 4× so that speaker bleed cannot be re-transmitted. Fast-close / slow-open smoothing prevents choppy speech. Enabled by default for all users.
+- Both features are wired to the existing Noise Suppression / Echo Cancellation toggles in Audio Settings and take effect instantly via new `audio_set_noise_suppression` / `audio_set_echo_cancellation` Tauri commands.
+
+### Changed
+- `ui-settings-store` bumped to version 2; existing users migrated to NS/EC = `true` (native Rust implementation, no Windows communications endpoint switching)
+
+---
+
 ## [0.2.8] — 2026-05-21
 
 ### Fixed

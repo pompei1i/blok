@@ -42,8 +42,8 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       screenShareFps: 5,
       screenShareResolution: "1080p",
       screenShareQuality: "medium",
-      noiseSuppression: false,
-      echoCancellation: false,
+      noiseSuppression: true,
+      echoCancellation: true,
       inputVolume: 70,
       noiseGateThreshold: NOISE_GATE_DEFAULT,
       pushToTalk: false,
@@ -59,12 +59,16 @@ export const useUiSettingsStore = create<UiSettingsState>()(
     }),
     {
       name: "blok-ui-settings",
-      version: 1,
+      version: 2,
       migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as Partial<UiSettingsState>;
+        let state = persistedState as Partial<UiSettingsState>;
         if (version < 1) {
-          // Disable browser-level EC/NS to prevent Windows communications endpoint switching
-          return { ...state, echoCancellation: false, noiseSuppression: false };
+          // v0→v1: disable browser-level EC/NS that caused Windows communications endpoint switching
+          state = { ...state, echoCancellation: false, noiseSuppression: false };
+        }
+        if (version < 2) {
+          // v1→v2: enable native Rust NS/EC — no device switching, works transparently
+          state = { ...state, noiseSuppression: true, echoCancellation: true };
         }
         return state as UiSettingsState;
       },

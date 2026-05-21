@@ -84,10 +84,12 @@ export class NativeVoiceEngine {
     }
     // audio_start returns the actual input sample rate so we can tag every
     // outgoing packet; remote peers resample if their device differs.
-    const { inputDevice, outputDevice } = useUiSettingsStore.getState();
+    const { inputDevice, outputDevice, noiseSuppression, echoCancellation } = useUiSettingsStore.getState();
     this.localRate = await invoke<number>("audio_start", {
       inputDevice: inputDevice || null,
       outputDevice: outputDevice || null,
+      noiseSuppression,
+      echoCancellation,
     });
     invoke("disable_audio_ducking").catch(() => {});
 
