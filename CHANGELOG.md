@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.8] — 2026-05-21
+
+### Fixed
+- **CI release conflict** — bumped version to avoid duplicate asset error on force-pushed tag
+
+---
+
 ## [0.2.7] — 2026-05-20
 
 ### Fixed
