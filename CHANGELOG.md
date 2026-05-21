@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.10] — 2026-05-21
+
+### Changed
+- **Per-user installation** — NSIS installer now uses `currentUser` mode: installs to `%AppData%\Local\$blok` without requiring administrator elevation (UAC). Auto-updates also apply silently without UAC. **Existing users:** uninstall the old version from Program Files before installing this release.
+
+---
+
 ## [0.2.9] — 2026-05-21
 
 ### Added
