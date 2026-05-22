@@ -1,6 +1,6 @@
 [package]
 name = "blok"
-version = "0.2.16"
+version = "0.2.17"
 description = "$blok - terminal-style chat app"
 authors = ["you"]
 edition = "2021"

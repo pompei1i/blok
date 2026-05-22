@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.17] — 2026-05-22
+
+### Fixed
+- **Auto-updater signature mismatch** — `tauri.key` and the configured `pubkey` were from different key generations; the `latest.json` signature was silently rejected at runtime. Regenerated a consistent key pair; `pubkey` in `tauri.conf.json` and signing secrets updated to match.
+
+---
+
 ## [0.2.16] — 2026-05-22
 
 ### Fixed
