@@ -321,9 +321,10 @@ export class NativeVoiceEngine {
     dv.setUint32(4, h, false);
     payload.set(jpeg, 8);
     for (const ch of this._shareeChannels.values()) {
-      if (ch.readyState === "open") {
-        try { ch.send(payload.buffer); } catch { /* ignore */ }
-      }
+      // Skip frame if the DC send buffer is backed up (previous frame not yet drained).
+      // 256 KB threshold gives one frame of headroom before dropping.
+      if (ch.readyState !== "open" || ch.bufferedAmount > 256_000) continue;
+      try { ch.send(payload.buffer); } catch { /* ignore */ }
     }
   }
 
