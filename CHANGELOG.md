@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.14] — 2026-05-22
+
+### Changed
+- **Screen share now uses WebRTC Data Channels (P2P)** — frames no longer go through Supabase Realtime. After `screenshare_start`, each viewer negotiates a direct `RTCPeerConnection` with the sharer via offer/answer/ICE exchanged over Supabase (10–20 messages total). Frames are sent as binary (`[w:u32][h:u32][JPEG bytes]`) with no base64 overhead and no per-frame Supabase messages. Eliminates the ~100 msg/sec Supabase rate-limit ceiling entirely for screen share at any FPS.
+- STUN: `stun.l.google.com:19302` (free, no new infrastructure needed). TURN not required for most networks.
+- `screen_frame` broadcast message type removed from the signaling protocol.
+
+---
+
 ## [0.2.13] — 2026-05-21
 
 ### Added
