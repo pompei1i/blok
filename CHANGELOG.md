@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.16] — 2026-05-22
+
+### Fixed
+- **Auto-updater `latest.json` never generated** — root cause: `productName: "$blok"` contains `$` which GitHub strips from release asset names on upload. `tauri-action` looked up the `.sig` file by the original name (with `$`), got a mismatch against the uploaded name (without `$`), and skipped `latest.json` silently. Fixed by renaming `productName` to `blok`. Window title remains `$blok` (set separately in `app.windows[0].title`).
+
+---
+
 ## [0.2.15] — 2026-05-22
 
 ### Fixed
