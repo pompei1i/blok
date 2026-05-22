@@ -62,6 +62,7 @@ export class NativeVoiceEngine {
 
   // Screen share — sender side
   private _screenCaptureTimer: ReturnType<typeof setTimeout> | null = null;
+  private _captureInFlight = false;
   private _screenVideoEl: HTMLVideoElement | null = null;
   private _screenCanvasEl: HTMLCanvasElement | null = null;
   // Screen share — receiver side: one canvas+stream per remote peer
@@ -202,9 +203,16 @@ export class NativeVoiceEngine {
     if (sourceId && "__TAURI_INTERNALS__" in window) {
       // Self-scheduling loop: next frame is only queued after the previous capture
       // + broadcast fully completes, preventing unbounded queue buildup under load.
+      // _captureInFlight guards against any edge-case double-scheduling.
       const step = () => {
         if (this._screenCaptureTimer === null) return;
+        if (this._captureInFlight) {
+          this._screenCaptureTimer = setTimeout(step, intervalMs);
+          return;
+        }
+        this._captureInFlight = true;
         const t0 = performance.now();
+        console.time("capture");
         invoke<{ data: string; w: number; h: number } | null>(
           "capture_screen_frame", { sourceId, maxWidth, jpegQuality: jpegQualityRust }
         ).then((frame) => {
@@ -212,6 +220,8 @@ export class NativeVoiceEngine {
             return this.broadcast({ type: "screen_frame", from: this.userId, data: frame.data, w: frame.w, h: frame.h });
           }
         }).catch(() => {}).finally(() => {
+          console.timeEnd("capture");
+          this._captureInFlight = false;
           if (this._screenCaptureTimer !== null) {
             const wait = Math.max(0, intervalMs - (performance.now() - t0));
             this._screenCaptureTimer = setTimeout(step, wait);
@@ -284,6 +294,7 @@ export class NativeVoiceEngine {
       clearTimeout(this._screenCaptureTimer);
       this._screenCaptureTimer = null;
     }
+    this._captureInFlight = false;
     if (this._screenVideoEl) {
       this._screenVideoEl.srcObject = null;
       this._screenVideoEl = null;

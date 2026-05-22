@@ -66,8 +66,8 @@ const BASE_STATE = {
   isMuted: false,
   isDeafened: false,
   isScreenSharing: false,
-  screenShareUserId: null,
-  remoteScreenStream: null,
+  screenSharers: {},
+  watchingUserId: null,
 };
 
 beforeEach(() => {

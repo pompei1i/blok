@@ -12,14 +12,17 @@ export interface VoiceSlice {
   isMuted: boolean;
   isDeafened: boolean;
   isScreenSharing: boolean;
-  screenShareUserId: string | null;
-  remoteScreenStream: MediaStream | null;
+  /** All peers currently sharing their screen: userId → MediaStream */
+  screenSharers: Record<string, MediaStream>;
+  /** Which sharer the local user is currently watching (null = none) */
+  watchingUserId: string | null;
 
   joinVoiceChannel: (channelId: string, user: User) => Promise<string | null>;
   leaveVoiceChannel: () => Promise<void>;
   toggleMute: () => void;
   toggleDeafen: () => void;
   toggleScreenShare: (sourceId?: string) => Promise<void>;
+  setWatchingUserId: (userId: string) => void;
 }
 
 export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (set, get) => ({
@@ -28,8 +31,8 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
   isMuted: false,
   isDeafened: false,
   isScreenSharing: false,
-  screenShareUserId: null,
-  remoteScreenStream: null,
+  screenSharers: {},
+  watchingUserId: null,
 
   joinVoiceChannel: async (channelId, user) => {
     const prevChannel = get().activeVoiceChannelId;
@@ -93,14 +96,26 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         }));
       },
       onScreenShareStart: (userId, stream) => {
-        if (userId !== _currentUserId) set({ screenShareUserId: userId, remoteScreenStream: stream });
+        if (userId === _currentUserId) return;
+        set((state) => {
+          const next = { ...state.screenSharers, [userId]: stream };
+          // Auto-select if nobody is being watched yet
+          const watching = state.watchingUserId ?? userId;
+          return { screenSharers: next, watchingUserId: watching };
+        });
       },
       onScreenShareStop: (userId) => {
-        // Only clear viewer state when the specific sharing peer stops.
-        // Ignoring userId caused any peer's stop event to wipe the local viewer.
         set((state) => {
-          if (state.screenShareUserId !== userId) return state;
-          return { screenShareUserId: null, remoteScreenStream: null };
+          if (!state.screenSharers[userId]) return state;
+          const next = { ...state.screenSharers };
+          delete next[userId];
+          // If we were watching the stopped sharer, switch to another (or null)
+          let watching = state.watchingUserId;
+          if (watching === userId) {
+            const remaining = Object.keys(next);
+            watching = remaining.length > 0 ? remaining[0] : null;
+          }
+          return { screenSharers: next, watchingUserId: watching };
         });
       },
     });
@@ -138,8 +153,8 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         activeVoiceChannelId: null,
         voiceParticipants: { ...state.voiceParticipants, [ch]: [] },
         isScreenSharing: false,
-        screenShareUserId: null,
-        remoteScreenStream: null,
+        screenSharers: {},
+        watchingUserId: null,
       };
     });
   },
@@ -178,6 +193,10 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         },
       }));
     }
+  },
+
+  setWatchingUserId: (userId) => {
+    set({ watchingUserId: userId });
   },
 
   toggleScreenShare: async (sourceId?: string) => {

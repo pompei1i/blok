@@ -53,8 +53,8 @@ beforeEach(() => {
     isMuted: false,
     isDeafened: false,
     isScreenSharing: false,
-    screenShareUserId: null,
-    remoteScreenStream: null,
+    screenSharers: {},
+    watchingUserId: null,
   });
 });
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.13] — 2026-05-21
+
+### Added
+- **Multi-streamer picker** — when two or more peers are sharing their screen simultaneously, a tab bar appears above the video so the local user can click to choose which stream to watch. Auto-selects the first sharer; switches to the next remaining sharer if the watched peer stops.
+
+### Fixed
+- **Screen share drag lag** — added an in-flight guard (`_captureInFlight`) in the GDI capture loop so that if a previous invoke + broadcast hasn't resolved yet, the next tick is deferred rather than stacked on top, preventing GDI pressure during window moves.
+- **Multi-stop wipe bug** — `onScreenShareStop` no longer wipes viewer state when any unrelated sharer stops; viewer is only switched when the currently-watched peer stops.
+
+### Changed
+- Voice store state: `screenShareUserId` / `remoteScreenStream` replaced with `screenSharers: Record<userId, MediaStream>` and `watchingUserId: string | null`.
+- Screen capture loop now logs `console.time("capture")` per frame for FPS/latency measurement in DevTools.
+
+---
+
 ## [0.2.12] — 2026-05-21
 
 ### Fixed

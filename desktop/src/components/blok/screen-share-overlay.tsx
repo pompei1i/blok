@@ -4,19 +4,23 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { X, Minimize2, Maximize2, Monitor } from "lucide-react";
 
 export function ScreenShareOverlay() {
-  const { screenShareUserId, remoteScreenStream, isScreenSharing, members, activeServerId } = useServerStore();
+  const { screenSharers, watchingUserId, isScreenSharing, members, activeServerId, setWatchingUserId } =
+    useServerStore();
   const { user } = useAuthStore();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [minimized, setMinimized] = useState(false);
 
-  const isSelfSharing = isScreenSharing && !screenShareUserId;
-  const isVisible = isSelfSharing || !!screenShareUserId;
+  const sharerIds = Object.keys(screenSharers);
+  const isSelfSharing = isScreenSharing && sharerIds.length === 0;
+  const isVisible = isSelfSharing || sharerIds.length > 0;
+
+  const watchingStream = watchingUserId ? screenSharers[watchingUserId] ?? null : null;
 
   useEffect(() => {
-    if (videoRef.current && remoteScreenStream) {
-      videoRef.current.srcObject = remoteScreenStream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = watchingStream;
     }
-  }, [remoteScreenStream]);
+  }, [watchingStream]);
 
   useEffect(() => {
     const handler = () => setMinimized(false);
@@ -27,17 +31,19 @@ export function ScreenShareOverlay() {
   if (!isVisible) return null;
 
   const serverMembers = activeServerId ? members[activeServerId] ?? [] : [];
-  const sharingUser = screenShareUserId
-    ? serverMembers.find((m) => m.userId === screenShareUserId)?.user
-    : user;
-  const sharingName = sharingUser?.displayName || sharingUser?.username || "Unknown";
+
+  const getDisplayName = (userId: string) => {
+    const member = serverMembers.find((m) => m.userId === userId);
+    const u = member?.user;
+    return u?.displayName || u?.username || userId.slice(0, 8);
+  };
+
+  const sharingName = watchingUserId ? getDisplayName(watchingUserId) : (user?.displayName ?? user?.username ?? "You");
 
   return (
     <div
       className={`fixed z-50 transition-all duration-200 ${
-        minimized
-          ? "bottom-20 right-4 w-64"
-          : "inset-4 flex flex-col"
+        minimized ? "bottom-20 right-4 w-64" : "inset-4 flex flex-col"
       }`}
     >
       <div className="bg-[var(--bg-base)] border border-[var(--border)] rounded-lg overflow-hidden flex flex-col h-full shadow-2xl">
@@ -46,7 +52,7 @@ export function ScreenShareOverlay() {
           <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)]">
             <Monitor className="w-3 h-3 text-[var(--online)]" />
             <span className="text-[var(--online)]">{sharingName}</span>
-            <span>is sharing screen</span>
+            <span>{isSelfSharing ? "— sharing your screen" : "is sharing screen"}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -66,6 +72,25 @@ export function ScreenShareOverlay() {
             )}
           </div>
         </div>
+
+        {/* Multi-streamer picker — only shown when 2+ peers are sharing */}
+        {!minimized && sharerIds.length > 1 && (
+          <div className="flex items-center gap-1 px-3 py-1 bg-[var(--bg-surface)] border-b border-[var(--border)] shrink-0 overflow-x-auto">
+            {sharerIds.map((uid) => (
+              <button
+                key={uid}
+                onClick={() => setWatchingUserId(uid)}
+                className={`px-2 py-0.5 rounded text-xs font-mono transition-colors whitespace-nowrap ${
+                  uid === watchingUserId
+                    ? "bg-[var(--online)] text-black"
+                    : "bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {getDisplayName(uid)}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Video */}
         {!minimized && (
