@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "blok"
 version = "0.2.15"
 description = "$blok - terminal-style chat app"
