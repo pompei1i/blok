@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.15] — 2026-05-22
+
+### Fixed
+- **DataChannel buffer overflow** — `_sendFrameViaDC` now checks `bufferedAmount` before each send; frames are dropped when the DC buffer exceeds 256 KB, preventing SCTP overflow on slow networks.
+
+---
+
 ## [0.2.14] — 2026-05-22
 
 ### Changed
