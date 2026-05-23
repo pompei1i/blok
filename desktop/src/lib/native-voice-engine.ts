@@ -70,6 +70,9 @@ export class NativeVoiceEngine {
   // Screen share — sender side
   private _screenCaptureTimer: ReturnType<typeof setTimeout> | null = null;
   private _captureInFlight = false;
+  private _windowMoving = false;
+  private _windowMoveTimer: ReturnType<typeof setTimeout> | null = null;
+  private _unlistenWindowMove: UnlistenFn | null = null;
   private _screenVideoEl: HTMLVideoElement | null = null;
   private _screenCanvasEl: HTMLCanvasElement | null = null;
 
@@ -210,9 +213,20 @@ export class NativeVoiceEngine {
     const jpegQualityRust = Math.round(jpegQuality * 100) as number;
 
     if (sourceId && "__TAURI_INTERNALS__" in window) {
+      // Pause GDI capture while the window is being dragged — BitBlt competes
+      // with DWM during moves and causes visible frame drops in the UI.
+      listen("tauri://move", () => {
+        this._windowMoving = true;
+        if (this._windowMoveTimer) clearTimeout(this._windowMoveTimer);
+        this._windowMoveTimer = setTimeout(() => {
+          this._windowMoving = false;
+          this._windowMoveTimer = null;
+        }, 150);
+      }).then((unlisten) => { this._unlistenWindowMove = unlisten; }).catch(() => {});
+
       const step = () => {
         if (this._screenCaptureTimer === null) return;
-        if (this._captureInFlight) {
+        if (this._captureInFlight || this._windowMoving) {
           this._screenCaptureTimer = setTimeout(step, intervalMs);
           return;
         }
@@ -294,6 +308,10 @@ export class NativeVoiceEngine {
       this._screenCaptureTimer = null;
     }
     this._captureInFlight = false;
+    this._unlistenWindowMove?.();
+    this._unlistenWindowMove = null;
+    if (this._windowMoveTimer) { clearTimeout(this._windowMoveTimer); this._windowMoveTimer = null; }
+    this._windowMoving = false;
     if (this._screenVideoEl) {
       this._screenVideoEl.srcObject = null;
       this._screenVideoEl = null;

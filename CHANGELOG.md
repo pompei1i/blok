@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.18] — 2026-05-22
+
+### Fixed
+- **Screen share drag lag** — GDI `BitBlt` capture competes with DWM (Windows compositor) during window moves, causing visible stuttering. Now listens to `tauri://move` events; capture is skipped while the window is being dragged and resumes 150 ms after movement stops.
+
+---
+
 ## [0.2.17] — 2026-05-22
 
 ### Fixed
