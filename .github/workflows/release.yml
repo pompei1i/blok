@@ -54,3 +54,29 @@ jobs:
           releaseDraft: false
           prerelease: false
           updaterJsonPreferNsis: true
+
+      - name: Download artifacts from private release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" --pattern "blok_*-setup.exe" --pattern "blok_*-setup.exe.sig" --pattern "latest.json"
+
+      - name: Rewrite latest.json URLs for public repo
+        run: |
+          $json = [System.IO.File]::ReadAllText("latest.json")
+          $json = $json.Replace("/pompei1i/blok/releases/download/", "/pompei1i/blok-releases/releases/download/")
+          [System.IO.File]::WriteAllText("latest.json", $json, [System.Text.Encoding]::UTF8)
+
+      - name: Publish to blok-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          $exe = (Get-Item "blok_*-setup.exe").Name
+          $sig = (Get-Item "blok_*-setup.exe.sig").Name
+          gh release create "${{ github.ref_name }}" `
+            --repo pompei1i/blok-releases `
+            --title "`$blok ${{ github.ref_name }}" `
+            --notes "See the assets below to download the installer."
+          gh release upload "${{ github.ref_name }}" `
+            --repo pompei1i/blok-releases `
+            "$exe" "$sig" "latest.json"
