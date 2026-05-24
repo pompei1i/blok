@@ -494,6 +494,13 @@ fn get_window_sources_impl() -> Vec<WindowSource> {
 pub fn run() {
     tauri::Builder::default()
         .manage(AudioState(Mutex::new(None)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
