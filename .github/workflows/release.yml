@@ -65,7 +65,8 @@ jobs:
         run: |
           $json = [System.IO.File]::ReadAllText("latest.json")
           $json = $json.Replace("/pompei1i/blok/releases/download/", "/pompei1i/blok-releases/releases/download/")
-          [System.IO.File]::WriteAllText("latest.json", $json, [System.Text.Encoding]::UTF8)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText("latest.json", $json, $utf8NoBom)
 
       - name: Publish to blok-releases
         env:
