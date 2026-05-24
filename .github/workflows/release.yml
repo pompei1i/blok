@@ -59,7 +59,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download "${{ github.ref_name }}" --pattern "blok_*-setup.exe" --pattern "blok_*-setup.exe.sig" --pattern "latest.json"
+          gh release download "${{ github.ref_name }}" --pattern "blok_*-setup.exe" --pattern "blok_*-setup.exe.sig" --pattern "latest.json" --clobber
 
       - name: Rewrite latest.json URLs for public repo
         run: |
