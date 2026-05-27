@@ -54,9 +54,21 @@ Object.keys(mockQuery).forEach((key) => {
 
 vi.mock("@/lib/supabaseClient", () => ({
   supabase: {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      onAuthStateChange: vi.fn().mockReturnValue({
+        data: { subscription: { unsubscribe: vi.fn() } },
+      }),
+    },
     channel: vi.fn().mockReturnValue(mockChannel),
     removeChannel: vi.fn().mockResolvedValue({}),
     from: vi.fn().mockReturnValue(mockQuery),
+    storage: {
+      from: vi.fn().mockReturnValue({
+        upload: vi.fn().mockResolvedValue({ error: null }),
+        getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: "https://cdn.example.com/file" } }),
+      }),
+    },
   },
 }));
 
