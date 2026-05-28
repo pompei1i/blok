@@ -256,7 +256,7 @@ describe("NativeVoiceEngine.setMuted / setDeafened", () => {
 describe("NativeVoiceEngine screen-share binary frame format", () => {
   beforeEach(() => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
-    vi.spyOn(URL, "revokeObjectURL").mockReturnValue(undefined as unknown as string);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });
   afterEach(() => vi.restoreAllMocks());
 

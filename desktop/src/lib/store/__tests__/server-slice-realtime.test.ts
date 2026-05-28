@@ -185,7 +185,7 @@ describe("realtime: messages INSERT", () => {
       activeChannelId: "ch-1",
       unreadCounts: {},
       channelIndex: {
-        "ch-2": { id: "ch-2", serverId: "s-1", name: "general", type: "text", categoryId: null, topic: null, position: 0, isPrivate: false, createdAt: "" },
+        "ch-2": { id: "ch-2", serverId: "s-1", name: "general", type: "text", categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" },
       },
       userProfileCache: { "other": makeUser("other", "bob") },
     });
@@ -231,8 +231,8 @@ describe("realtime: messages INSERT", () => {
 
     const msg = useServerStore.getState().messages["ch-1"][0];
     expect(msg.attachments).toHaveLength(1);
-    expect(msg.attachments[0].id).toBe("att-1");
-    expect(msg.attachments[0].filename).toBe("file.png");
+    expect(msg.attachments![0].id).toBe("att-1");
+    expect(msg.attachments![0].filename).toBe("file.png");
   });
 });
 
@@ -338,7 +338,7 @@ describe("realtime: channels INSERT", () => {
   });
 
   it("sorts channels by position", () => {
-    const existing = { id: "ch-0", serverId: "s-1", name: "general", type: "text" as const, categoryId: null, topic: null, position: 0, isPrivate: false, createdAt: "" };
+    const existing = { id: "ch-0", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" };
     useServerStore.setState({ channels: { "s-1": [existing] }, channelIndex: { "ch-0": existing } });
 
     channelInsert({
@@ -357,7 +357,7 @@ describe("realtime: channels INSERT", () => {
 
 describe("realtime: channels DELETE", () => {
   it("removes the channel from channels map and channelIndex", () => {
-    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: null, topic: null, position: 0, isPrivate: false, createdAt: "" };
+    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" };
     useServerStore.setState({ channels: { "s-1": [c] }, channelIndex: { "ch-1": c }, activeChannelId: "other" });
 
     channelDelete({ old: { id: "ch-1" } });
@@ -367,7 +367,7 @@ describe("realtime: channels DELETE", () => {
   });
 
   it("resets activeChannelId to null when the deleted channel was active", () => {
-    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: null, topic: null, position: 0, isPrivate: false, createdAt: "" };
+    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" };
     useServerStore.setState({ channels: { "s-1": [c] }, channelIndex: { "ch-1": c }, activeChannelId: "ch-1" });
 
     channelDelete({ old: { id: "ch-1" } });
@@ -420,7 +420,7 @@ describe("realtime: message_reactions INSERT / DELETE", () => {
 
     const reactions = useServerStore.getState().messages["ch-1"][0].reactions;
     expect(reactions).toHaveLength(1);
-    expect(reactions[0].emoji).toBe("👍");
+    expect(reactions![0].emoji).toBe("👍");
   });
 
   it("INSERT is idempotent — duplicate reaction not added twice", () => {
