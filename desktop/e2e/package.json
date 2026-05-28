@@ -1,0 +1,17 @@
+{
+  "name": "blok-e2e",
+  "private": true,
+  "scripts": {
+    "test": "wdio run wdio.conf.ts"
+  },
+  "devDependencies": {
+    "@wdio/cli": "^8",
+    "@wdio/local-runner": "^8",
+    "@wdio/mocha-framework": "^8",
+    "@wdio/spec-reporter": "^8",
+    "@wdio/types": "^8",
+    "ts-node": "^10",
+    "typescript": "^5",
+    "webdriverio": "^8"
+  }
+}

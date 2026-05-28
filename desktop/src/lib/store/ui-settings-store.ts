@@ -40,7 +40,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       mirrorCamera: true,
       cameraQuality: "1080p",
       screenShareFps: 5,
-      screenShareResolution: "1080p",
+      screenShareResolution: "720p",
       screenShareQuality: "medium",
       noiseSuppression: true,
       echoCancellation: true,

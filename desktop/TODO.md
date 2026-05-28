@@ -1,4 +1,4 @@
-# TODO
+# TODO (desktop)
 
 ## В работе
 
@@ -6,58 +6,72 @@
 
 ## Что добавить дальше
 
-- [ ] Пагинация истории сообщений и виртуализация списка для больших чатов.
 - [ ] Поиск по сообщениям, пользователям и каналам.
-- [ ] Ограничение размера/типа файлов и перенос вложений на Supabase Storage.
 - [ ] Управление ролями и правами (permissions) по каналам.
-- [ ] Приглашения на сервер (invite links) с настройкой срока действия.
-- [ ] E2E-тесты для ключевых сценариев (auth, чат, DM, создание сервера/канала).
-- [ ] Добавление формы, когда нет подключения к сети.
-- [ ] Изменение размеров окна при аутентификации.
-- [ ] Возможность удалить канал, с последующим подтверждением решения.
-- [ ] Возможность добавления ветки каналов.
-- [ ] Редактирование сообщений.
+- [ ] Ветки (threads) в каналах.
+## Готово (v0.3.2)
 
-## Готово (v0.1.9)
+- [x] E2E в CI: `.github/workflows/e2e.yml`, `windows-latest`, `tauri build --no-bundle`, `msedgedriver` из `$EDGEWEBDRIVER`, кеш `tauri-driver`.
+- [x] `permission.ts`: `can(action, { userId, server })` — единая точка проверки прав; `isServerOwner` убран из компонентов.
+- [x] URL Preview: `url-preview.tsx`, OG через `microlink.io`, module-level кеш.
+- [x] Image lightbox: `createPortal`, ESC / клик-outside, `fixed inset-0 z-[9999]`.
+- [x] Message grouping: consecutive-сообщения скрывают аватар/имя, `pt-3` между группами, hover-timestamp.
+- [x] Typing indicator: три точки с `animate-bounce`, staggered delays, реальные имена.
+- [x] Invite TTL + usage limits: `invite_expires_at` / `invite_max_uses` / `invite_used_count`, миграция, UI.
+- [x] Message list virtualisation: `@tanstack/react-virtual`, dynamic heights, scroll-restoration, jump-to-message.
+- [x] GIN-индекс: `idx_messages_content_gin` на `to_tsvector('russian', content)`.
+- [x] Screen share frame-skip: FNV-64a hash кадра, `None` при неизменном экране.
+- [x] Screen share resize: `Triangle` → `Nearest`, 720p→360p ~5ms → ~1-2ms.
+- [x] `server-slice.ts` split: realtime сообщений → `message-slice.ts#initMessageRealtime`, 570 → 478 строк.
+- [x] Screen share default: `1080p` → `720p`.
+- [x] 55 Rust тестов (было 31) + 312 JS тестов (было 303).
 
-- [x] Drag and drop загрузка файлов в чат (наброска файлов прямо в окно чата).
-- [x] Нативный выбор источника экрана (кастомный пикер мониторов и окон без системного диалога WebView2).
-- [x] Перечисление окон через EnumWindows (Win32) с фильтрацией toolwindow/невидимых.
-- [x] Фикс голосовых аудио: O(n²) → O(n) кодирование base64 через чанкованный spread.
-- [x] Передача реального sample rate в каждом аудио-пакете + ресемплинг на приёмнике (linear interpolation 48 kHz).
-- [x] Фикс "Unknown is sharing screen": guard `userId !== localUserId` в onScreenShareStart.
+## Готово (v0.3.0)
 
-## Готово (v0.1.8)
+- [x] Single-instance: `tauri-plugin-single-instance` — второй запуск фокусирует первое окно.
+- [x] Тест-сьют P1–P4: 303 JS (Vitest + jsdom) + 31 Rust (cargo test), все зелёные, mutation-verified.
+- [x] E2E scaffold: `desktop/e2e/` — WebdriverIO + tauri-driver, `app.e2e.ts`, `single-instance.e2e.ts`.
+- [x] CI BOM-guard в `release.yml` (проверка первых 3 байт `latest.json`).
 
-- [x] Безопасность: RLS политики на всех таблицах (messages, dm_messages, profiles, user_relationships, dm_channels, channels, attachments, message_reactions, user_presence).
-- [x] Безопасность: author_id guard на deleteMessage / deleteDMMessage на стороне клиента.
-- [x] Безопасность: Content Security Policy в tauri.conf.json (убран unsafe-inline/eval для скриптов).
-- [x] XSS-защита: DOMPurify + HTML-экранирование в форматировании сообщений.
-- [x] Рефакторинг: вынесены все магические числа в constants.ts.
-- [x] Рефакторинг: логика отправки чата вынесена в хук useChatInput.
-- [x] Прогресс загрузки вложений: реальный прогресс-бар (FileReader onprogress) + спиннер на кнопке + блокировка повторной отправки.
-- [x] Фикс gap между # и названием канала в сайдбаре.
-- [x] Иконки статуса в войс-канале: MicOff при муте, VolumeX при деафене, оба значка при деафене, Monitor (кликабельный) при демонстрации экрана.
-- [x] isScreenSharing транслируется через Supabase Realtime Presence.
+## Готово (v0.2.19)
 
-## Готово (v0.1.7)
+- [x] Auto-update: migrated to public `pompei1i/blok-releases` (private repo возвращал 403).
+- [x] BOM fix: `UTF8Encoding($false)` вместо `[System.Text.Encoding.UTF8]`.
+- [x] `gh release download --clobber`.
 
-- [x] Системный трей: иконка в трее, минимизация вместо закрытия, меню "Показать / Выйти".
-- [x] Push-уведомления (browser Notification API) + звуковой пинг на новые сообщения.
-- [x] Unread-счётчики: красные бейджи на каналах (GroupSidebar) и серверных табах (TopBar).
-- [x] Emoji-реакции: пики эмодзи при ховере на сообщение, пилюли под сообщением, realtime + DB.
+## Готово (v0.2.13–v0.2.18)
 
-## Готово (v0.1.6)
+- [x] Screen share drag lag fix (GDI pause 150 мс на `tauri://move`).
+- [x] WebRTC P2P DataChannels для screen share — убран Supabase rate limit.
+- [x] Binary frame format: `[w:u32][h:u32][JPEG]`, backpressure guard 256 KB.
+- [x] Multi-streamer picker: таб-бар при нескольких одновременных шарерах.
+- [x] GDI in-flight guard `_captureInFlight`.
+- [x] Auto-updater: ключи пересгенерированы, `productName` переименован в `blok`.
+- [x] NSIS per-user install (`%LocalAppData%`, без UAC).
 
-- [x] Голосовой чат (cpal native audio engine): микрофон в реальном времени, speaking state, noise gate.
-- [x] Ответы на сообщения (reply system): quote preview над сообщением, reply_to_id в БД.
-- [x] Закреплённые сообщения: бар сверху чата, jump-to, unpin, колонка pinned в БД.
-- [x] Pronouns: поле в профиле, отображение инлайн с никнеймом в пузыре.
-- [x] Три точки на сообщении: Reply / Copy / Pin / Delete (только автор).
-- [x] Автоматический online/offline статус по открытию/закрытию приложения.
-- [x] Адаптивный интерфейс: friends sidebar скрывается ниже 800px.
-- [x] Сжатие аватара (canvas resize до 256px + JPEG 0.8).
-- [x] Авто-обновление через GitHub Releases (Tauri updater plugin).
-- [x] Полные переводы на русский язык.
-- [x] Фикс чёрного экрана при закрытии вкладки сервера (Rules of Hooks violation в ChatArea).
-- [x] Фикс closeTab: автовыбор первого канала следующего сервера.
+## Готово (v0.2.9)
+
+- [x] Native noise suppression (Rust): адаптивный спектральный гейт.
+- [x] Playback-aware echo cancellation (Rust): порог ×4 при воспроизведении.
+
+## Готово (v0.2.1–v0.2.8)
+
+- [x] DB-based presence heartbeat (30 с), «Был в сети X назад».
+- [x] Supabase Storage для вложений (до 10 МБ), drag-and-drop.
+- [x] Пагинация сообщений (30 за раз, scroll position сохраняется).
+- [x] Invite-коды (CSPRNG, 8 символов).
+- [x] Emoji-реакции: quick-picker, пилюли под сообщением, realtime + DB.
+- [x] Закреплённые сообщения: pin bar, jump-to, unpin.
+- [x] Reply system с quote-preview.
+- [x] Редактирование и удаление сообщений.
+- [x] DM-звонки: incoming/outgoing banners, голос + screen share в DM.
+- [x] Mobile-адаптация: drawer sidebars, rem-based DM popup.
+- [x] 6 языков (EN/RU/UA/PL/DE/ES), 165+ ключей.
+- [x] Custom CSS live-inject.
+- [x] Системный трей (минимизация вместо закрытия).
+- [x] Push-уведомления + звуки.
+- [x] RLS на всех таблицах, CSP, XSS-защита (DOMPurify).
+- [x] Presence-точка на аватарах в чате (online/afk/dnd/offline).
+- [x] GDI screen capture через Win32 API (`capture_screen_frame`).
+- [x] Configurable screen share: FPS / resolution / JPEG quality.
+- [x] Auto-update retry backoff: 3 с → 30 с → 5 мин.

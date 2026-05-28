@@ -80,3 +80,8 @@ export function stopSound(name: SoundName) {
     audio.currentTime = 0;
   }
 }
+
+/** Exposed for unit tests only — clears the internal audio element cache. */
+export function _clearSoundCacheForTesting(): void {
+  audioCache.clear();
+}

@@ -111,6 +111,9 @@ export interface Server {
   iconUrl?: string;
   description?: string;
   inviteCode?: string;
+  inviteExpiresAt?: string | null;
+  inviteMaxUses?: number | null;
+  inviteUsedCount?: number;
   createdAt: string;
 }
 

@@ -135,10 +135,12 @@ describe("joinByInviteCode", () => {
   });
 
   it("returns null and calls initData on successful join", async () => {
-    const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01" };
+    const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: null, invite_max_uses: null, invite_used_count: 0 };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
     resolveWith(null); // insert success
+    resolveWith(null); // used_count update
 
     const mockInitData = vi.fn().mockResolvedValue(undefined);
     useServerStore.setState({ initData: mockInitData } as Parameters<typeof useServerStore.setState>[0]);
@@ -155,5 +157,142 @@ describe("joinByInviteCode", () => {
     await useServerStore.getState().joinByInviteCode("  abc123  ", "u1");
 
     expect(q().eq).toHaveBeenCalledWith("invite_code", "abc123");
+  });
+});
+
+// ── joinByInviteCode — expiry & limits ────────────────────────────────────────
+
+describe("joinByInviteCode — expiry", () => {
+  it("returns 'Invite link has expired' when invite_expires_at is in the past", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: new Date(Date.now() - 1000).toISOString(),
+      invite_max_uses: null, invite_used_count: 0,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBe("Invite link has expired");
+    expect(q().insert).not.toHaveBeenCalled();
+  });
+
+  it("allows join when invite_expires_at is in the future", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      invite_max_uses: null, invite_used_count: 0,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+    useServerStore.setState({ members: { s1: [] } });
+    resolveWith(null); // insert
+    resolveWith(null); // used_count increment update
+    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBeNull();
+  });
+
+  it("allows join when invite_expires_at is null (no expiry)", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: null, invite_max_uses: null, invite_used_count: 0,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+    useServerStore.setState({ members: { s1: [] } });
+    resolveWith(null); // insert
+    resolveWith(null); // used_count update
+    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("joinByInviteCode — usage limit", () => {
+  it("returns error when used_count equals max_uses", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: null, invite_max_uses: 5, invite_used_count: 5,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBe("Invite link has reached its usage limit");
+    expect(q().insert).not.toHaveBeenCalled();
+  });
+
+  it("returns error when used_count exceeds max_uses", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: null, invite_max_uses: 3, invite_used_count: 7,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBe("Invite link has reached its usage limit");
+  });
+
+  it("allows join when used_count is below max_uses", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: null, invite_max_uses: 10, invite_used_count: 3,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+    useServerStore.setState({ members: { s1: [] } });
+    resolveWith(null); // insert
+    resolveWith(null); // used_count update
+    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBeNull();
+  });
+
+  it("allows join when max_uses is null (unlimited)", async () => {
+    const dbServer = {
+      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
+      invite_expires_at: null, invite_max_uses: null, invite_used_count: 9999,
+    };
+    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+    useServerStore.setState({ members: { s1: [] } });
+    resolveWith(null); // insert
+    resolveWith(null); // used_count update
+    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("generateInviteCode — opts", () => {
+  it("stores expiresAt and maxUses in state after successful generation", async () => {
+    const expiresAt = new Date(Date.now() + 86_400_000 * 7).toISOString();
+    useServerStore.setState({ servers: [makeServer("s1")] });
+    resolveWith(null);
+
+    await useServerStore.getState().generateInviteCode("s1", { expiresAt, maxUses: 5 });
+
+    const s = useServerStore.getState().servers[0];
+    expect(s.inviteExpiresAt).toBe(expiresAt);
+    expect(s.inviteMaxUses).toBe(5);
+    expect(s.inviteUsedCount).toBe(0);
+  });
+
+  it("stores null expiresAt and null maxUses when opts are omitted", async () => {
+    useServerStore.setState({ servers: [makeServer("s1")] });
+    resolveWith(null);
+
+    await useServerStore.getState().generateInviteCode("s1");
+
+    const s = useServerStore.getState().servers[0];
+    expect(s.inviteExpiresAt).toBeNull();
+    expect(s.inviteMaxUses).toBeNull();
+    expect(s.inviteUsedCount).toBe(0);
   });
 });

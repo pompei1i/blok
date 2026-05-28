@@ -685,4 +685,247 @@ mod tests {
         let devices = list_output_devices();
         let _ = devices;
     }
+
+    // ── apply_voice_processing — helpers ──────────────────────────────────────
+
+    /// Run `n` identical DC frames through the processor and return the final gate_gain.
+    fn converge(
+        dc_val: f32,
+        frames: usize,
+        noise_suppression: bool,
+        echo_cancel: bool,
+        playback_active: bool,
+    ) -> (f32, f32) {
+        let mut noise_floor = SPEAKING_THRESHOLD * 0.2;
+        let mut gate_gain = 0.0f32;
+        for _ in 0..frames {
+            let mut frame = vec![dc_val; 480];
+            apply_voice_processing(
+                &mut frame,
+                &mut noise_floor,
+                &mut gate_gain,
+                noise_suppression,
+                echo_cancel,
+                playback_active,
+            );
+        }
+        (gate_gain, noise_floor)
+    }
+
+    // ── apply_voice_processing — no-op paths ──────────────────────────────────
+
+    #[test]
+    fn avp_both_disabled_frame_unchanged() {
+        let original = vec![0.02f32; 480];
+        let mut frame = original.clone();
+        let mut nf = SPEAKING_THRESHOLD * 0.2;
+        let mut gg = 1.0f32;
+        apply_voice_processing(&mut frame, &mut nf, &mut gg, false, false, false);
+        assert_eq!(frame, original, "frame must be unchanged when NS and EC are disabled");
+    }
+
+    #[test]
+    fn avp_ec_only_without_playback_frame_unchanged() {
+        // EC=true but playback_active=false → early return, no modification
+        let original = vec![0.02f32; 480];
+        let mut frame = original.clone();
+        let mut nf = SPEAKING_THRESHOLD * 0.2;
+        let mut gg = 1.0f32;
+        apply_voice_processing(&mut frame, &mut nf, &mut gg, false, true, false);
+        assert_eq!(frame, original, "EC without playback must not modify the frame");
+    }
+
+    // ── apply_voice_processing — noise suppression ────────────────────────────
+
+    #[test]
+    fn ns_attenuates_near_silent_frame() {
+        // RMS ≪ SPEAKING_THRESHOLD → gate_gain must converge near 0.05 (~26 dB attenuation)
+        let quiet = SPEAKING_THRESHOLD * 0.03; // clearly sub-noise DC signal
+        let (gate_gain, _) = converge(quiet, 60, true, false, false);
+        assert!(
+            gate_gain < 0.10,
+            "gate_gain should be near 0.05 for silence, got {gate_gain:.4}"
+        );
+    }
+
+    #[test]
+    fn ns_passes_loud_speech_frame() {
+        // RMS ≫ SPEAKING_THRESHOLD → gate_gain must converge to 1.0
+        let loud = 0.5f32; // RMS = 0.5, way above 0.015
+        let (gate_gain, _) = converge(loud, 20, true, false, false);
+        assert!(
+            gate_gain > 0.95,
+            "gate_gain should be near 1.0 for loud speech, got {gate_gain:.4}"
+        );
+    }
+
+    #[test]
+    fn ns_updates_noise_floor_from_quiet_frames() {
+        // Quiet frames (RMS < 0.3 × SPEAKING_THRESHOLD) must raise the noise floor via EMA
+        let initial_floor = 1e-6_f32; // minimum clamped value
+        let quiet = SPEAKING_THRESHOLD * 0.1; // 0.0015 — below 0.3 × 0.015 = 0.0045
+        let mut noise_floor = initial_floor;
+        let mut gate_gain = 0.0f32;
+        for _ in 0..100 {
+            let mut frame = vec![quiet; 480];
+            apply_voice_processing(&mut frame, &mut noise_floor, &mut gate_gain, true, false, false);
+        }
+        assert!(
+            noise_floor > initial_floor * 10.0,
+            "noise_floor should have risen from quiet frames, got {noise_floor:.2e}"
+        );
+    }
+
+    #[test]
+    fn ns_does_not_update_noise_floor_from_loud_frames() {
+        // Loud frames (RMS ≥ 0.3 × SPEAKING_THRESHOLD) must NOT touch noise_floor
+        let initial_floor = SPEAKING_THRESHOLD * 0.2; // 0.003
+        let mut noise_floor = initial_floor;
+        let mut gate_gain = 1.0f32;
+        for _ in 0..50 {
+            let mut frame = vec![0.5f32; 480];
+            apply_voice_processing(&mut frame, &mut noise_floor, &mut gate_gain, true, false, false);
+        }
+        let delta = (noise_floor - initial_floor).abs();
+        assert!(
+            delta < initial_floor * 0.5,
+            "noise_floor must stay stable on loud frames; initial={initial_floor:.4e} current={noise_floor:.4e}"
+        );
+    }
+
+    #[test]
+    fn ns_gate_opens_fast_and_closes_slow() {
+        // Verify asymmetric envelope: open_speed (0.9) >> close_speed (0.25)
+        let loud = 0.5f32;
+        let quiet = SPEAKING_THRESHOLD * 0.02;
+        let mut nf = SPEAKING_THRESHOLD * 0.2;
+
+        // Measure single-step open from 0.0
+        let mut gg_open = 0.0f32;
+        let mut f = vec![loud; 480];
+        apply_voice_processing(&mut f, &mut nf, &mut gg_open, true, false, false);
+        let open_jump = gg_open; // started at 0 → how much did it rise?
+
+        // Measure single-step close from 1.0
+        let mut gg_close = 1.0f32;
+        let mut f2 = vec![quiet; 480];
+        apply_voice_processing(&mut f2, &mut nf, &mut gg_close, true, false, false);
+        let close_step = 1.0 - gg_close; // how much did it fall?
+
+        assert!(
+            open_jump > close_step * 2.0,
+            "gate should open much faster than it closes: open={open_jump:.3} close={close_step:.3}"
+        );
+    }
+
+    #[test]
+    fn ns_soft_knee_gives_partial_gain() {
+        // A signal between noise_floor×1.5 and speech_level gets partial gain ∈ (0.05, 1.0)
+        // floor ≈ 0.003, floor×1.5 ≈ 0.0045, speech_level ≈ max(0.015, 0.024) = 0.024
+        let floor = SPEAKING_THRESHOLD * 0.2; // 0.003
+        let mid = floor * 3.5; // 0.0105 — inside the soft-knee region (0.0045 … 0.024)
+        let (gate_gain, _) = converge(mid, 40, true, false, false);
+        assert!(
+            gate_gain > 0.05 && gate_gain < 0.95,
+            "soft-knee signal should yield partial gain ∈ (0.05, 0.95), got {gate_gain:.4}"
+        );
+    }
+
+    // ── apply_voice_processing — echo cancellation ────────────────────────────
+
+    #[test]
+    fn ec_gates_signal_below_4x_threshold_when_playback_active() {
+        // EC raises threshold to 4×; a 2× signal must be suppressed
+        let rms = SPEAKING_THRESHOLD * 2.0; // > 1× but < 4× → gated
+        let (gate_gain, _) = converge(rms, 30, false, true, true);
+        assert!(
+            gate_gain < 0.10,
+            "EC should suppress signal below 4× threshold; gate_gain={gate_gain:.4}"
+        );
+    }
+
+    #[test]
+    fn ec_passes_signal_above_4x_threshold_when_playback_active() {
+        // EC raises threshold to 4×; a 5× signal must pass through
+        let rms = SPEAKING_THRESHOLD * 5.0; // above 4× → passes
+        let (gate_gain, _) = converge(rms, 20, false, true, true);
+        assert!(
+            gate_gain > 0.80,
+            "EC should pass signal above 4× threshold; gate_gain={gate_gain:.4}"
+        );
+    }
+
+    #[test]
+    fn ec_gate_closes_faster_than_ns_gate() {
+        // After loud signal stops, EC close_speed (0.7) must produce a bigger
+        // single-step drop than NS close_speed (0.25).
+        let loud = 0.5f32;
+        let quiet_ec = SPEAKING_THRESHOLD * 0.01; // far below 4× EC threshold
+        let quiet_ns = SPEAKING_THRESHOLD * 0.03; // far below NS speech level
+
+        // Open both gates from 0 → let converge to ~1.0
+        let mut nf = SPEAKING_THRESHOLD * 0.2;
+        let mut gg_ns = 0.0f32;
+        let mut gg_ec = 0.0f32;
+        for _ in 0..30 {
+            let mut f = vec![loud; 480];
+            apply_voice_processing(&mut f, &mut nf, &mut gg_ns, true, false, false);
+            let mut f2 = vec![loud; 480];
+            apply_voice_processing(&mut f2, &mut nf, &mut gg_ec, false, true, true);
+        }
+
+        let before_ns = gg_ns;
+        let before_ec = gg_ec;
+
+        // One quiet frame each
+        let mut f_ns = vec![quiet_ns; 480];
+        apply_voice_processing(&mut f_ns, &mut nf, &mut gg_ns, true, false, false);
+        let mut f_ec = vec![quiet_ec; 480];
+        apply_voice_processing(&mut f_ec, &mut nf, &mut gg_ec, false, true, true);
+
+        let ns_drop = before_ns - gg_ns;
+        let ec_drop = before_ec - gg_ec;
+        assert!(
+            ec_drop > ns_drop * 1.5,
+            "EC close should be faster than NS close: ec_drop={ec_drop:.3} ns_drop={ns_drop:.3}"
+        );
+    }
+
+    #[test]
+    fn ec_no_effect_when_ns_also_disabled_and_no_playback() {
+        // Both NS=false, EC=true, playback=false → processed frame must equal original
+        let original = vec![SPEAKING_THRESHOLD * 10.0; 480]; // loud
+        let mut frame = original.clone();
+        let mut nf = SPEAKING_THRESHOLD * 0.2;
+        let mut gg = 1.0f32;
+        apply_voice_processing(&mut frame, &mut nf, &mut gg, false, true, false);
+        assert_eq!(frame, original);
+    }
+
+    // ── stress: large audio buffer does not panic ─────────────────────────────
+
+    #[test]
+    fn resample_to_f32_large_burst_no_panic() {
+        // 5 seconds of 44.1 kHz audio → should resample to 48 kHz without panic/OOM
+        let large = vec![1000i16; 220_500]; // 5 s × 44100
+        let out = resample_to_f32(&large, 44_100);
+        // 5 s × 48000 = 240000 — allow ±2 for rounding
+        assert!(
+            (out.len() as i64 - 240_000).abs() <= 2,
+            "expected ~240000 samples, got {}",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn resample_f32_large_burst_no_panic() {
+        // 5 seconds of 48 kHz audio → resample to 44.1 kHz
+        let large = vec![0.5f32; 240_000];
+        let out = resample_f32(&large, 48_000, 44_100);
+        assert!(
+            (out.len() as i64 - 220_500).abs() <= 2,
+            "expected ~220500 samples, got {}",
+            out.len()
+        );
+    }
 }

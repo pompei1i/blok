@@ -1,0 +1,68 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./desktop/src-tauri -> target"
+
+      - name: Cache tauri-driver
+        id: cache-tauri-driver
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver.exe
+          key: tauri-driver-${{ runner.os }}-v1
+
+      - name: Install tauri-driver
+        if: steps.cache-tauri-driver.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver
+
+      - name: Add msedgedriver to PATH
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH $env:EDGEWEBDRIVER
+
+      - name: Install frontend deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Tauri binary
+        working-directory: desktop
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_TENOR_API_KEY: ${{ secrets.VITE_TENOR_API_KEY }}
+        run: npm run tauri -- build --no-bundle
+
+      - name: Run E2E tests
+        working-directory: desktop
+        run: npm run test:e2e
+
+      - name: Upload WDIO logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-${{ github.run_id }}
+          path: desktop/e2e/logs/
+          if-no-files-found: ignore

@@ -5,6 +5,8 @@ import {
   setActiveNativeVoiceEngine,
 } from "../native-voice-engine";
 import type { VoiceCallbacks } from "../voice-engine";
+import { invoke } from "@tauri-apps/api/core";
+import { supabase } from "@/lib/supabaseClient";
 
 // Build a minimal VoiceCallbacks stub
 function makeCallbacks(): VoiceCallbacks & { onSpeakingChangeCalls: Array<[string, boolean]> } {
@@ -141,5 +143,254 @@ describe("NativeVoiceEngine speaking state", () => {
     const cb = makeCallbacks();
     const engine = new NativeVoiceEngine("ch1", "u1", cb);
     expect(() => (engine as any).clearPeerSpeaking("unknown")).not.toThrow();
+  });
+});
+
+// ── join / leave ───────────────────────────────────────────────────────────────
+
+describe("NativeVoiceEngine.join / leave", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ch = () => (globalThis as any).__mockChannel as Record<string, ReturnType<typeof vi.fn>>;
+
+  function subscribeOk() {
+    ch().subscribe.mockImplementation((cb: (s: string) => void) => {
+      Promise.resolve().then(() => cb("SUBSCRIBED"));
+      return ch();
+    });
+  }
+
+  beforeEach(() => {
+    subscribeOk();
+    (window as any).__TAURI_INTERNALS__ = {};
+  });
+
+  afterEach(() => {
+    delete (window as any).__TAURI_INTERNALS__;
+    ch().subscribe.mockReturnValue(ch()); // restore non-firing default
+    vi.clearAllMocks();
+  });
+
+  it("throws 'Native voice requires the desktop app' outside Tauri", async () => {
+    delete (window as any).__TAURI_INTERNALS__;
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await expect(engine.join()).rejects.toThrow("Native voice requires the desktop app");
+  });
+
+  it("join() calls invoke('audio_start') with noiseSuppression and echoCancellation", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await engine.join();
+    expect(invoke).toHaveBeenCalledWith(
+      "audio_start",
+      expect.objectContaining({
+        noiseSuppression: expect.any(Boolean),
+        echoCancellation: expect.any(Boolean),
+      }),
+    );
+  });
+
+  it("join() resolves when channel reaches SUBSCRIBED", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await expect(engine.join()).resolves.toBeUndefined();
+  });
+
+  it("join() is idempotent — second call returns early without re-subscribing", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await engine.join();
+    const before = ch().subscribe.mock.calls.length;
+    await engine.join();
+    expect(ch().subscribe.mock.calls.length).toBe(before);
+  });
+
+  it("join() rejects and calls audio_stop on CHANNEL_ERROR", async () => {
+    ch().subscribe.mockImplementation((cb: (s: string) => void) => {
+      Promise.resolve().then(() => cb("CHANNEL_ERROR"));
+      return ch();
+    });
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await expect(engine.join()).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledWith("audio_stop");
+  });
+
+  it("leave() always calls invoke('audio_stop')", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await engine.leave();
+    expect(invoke).toHaveBeenCalledWith("audio_stop");
+  });
+
+  it("leave() removes the Supabase channel after a successful join", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await engine.join();
+    await engine.leave();
+    expect(supabase.removeChannel).toHaveBeenCalled();
+  });
+});
+
+// ── setMuted / setDeafened ────────────────────────────────────────────────────
+
+describe("NativeVoiceEngine.setMuted / setDeafened", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("setMuted(true) invokes audio_set_muted with muted=true", () => {
+    new NativeVoiceEngine("ch1", "u1", makeCallbacks()).setMuted(true);
+    expect(invoke).toHaveBeenCalledWith("audio_set_muted", { muted: true });
+  });
+
+  it("setMuted(false) invokes audio_set_muted with muted=false", () => {
+    new NativeVoiceEngine("ch1", "u1", makeCallbacks()).setMuted(false);
+    expect(invoke).toHaveBeenCalledWith("audio_set_muted", { muted: false });
+  });
+
+  it("setDeafened(true) invokes audio_set_deafened with deafened=true", () => {
+    new NativeVoiceEngine("ch1", "u1", makeCallbacks()).setDeafened(true);
+    expect(invoke).toHaveBeenCalledWith("audio_set_deafened", { deafened: true });
+  });
+
+  it("setDeafened(false) invokes audio_set_deafened with deafened=false", () => {
+    new NativeVoiceEngine("ch1", "u1", makeCallbacks()).setDeafened(false);
+    expect(invoke).toHaveBeenCalledWith("audio_set_deafened", { deafened: false });
+  });
+});
+
+// ── Screen-share binary frame format (_sendFrameViaDC / _onScreenFrame) ────────
+
+describe("NativeVoiceEngine screen-share binary frame format", () => {
+  beforeEach(() => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake");
+    vi.spyOn(URL, "revokeObjectURL").mockReturnValue(undefined as unknown as string);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  // ── _sendFrameViaDC ──────────────────────────────────────────────────────────
+
+  it("packs [w:u32 BE][h:u32 BE][jpeg bytes] into ArrayBuffer", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const sent: ArrayBuffer[] = [];
+    (engine as any)._shareeChannels.set("viewer", {
+      readyState: "open", bufferedAmount: 0,
+      send: (b: ArrayBuffer) => sent.push(b),
+    });
+
+    const testJpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xD9]);
+    (engine as any)._sendFrameViaDC(640, 480, btoa(String.fromCharCode(...testJpeg)));
+
+    expect(sent).toHaveLength(1);
+    const dv = new DataView(sent[0]);
+    expect(dv.getUint32(0, false)).toBe(640);
+    expect(dv.getUint32(4, false)).toBe(480);
+    expect(new Uint8Array(sent[0], 8)).toEqual(testJpeg);
+  });
+
+  it("does not send when no data channels are registered", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    expect(() => (engine as any)._sendFrameViaDC(100, 100, btoa("x"))).not.toThrow();
+  });
+
+  it("skips a channel that is not in 'open' state", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const sent: ArrayBuffer[] = [];
+    (engine as any)._shareeChannels.set("viewer", {
+      readyState: "closing", bufferedAmount: 0,
+      send: (b: ArrayBuffer) => sent.push(b),
+    });
+    (engine as any)._sendFrameViaDC(100, 100, btoa("x"));
+    expect(sent).toHaveLength(0);
+  });
+
+  it("skips a channel when bufferedAmount exceeds 256 KB", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const sent: ArrayBuffer[] = [];
+    (engine as any)._shareeChannels.set("viewer", {
+      readyState: "open", bufferedAmount: 300_000,
+      send: (b: ArrayBuffer) => sent.push(b),
+    });
+    (engine as any)._sendFrameViaDC(100, 100, btoa("x"));
+    expect(sent).toHaveLength(0);
+  });
+
+  // ── _onScreenFrame ───────────────────────────────────────────────────────────
+
+  it("sets canvas width/height from the 8-byte header", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const buf = new ArrayBuffer(12);
+    const dv = new DataView(buf);
+    dv.setUint32(0, 320, false);
+    dv.setUint32(4, 240, false);
+    new Uint8Array(buf, 8).set([0xFF, 0xD8, 0xFF, 0xD9]);
+
+    const canvas = document.createElement("canvas");
+    (engine as any)._remoteCanvases.set("sharer", {
+      canvas,
+      stream: { getVideoTracks: () => [] } as unknown as MediaStream,
+    });
+
+    (engine as any)._onScreenFrame("sharer", buf);
+
+    expect(canvas.width).toBe(320);
+    expect(canvas.height).toBe(240);
+  });
+
+  it("ignores frames shorter than 8 bytes without touching the canvas", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const canvas = document.createElement("canvas");
+    const origWidth = canvas.width;
+    (engine as any)._remoteCanvases.set("sharer", {
+      canvas,
+      stream: { getVideoTracks: () => [] } as unknown as MediaStream,
+    });
+
+    expect(() => (engine as any)._onScreenFrame("sharer", new ArrayBuffer(7))).not.toThrow();
+    expect(canvas.width).toBe(origWidth);
+  });
+
+  it("clamps oversized width to 3840 and height to 2160", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const buf = new ArrayBuffer(12);
+    const dv = new DataView(buf);
+    dv.setUint32(0, 9999, false);
+    dv.setUint32(4, 9999, false);
+
+    const canvas = document.createElement("canvas");
+    (engine as any)._remoteCanvases.set("sharer", {
+      canvas,
+      stream: { getVideoTracks: () => [] } as unknown as MediaStream,
+    });
+
+    (engine as any)._onScreenFrame("sharer", buf);
+
+    expect(canvas.width).toBe(3840);
+    expect(canvas.height).toBe(2160);
+  });
+
+  it("is a no-op for unknown peer IDs", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    expect(() => (engine as any)._onScreenFrame("unknown-peer", new ArrayBuffer(12))).not.toThrow();
+  });
+
+  // ── roundtrip ────────────────────────────────────────────────────────────────
+
+  it("data packed by _sendFrameViaDC is correctly decoded by _onScreenFrame", () => {
+    const sharer = new NativeVoiceEngine("ch1", "sharer", makeCallbacks());
+    const viewer = new NativeVoiceEngine("ch1", "viewer", makeCallbacks());
+
+    const sent: ArrayBuffer[] = [];
+    (sharer as any)._shareeChannels.set("viewer", {
+      readyState: "open", bufferedAmount: 0,
+      send: (b: ArrayBuffer) => sent.push(b),
+    });
+
+    const testJpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xD9]);
+    (sharer as any)._sendFrameViaDC(800, 600, btoa(String.fromCharCode(...testJpeg)));
+    expect(sent).toHaveLength(1);
+
+    const canvas = document.createElement("canvas");
+    (viewer as any)._remoteCanvases.set("sharer", {
+      canvas,
+      stream: { getVideoTracks: () => [] } as unknown as MediaStream,
+    });
+
+    (viewer as any)._onScreenFrame("sharer", sent[0]);
+
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(600);
   });
 });

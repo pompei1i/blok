@@ -1,7 +1,9 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
-import { MESSAGE_PAGE_SIZE, MESSAGE_LRU_LIMIT } from "../../constants";
+import { MESSAGE_PAGE_SIZE, MESSAGE_LRU_LIMIT, NOTIFICATION_PREVIEW_LEN } from "../../constants";
+import { playNotificationBeep } from "../../sounds";
+import { sendDesktopNotification } from "../../notifications";
 import type { Message, Reaction } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import { _currentUserId } from "./_shared";
@@ -15,6 +17,7 @@ export interface MessageSlice {
   messagesAtStart: Set<string>;
   typingUsers: Record<string, string[]>;
 
+  initMessageRealtime: (userId: string) => void;
   loadMessages: (channelId: string) => Promise<void>;
   loadMoreMessages: (channelId: string) => Promise<void>;
   addMessage: (channelId: string, message: Message) => Promise<void>;
@@ -34,6 +37,98 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
   messagesLoading: new Set(),
   messagesAtStart: new Set(),
   typingUsers: {},
+
+  initMessageRealtime: (_userId) => {
+    supabase.channel("public:messages").on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      async (payload) => {
+        const m = payload.new;
+        let author = get().userProfileCache[m.author_id];
+        if (!author) {
+          const { data } = await supabase.from("profiles").select("*").eq("id", m.author_id).single();
+          if (data) {
+            author = mapProfile(data);
+            set((state) => ({ userProfileCache: { ...state.userProfileCache, [m.author_id]: author! } }));
+          }
+        }
+        const { data: attachData } = await supabase.from("attachments").select("*").eq("message_id", m.id);
+        const parsedMessage = {
+          id: m.id, channelId: m.channel_id, authorId: m.author_id, replyToId: m.reply_to_id,
+          content: m.content, isEdited: m.is_edited, createdAt: m.created_at, updatedAt: m.updated_at,
+          author,
+          attachments: (attachData ?? []).map((a: any) => ({
+            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
+            mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
+          })),
+        };
+        if (get().messagesLoaded.has(m.channel_id)) {
+          set((state) => ({
+            messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), parsedMessage] },
+            messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
+          }));
+        }
+        const { activeChannelId } = get();
+        if (m.channel_id !== activeChannelId && m.author_id !== _currentUserId) {
+          set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
+          playNotificationBeep();
+          const channelName = get().channelIndex[m.channel_id]?.name ?? "blok";
+          const preview = parsedMessage.content?.slice(0, NOTIFICATION_PREVIEW_LEN) || (parsedMessage.attachments?.length ? "sent an attachment" : "");
+          sendDesktopNotification(`#${channelName}`, `${author?.username ?? "someone"}: ${preview}`);
+        }
+      }
+    ).subscribe();
+
+    supabase.channel("public:messages:update").on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "messages" },
+      (payload) => {
+        const m = payload.new;
+        if (!get().messagesLoaded.has(m.channel_id)) return;
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
+              msg.id === m.id ? { ...msg, content: m.content, isEdited: m.is_edited, updatedAt: m.updated_at } : msg
+            ),
+          },
+        }));
+      }
+    ).subscribe();
+
+    supabase.channel("public:message_reactions").on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "message_reactions" },
+      (payload) => {
+        if (payload.eventType === "INSERT") {
+          const r = payload.new;
+          const reaction = { id: r.id, messageId: r.message_id, userId: r.user_id, emoji: r.emoji, createdAt: r.created_at };
+          set((state) => {
+            const channelId = state.messageChannelIndex[r.message_id];
+            if (!channelId) return state;
+            return {
+              messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
+                m.id === r.message_id && !m.reactions?.some((rx) => rx.id === r.id)
+                  ? { ...m, reactions: [...(m.reactions || []), reaction] } : m
+              ) },
+            };
+          });
+        } else if (payload.eventType === "DELETE") {
+          const r = payload.old;
+          set((state) => {
+            const channelId = state.messageChannelIndex[r.message_id];
+            if (!channelId) return state;
+            return {
+              messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
+                m.id === r.message_id
+                  ? { ...m, reactions: (m.reactions || []).filter((rx) => rx.id !== r.id) } : m
+              ) },
+            };
+          });
+        }
+      }
+    ).subscribe();
+  },
 
   loadMessages: async (channelId) => {
     const { messagesLoaded, messagesLoading } = get();

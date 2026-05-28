@@ -1,7 +1,9 @@
 import DOMPurify from "dompurify";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
+import { UrlPreview, extractFirstUrl } from "./url-preview";
 import type { Message, DMMessage, User, Reaction } from "@/lib/store/types";
 import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X as XIcon } from "lucide-react";
@@ -59,7 +61,7 @@ function groupReactions(reactions: Reaction[]): { emoji: string; count: number; 
 
 // ── Lazy media ────────────────────────────────────────────────────────────────
 
-function LazyImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+function LazyImage({ src, alt, className, onClick }: { src: string; alt: string; className?: string; onClick?: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [show, setShow] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -76,7 +78,7 @@ function LazyImage({ src, alt, className }: { src: string; alt: string; classNam
   }, []);
 
   return (
-    <div ref={ref}>
+    <div ref={ref} onClick={onClick} className={onClick ? "cursor-zoom-in inline-block" : "inline-block"}>
       {(!show || !loaded) && (
         <div className="h-36 w-52 rounded-md bg-[var(--bg-elevated)] animate-pulse" />
       )}
@@ -168,10 +170,20 @@ export function MessageBubble({
   const [editValue, setEditValue] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lightboxSrc) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setLightboxSrc(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [lightboxSrc]);
 
   useEffect(() => {
     if (isEditing) editRef.current?.focus();
   }, [isEditing]);
+
+  const firstUrl = !isEditing && message.content ? extractFirstUrl(message.content) : null;
 
   const startEdit = () => {
     setEditValue(message.content ?? "");
@@ -211,6 +223,7 @@ export function MessageBubble({
 
   if (isDM) {
     return (
+      <>
       <div
         className={cn(
           "flex gap-2 max-w-[80%] group/dm",
@@ -268,13 +281,15 @@ export function MessageBubble({
             {message.content && (
               <p dangerouslySetInnerHTML={{ __html: formatContent(message.content) }} />
             )}
+            {firstUrl && <UrlPreview url={firstUrl} />}
             {"attachments" in message && message.attachments && message.attachments.length > 0 && (
               <div className="flex flex-col gap-2 mt-2">
                 {message.attachments.map((att) => {
                   if (att.mediaType?.startsWith("image/")) {
                     return (
                       <LazyImage key={att.id} src={att.url} alt={att.filename}
-                        className="max-w-full max-h-64 rounded-md object-contain bg-[var(--bg-base)]" />
+                        className="max-w-full max-h-64 rounded-md object-contain bg-[var(--bg-base)]"
+                        onClick={() => setLightboxSrc(att.url)} />
                     );
                   }
                   if (att.mediaType?.startsWith("video/")) {
@@ -329,22 +344,50 @@ export function MessageBubble({
           </div>
         </div>
       </div>
+      {lightboxSrc && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <img
+            src={lightboxSrc}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            onClick={() => setLightboxSrc(null)}
+          >
+            <XIcon className="w-5 h-5" />
+          </button>
+        </div>,
+        document.body,
+      )}
+      </>
     );
   }
 
   return (
     <div
-      className="group flex gap-3 px-4 py-1 hover:bg-[var(--bg-hover)]/50 transition-colors"
+      className={cn(
+        "group flex gap-3 px-4 hover:bg-[var(--bg-hover)]/50 transition-colors",
+        showAvatar ? "pt-3 pb-0.5" : "pt-0 pb-0.5",
+      )}
       onMouseEnter={() => setShowTimestamp(true)}
       onMouseLeave={() => { setShowTimestamp(false); setShowMenu(false); }}
     >
       {showAvatar ? (
-        <div className="relative flex-shrink-0 self-start">
+        <div className="relative flex-shrink-0 self-start mt-0.5">
           <UserAvatar user={user} size="md" />
           <PresenceDot status={authorStatus} size="sm" className="absolute -bottom-1 -right-1 ring-2 ring-[var(--bg-surface)]" />
         </div>
       ) : (
-        <div className="w-8 flex-shrink-0" />
+        <div className="w-8 flex-shrink-0 flex items-start justify-end pr-1 pt-1">
+          <span className="text-[9px] text-[var(--text-muted)] opacity-0 group-hover:opacity-60 transition-opacity leading-none whitespace-nowrap select-none">
+            {formatTime(message.createdAt)}
+          </span>
+        </div>
       )}
       <div className="flex-1 min-w-0">
         {(replyToMessage || replyToId) && (
@@ -417,6 +460,7 @@ export function MessageBubble({
             dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
           />
         ) : null}
+        {firstUrl && <UrlPreview url={firstUrl} />}
 
         {"attachments" in message && message.attachments && message.attachments.length > 0 && (
           <div className="flex flex-col gap-2 mt-2">
@@ -428,6 +472,7 @@ export function MessageBubble({
                     src={att.url}
                     alt={att.filename}
                     className="max-w-sm max-h-80 rounded-md object-contain border border-[var(--border)]"
+                    onClick={() => setLightboxSrc(att.url)}
                   />
                 );
               }
@@ -560,6 +605,26 @@ export function MessageBubble({
           </div>
         )}
       </div>
+      {lightboxSrc && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <img
+            src={lightboxSrc}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            onClick={() => setLightboxSrc(null)}
+          >
+            <XIcon className="w-5 h-5" />
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

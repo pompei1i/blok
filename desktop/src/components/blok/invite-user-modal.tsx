@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, UserPlus, Search, Check, AlertCircle, Copy, RefreshCw, Link } from "lucide-react";
+import { X, UserPlus, Search, Check, AlertCircle, Copy, RefreshCw, Link, Clock, Users } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -12,6 +12,22 @@ interface InviteUserModalProps {
 }
 
 type Tab = "username" | "code";
+type ExpiryOption = "1d" | "7d" | "never";
+type UsesOption = "1" | "5" | "10" | "unlimited";
+
+const EXPIRY_LABELS: Record<ExpiryOption, string> = { "1d": "1 день", "7d": "7 дней", never: "∞" };
+const USES_LABELS: Record<UsesOption, string> = { "1": "1", "5": "5", "10": "10", unlimited: "∞" };
+
+function expiresAtFromOption(opt: ExpiryOption): string | null {
+  if (opt === "never") return null;
+  const d = new Date();
+  d.setDate(d.getDate() + (opt === "7d" ? 7 : 1));
+  return d.toISOString();
+}
+
+function maxUsesFromOption(opt: UsesOption): number | null {
+  return opt === "unlimited" ? null : parseInt(opt, 10);
+}
 
 export function InviteUserModal({ isOpen, onClose, serverId, serverName }: InviteUserModalProps) {
   const { inviteUser, generateInviteCode, servers } = useServerStore();
@@ -22,6 +38,8 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [expiryOpt, setExpiryOpt] = useState<ExpiryOption>("7d");
+  const [usesOpt, setUsesOpt] = useState<UsesOption>("unlimited");
 
   const server = servers.find((s) => s.id === serverId);
   const inviteCode = server?.inviteCode ?? null;
@@ -52,7 +70,10 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
 
   const handleGenerate = async () => {
     setGenerating(true);
-    await generateInviteCode(serverId);
+    await generateInviteCode(serverId, {
+      expiresAt: expiresAtFromOption(expiryOpt),
+      maxUses: maxUsesFromOption(usesOpt),
+    });
     setGenerating(false);
   };
 
@@ -68,9 +89,28 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
     onClose();
   };
 
+  const isExpired =
+    server?.inviteExpiresAt != null && new Date(server.inviteExpiresAt) < new Date();
+  const isExhausted =
+    server?.inviteMaxUses != null && (server.inviteUsedCount ?? 0) >= server.inviteMaxUses;
+
+  const expiryLabel = (() => {
+    if (!inviteCode) return null;
+    if (isExpired) return "истёк";
+    if (!server?.inviteExpiresAt) return null;
+    const diff = new Date(server.inviteExpiresAt).getTime() - Date.now();
+    const days = Math.ceil(diff / 86_400_000);
+    return `истекает через ${days} д.`;
+  })();
+
+  const usesLabel =
+    server?.inviteMaxUses != null
+      ? `${server.inviteUsedCount ?? 0} / ${server.inviteMaxUses} использований`
+      : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[380px] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl animate-fade-in">
+      <div className="w-[400px] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl animate-fade-in">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
             <UserPlus className="w-4 h-4 text-[var(--accent-red)]" />
@@ -183,23 +223,99 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
                   <Link className="w-3 h-3" /> {t("invite.code")}
                 </label>
                 {inviteCode ? (
-                  <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5">
-                    <span className="flex-1 font-mono text-sm text-[var(--text-primary)] tracking-widest">
-                      {inviteCode}
-                    </span>
-                    <button
-                      onClick={handleCopy}
-                      className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                    >
-                      {copied
-                        ? <><Check className="w-3.5 h-3.5 text-[var(--online)]" /><span className="text-[var(--online)]">{t("invite.copied")}</span></>
-                        : <><Copy className="w-3.5 h-3.5" /><span>{t("invite.copy")}</span></>
-                      }
-                    </button>
+                  <div className="space-y-1.5">
+                    <div className={cn(
+                      "flex items-center gap-2 bg-[var(--bg-elevated)] border rounded-lg px-3 py-2.5",
+                      (isExpired || isExhausted) ? "border-[var(--destructive)]/40" : "border-[var(--border)]"
+                    )}>
+                      <span className={cn(
+                        "flex-1 font-mono text-sm tracking-widest",
+                        (isExpired || isExhausted) ? "text-[var(--text-muted)] line-through" : "text-[var(--text-primary)]"
+                      )}>
+                        {inviteCode}
+                      </span>
+                      {!isExpired && !isExhausted && (
+                        <button
+                          onClick={handleCopy}
+                          className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                          {copied
+                            ? <><Check className="w-3.5 h-3.5 text-[var(--online)]" /><span className="text-[var(--online)]">{t("invite.copied")}</span></>
+                            : <><Copy className="w-3.5 h-3.5" /><span>{t("invite.copy")}</span></>
+                          }
+                        </button>
+                      )}
+                    </div>
+                    {(expiryLabel || usesLabel) && (
+                      <div className="flex items-center gap-3 px-1">
+                        {expiryLabel && (
+                          <span className={cn(
+                            "flex items-center gap-1 text-[10px]",
+                            isExpired ? "text-[var(--destructive)]" : "text-[var(--text-muted)]"
+                          )}>
+                            <Clock className="w-3 h-3" /> {expiryLabel}
+                          </span>
+                        )}
+                        {usesLabel && (
+                          <span className={cn(
+                            "flex items-center gap-1 text-[10px]",
+                            isExhausted ? "text-[var(--destructive)]" : "text-[var(--text-muted)]"
+                          )}>
+                            <Users className="w-3 h-3" /> {usesLabel}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="text-xs text-[var(--text-muted)] px-1">Код отсутствует.</p>
                 )}
+              </div>
+
+              {/* TTL selector */}
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1 text-xs text-[var(--text-muted)] uppercase tracking-wider">
+                  <Clock className="w-3 h-3" /> Срок действия
+                </label>
+                <div className="flex gap-1.5">
+                  {(["1d", "7d", "never"] as ExpiryOption[]).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setExpiryOpt(opt)}
+                      className={cn(
+                        "flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors",
+                        expiryOpt === opt
+                          ? "bg-[var(--accent-red)]/15 border-[var(--accent-red)]/50 text-[var(--accent-red)]"
+                          : "border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+                      )}
+                    >
+                      {EXPIRY_LABELS[opt]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Max uses selector */}
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1 text-xs text-[var(--text-muted)] uppercase tracking-wider">
+                  <Users className="w-3 h-3" /> Макс. использований
+                </label>
+                <div className="flex gap-1.5">
+                  {(["1", "5", "10", "unlimited"] as UsesOption[]).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setUsesOpt(opt)}
+                      className={cn(
+                        "flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors",
+                        usesOpt === opt
+                          ? "bg-[var(--accent-red)]/15 border-[var(--accent-red)]/50 text-[var(--accent-red)]"
+                          : "border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+                      )}
+                    >
+                      {USES_LABELS[opt]}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <button

@@ -22,6 +22,7 @@ import { UserBar } from "./user-bar";
 import { useI18n } from "@/lib/i18n";
 import { CreateChannelModal } from "./create-channel-modal";
 import { InviteUserModal } from "./invite-user-modal";
+import { can } from "@/lib/permission";
 
 export function GroupSidebar() {
   const { t } = useI18n();
@@ -54,8 +55,7 @@ export function GroupSidebar() {
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelModalType, setChannelModalType] = useState<"text" | "voice">("text");
 
-  // Only render + buttons if the current user is the server owner
-  const isServerOwner = user?.id === activeServer?.ownerId;
+  const canManage = can("manage_server", { userId: user?.id, server: activeServer ?? null });
 
   const [showInviteUser, setShowInviteUser] = useState(false);
   const [joiningChannel, setJoiningChannel] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export function GroupSidebar() {
             {activeServer.name}
           </h2>
           <div className="flex items-center gap-1">
-            {isServerOwner && (
+            {canManage && (
               <button
                 onClick={() => setShowInviteUser(true)}
                 title="Добавить участника"
@@ -145,7 +145,7 @@ export function GroupSidebar() {
               />
               {t("group.textChannels")}
             </button>
-            {isServerOwner && (
+            {canManage && (
               <button
                 onClick={() => {
                   setChannelModalType("text");
@@ -197,7 +197,7 @@ export function GroupSidebar() {
                           {unreadCounts[channel.id] > 99 ? "99+" : unreadCounts[channel.id]}
                         </span>
                       )}
-                      {isServerOwner && (
+                      {canManage && (
                         <span
                           role="button"
                           onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
@@ -230,7 +230,7 @@ export function GroupSidebar() {
               />
               {t("group.voiceRooms")}
             </button>
-            {isServerOwner && (
+            {canManage && (
               <button
                 onClick={() => {
                   setChannelModalType("voice");
@@ -347,7 +347,7 @@ export function GroupSidebar() {
           initialType={channelModalType}
         />
       )}
-      {activeServer && isServerOwner && (
+      {activeServer && canManage && (
         <InviteUserModal
           isOpen={showInviteUser}
           onClose={() => setShowInviteUser(false)}

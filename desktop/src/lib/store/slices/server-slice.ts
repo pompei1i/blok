@@ -1,9 +1,6 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
-import { playNotificationBeep } from "../../sounds";
-import { sendDesktopNotification } from "../../notifications";
-import { NOTIFICATION_PREVIEW_LEN } from "../../constants";
 import type { Server, Category, Channel, ServerMember, User, VoiceParticipant } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import {
@@ -32,7 +29,7 @@ export interface ServerSlice {
   deleteChannel: (channelId: string) => Promise<void>;
   removeServer: (serverId: string) => void;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
-  generateInviteCode: (serverId: string) => Promise<string | null>;
+  generateInviteCode: (serverId: string, opts?: { expiresAt?: string | null; maxUses?: number | null }) => Promise<string | null>;
   joinByInviteCode: (code: string, userId: string) => Promise<string | null>;
   openTab: (serverId: string) => void;
   closeTab: (serverId: string) => void;
@@ -69,6 +66,9 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       const servers: Server[] = (serverRes.data || []).map((s) => ({
         id: s.id, ownerId: s.owner_id, name: s.name, iconUrl: s.icon_url,
         description: s.description, inviteCode: s.invite_code, createdAt: s.created_at,
+        inviteExpiresAt: s.invite_expires_at ?? null,
+        inviteMaxUses: s.invite_max_uses ?? null,
+        inviteUsedCount: s.invite_used_count ?? 0,
       }));
 
       const channelsMap: Record<string, Channel[]> = {};
@@ -124,6 +124,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       if (firstTextChannel) void get().loadMessages(firstTextChannel.id);
 
       setCurrentUserId(_userId);
+      get().initMessageRealtime(_userId);
       if (voicePresenceCh) await supabase.removeChannel(voicePresenceCh);
       const ch = supabase.channel("voice-presence", { config: { presence: { key: _userId } } });
       setVoicePresenceCh(ch);
@@ -182,47 +183,6 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         .on("presence", { event: "leave" }, syncPresence)
         .subscribe();
 
-      // Realtime: new messages
-      supabase.channel("public:messages").on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        async (payload) => {
-          const m = payload.new;
-          let author = get().userProfileCache[m.author_id];
-          if (!author) {
-            const { data } = await supabase.from("profiles").select("*").eq("id", m.author_id).single();
-            if (data) {
-              author = mapProfile(data);
-              set((state) => ({ userProfileCache: { ...state.userProfileCache, [m.author_id]: author! } }));
-            }
-          }
-          const { data: attachData } = await supabase.from("attachments").select("*").eq("message_id", m.id);
-          const parsedMessage = {
-            id: m.id, channelId: m.channel_id, authorId: m.author_id, replyToId: m.reply_to_id,
-            content: m.content, isEdited: m.is_edited, createdAt: m.created_at, updatedAt: m.updated_at,
-            author,
-            attachments: (attachData ?? []).map((a: any) => ({
-              id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
-              mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
-            })),
-          };
-          if (get().messagesLoaded.has(m.channel_id)) {
-            set((state) => ({
-              messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), parsedMessage] },
-              messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
-            }));
-          }
-          const { activeChannelId } = get();
-          if (m.channel_id !== activeChannelId && m.author_id !== _currentUserId) {
-            set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
-            playNotificationBeep();
-            const channelName = get().channelIndex[m.channel_id]?.name ?? "blok";
-            const preview = parsedMessage.content?.slice(0, NOTIFICATION_PREVIEW_LEN) || (parsedMessage.attachments?.length ? "sent an attachment" : "");
-            sendDesktopNotification(`#${channelName}`, `${author?.username ?? "someone"}: ${preview}`);
-          }
-        }
-      ).subscribe();
-
       supabase.channel("public:servers").on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "servers" },
@@ -231,6 +191,9 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
           const newServer: Server = {
             id: s.id, ownerId: s.owner_id, name: s.name, iconUrl: s.icon_url,
             description: s.description, inviteCode: s.invite_code, createdAt: s.created_at,
+            inviteExpiresAt: s.invite_expires_at ?? null,
+            inviteMaxUses: s.invite_max_uses ?? null,
+            inviteUsedCount: s.invite_used_count ?? 0,
           };
           set((state) => ({ servers: [...state.servers, newServer], openTabs: [...state.openTabs, newServer.id] }));
         }
@@ -281,23 +244,6 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         }
       ).subscribe();
 
-      supabase.channel("public:messages:update").on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages" },
-        (payload) => {
-          const m = payload.new;
-          if (!get().messagesLoaded.has(m.channel_id)) return;
-          set((state) => ({
-            messages: {
-              ...state.messages,
-              [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
-                msg.id === m.id ? { ...msg, content: m.content, isEdited: m.is_edited, updatedAt: m.updated_at } : msg
-              ),
-            },
-          }));
-        }
-      ).subscribe();
-
       supabase.channel("public:channels:delete").on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "channels" },
@@ -321,38 +267,6 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         }
       ).subscribe();
 
-      supabase.channel("public:message_reactions").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "message_reactions" },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            const r = payload.new;
-            const reaction = { id: r.id, messageId: r.message_id, userId: r.user_id, emoji: r.emoji, createdAt: r.created_at };
-            set((state) => {
-              const channelId = state.messageChannelIndex[r.message_id];
-              if (!channelId) return state;
-              return {
-                messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
-                  m.id === r.message_id && !m.reactions?.some((rx) => rx.id === r.id)
-                    ? { ...m, reactions: [...(m.reactions || []), reaction] } : m
-                ) },
-              };
-            });
-          } else if (payload.eventType === "DELETE") {
-            const r = payload.old;
-            set((state) => {
-              const channelId = state.messageChannelIndex[r.message_id];
-              if (!channelId) return state;
-              return {
-                messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
-                  m.id === r.message_id
-                    ? { ...m, reactions: (m.reactions || []).filter((rx) => rx.id !== r.id) } : m
-                ) },
-              };
-            });
-          }
-        }
-      ).subscribe();
     } catch (e) {
       console.error(e);
     }
@@ -459,14 +373,25 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     return null;
   },
 
-  generateInviteCode: async (serverId) => {
+  generateInviteCode: async (serverId, opts) => {
     const bytes = new Uint8Array(5);
     crypto.getRandomValues(bytes);
     const code = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""); // 10 hex chars, CSPRNG
-    const { error } = await supabase.from("servers").update({ invite_code: code }).eq("id", serverId);
+    const { error } = await supabase.from("servers").update({
+      invite_code: code,
+      invite_expires_at: opts?.expiresAt ?? null,
+      invite_max_uses: opts?.maxUses ?? null,
+      invite_used_count: 0,
+    }).eq("id", serverId);
     if (error) return null;
     set((state) => ({
-      servers: state.servers.map((s) => s.id === serverId ? { ...s, inviteCode: code } : s),
+      servers: state.servers.map((s) => s.id === serverId ? {
+        ...s,
+        inviteCode: code,
+        inviteExpiresAt: opts?.expiresAt ?? null,
+        inviteMaxUses: opts?.maxUses ?? null,
+        inviteUsedCount: 0,
+      } : s),
     }));
     return code;
   },
@@ -475,11 +400,20 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     const { data: server, error } = await supabase
       .from("servers").select("*").eq("invite_code", code.trim()).maybeSingle();
     if (error || !server) return "Invalid or expired invite code";
+    if (server.invite_expires_at && new Date(server.invite_expires_at) < new Date()) {
+      return "Invite link has expired";
+    }
+    if (server.invite_max_uses != null && (server.invite_used_count ?? 0) >= server.invite_max_uses) {
+      return "Invite link has reached its usage limit";
+    }
     const members = get().members[server.id] || [];
     if (members.some((m) => m.userId === userId)) return null;
     const { error: insertError } = await supabase
       .from("server_members").insert({ server_id: server.id, user_id: userId });
     if (insertError) return "Failed to join server";
+    await supabase.from("servers")
+      .update({ invite_used_count: (server.invite_used_count ?? 0) + 1 })
+      .eq("id", server.id);
     await get().initData(userId);
     return null;
   },

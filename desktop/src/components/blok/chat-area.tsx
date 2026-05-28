@@ -1,4 +1,4 @@
-import { useRef, useLayoutEffect, useState } from "react";
+import { useRef, useLayoutEffect, useEffect, useState } from "react";
 import {
   Hash,
   Send,
@@ -11,6 +11,7 @@ import {
   Pin,
   ChevronDown,
 } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { MessageBubble } from "./message-bubble";
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useChatInput } from "@/hooks/useChatInput";
 import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS } from "@/lib/constants";
+import { can } from "@/lib/permission";
 
 export function ChatArea() {
   const { t } = useI18n();
@@ -33,6 +35,7 @@ export function ChatArea() {
     messages,
     messagesLoading,
     typingUsers,
+    members,
     servers,
     deleteMessage,
     editMessage,
@@ -44,13 +47,15 @@ export function ChatArea() {
   } = useServerStore();
   const { user } = useAuthStore();
 
-  const isServerOwner = user?.id === servers.find((s) => s.id === activeServerId)?.ownerId;
+  const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
+  const canPin = can("pin_message", { userId: user?.id, server: activeServer });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const prevScrollHeightRef = useRef<number | null>(null);
+  const isNearBottomRef = useRef(true);
+  const prevChannelIdRef = useRef<string | null>(null);
   const [showPinnedList, setShowPinnedList] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -61,19 +66,55 @@ export function ChatArea() {
   const activeChannel = serverChannels.find((c) => c.id === activeChannelId);
   const channelMessages = activeChannelId ? messages[activeChannelId] || [] : [];
   const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
+  const serverMembers = activeServerId ? members[activeServerId] || [] : [];
+  const typingNames = typing
+    .filter((uid) => uid !== user?.id)
+    .map((uid) => serverMembers.find((m) => m.userId === uid)?.user?.username ?? "someone");
+  const typingText =
+    typingNames.length === 1
+      ? `${typingNames[0]} is typing`
+      : typingNames.length === 2
+      ? `${typingNames[0]} and ${typingNames[1]} are typing`
+      : typingNames.length > 2
+      ? `${typingNames.slice(0, 2).join(", ")} and ${typingNames.length - 2} more are typing`
+      : "";
   const pinnedMessages = channelMessages.filter((m) => m.isPinned);
   const isAtStart = activeChannelId ? messagesAtStart.has(activeChannelId) : true;
   const isLoadingMore = activeChannelId ? messagesLoading.has(activeChannelId) : false;
 
+  const virtualizer = useVirtualizer({
+    count: channelMessages.length,
+    getScrollElement: () => messagesContainerRef.current,
+    estimateSize: () => 64,
+    overscan: 5,
+  });
+
+  // Reset near-bottom flag when switching channels
+  useEffect(() => {
+    if (activeChannelId !== prevChannelIdRef.current) {
+      prevChannelIdRef.current = activeChannelId;
+      isNearBottomRef.current = true;
+      prevScrollHeightRef.current = null;
+    }
+  }, [activeChannelId]);
+
+  // Restore scroll position after load-more
   useLayoutEffect(() => {
     if (prevScrollHeightRef.current !== null && messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop =
         messagesContainerRef.current.scrollHeight - prevScrollHeightRef.current;
       prevScrollHeightRef.current = null;
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [channelMessages]);
+  }, [channelMessages.length]);
+
+  // Scroll to bottom when new messages arrive (only if user was near bottom)
+  useEffect(() => {
+    if (isNearBottomRef.current && channelMessages.length > 0) {
+      virtualizer.scrollToIndex(channelMessages.length - 1, { align: "end" });
+    }
+  // virtualizer identity is stable — intentionally not in deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelMessages.length]);
 
   const handleLoadMore = async () => {
     if (!activeChannelId || !messagesContainerRef.current) return;
@@ -82,12 +123,13 @@ export function ChatArea() {
   };
 
   const handleMessagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (e.currentTarget.scrollTop < 80 && !isAtStart && !isLoadingMore) {
+    const el = e.currentTarget;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (el.scrollTop < 80 && !isAtStart && !isLoadingMore) {
       void handleLoadMore();
     }
   };
 
-  // Keep focus on input after emoji/mention selection
   const handleEmojiSelect = (emoji: string) => {
     chat.handleEmojiSelect(emoji);
     inputRef.current?.focus();
@@ -148,12 +190,17 @@ export function ChatArea() {
   }
 
   const scrollToMessage = (id: string) => {
-    const el = messageRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("highlight-flash");
-      setTimeout(() => el.classList.remove("highlight-flash"), HIGHLIGHT_FLASH_DURATION_MS);
-    }
+    const idx = channelMessages.findIndex((m) => m.id === id);
+    if (idx === -1) return;
+    virtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" });
+    // Wait for scroll + re-render, then flash
+    setTimeout(() => {
+      const el = messageRefs.current[id];
+      if (el) {
+        el.classList.add("highlight-flash");
+        setTimeout(() => el.classList.remove("highlight-flash"), HIGHLIGHT_FLASH_DURATION_MS);
+      }
+    }, 200);
   };
 
   return (
@@ -220,7 +267,7 @@ export function ChatArea() {
                   >
                     Jump
                   </button>
-                  {activeChannelId && isServerOwner && (
+                  {activeChannelId && canPin && (
                     <button
                       onClick={() => pinMessage(msg.id, activeChannelId)}
                       className="text-xs text-[var(--text-muted)] hover:text-[var(--destructive)] flex-shrink-0"
@@ -270,16 +317,16 @@ export function ChatArea() {
             </p>
           </div>
         ) : (
-          <div className="space-y-1">
-            {channelMessages.map((message, index) => {
-              const prevMessage = channelMessages[index - 1];
+          <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+            {virtualizer.getVirtualItems().map((vItem) => {
+              const message = channelMessages[vItem.index];
+              const prevMessage = channelMessages[vItem.index - 1];
               const showAvatar =
                 !prevMessage ||
                 prevMessage.authorId !== message.authorId ||
                 new Date(message.createdAt).getTime() -
                   new Date(prevMessage.createdAt).getTime() >
                   MESSAGE_GROUP_THRESHOLD_MS;
-
               const replyToMsg = message.replyToId
                 ? channelMessages.find((m) => m.id === message.replyToId) ?? null
                 : null;
@@ -287,7 +334,19 @@ export function ChatArea() {
               return (
                 <div
                   key={message.id}
-                  ref={(el) => { messageRefs.current[message.id] = el; }}
+                  data-index={vItem.index}
+                  ref={(el) => {
+                    messageRefs.current[message.id] = el;
+                    virtualizer.measureElement(el as Element | null);
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${vItem.start}px)`,
+                  }}
+                  className="pb-1"
                 >
                   <MessageBubble
                     message={message}
@@ -299,7 +358,7 @@ export function ChatArea() {
                     onReply={(msg) => chat.setReplyTo(msg as Message)}
                     onEdit={activeChannelId ? (id, content) => void editMessage(activeChannelId, id, content) : undefined}
                     onDelete={activeChannelId ? (id) => deleteMessage(id, activeChannelId) : undefined}
-                    onPin={isServerOwner && activeChannelId ? (id) => pinMessage(id, activeChannelId) : undefined}
+                    onPin={canPin && activeChannelId ? (id) => pinMessage(id, activeChannelId) : undefined}
                     onJumpTo={scrollToMessage}
                     onReact={activeChannelId && user ? (emoji) => addReaction(message.id, activeChannelId, emoji, user.id) : undefined}
                     onRemoveReact={activeChannelId && user ? (emoji) => removeReaction(message.id, activeChannelId, emoji, user.id) : undefined}
@@ -308,17 +367,23 @@ export function ChatArea() {
                 </div>
               );
             })}
-            <div ref={messagesEndRef} />
           </div>
         )}
       </div>
 
       {/* Typing indicator */}
-      {typing.length > 0 && (
-        <div className="px-4 py-1 text-xs text-[var(--text-muted)]">
-          <span className="animate-pulse">
-            {typing.length === 1 ? t("chat.someoneTyping") : t("chat.severalTyping")}
+      {typingNames.length > 0 && (
+        <div className="px-4 py-1 flex items-center gap-2 text-xs text-[var(--text-muted)] min-h-[24px]">
+          <span className="flex items-end gap-[3px] pb-px">
+            {[0, 150, 300].map((delay) => (
+              <span
+                key={delay}
+                className="w-1 h-1 rounded-full bg-[var(--text-muted)] animate-bounce"
+                style={{ animationDelay: `${delay}ms` }}
+              />
+            ))}
           </span>
+          <span>{typingText}…</span>
         </div>
       )}
 

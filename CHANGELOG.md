@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.3.2] — 2026-05-28
+
+### Added
+- **E2E in CI** — `.github/workflows/e2e.yml` runs on every push to `main` and on `workflow_dispatch`. Uses `windows-latest` runner, builds a binary with `tauri build --no-bundle`, adds `msedgedriver` from `$EDGEWEBDRIVER` to PATH, caches `tauri-driver` binary. Uploads WDIO logs on failure.
+- **`permission.ts` helper** — centralised `can(action, { userId, server })` in `desktop/src/lib/permission.ts` and `src/lib/permission.ts`. All permission checks now go through a single function; role logic can be added there without touching components. `isServerOwner` inline expressions removed from `chat-area.tsx` and both `group-sidebar.tsx` files.
+- **URL Preview** — `url-preview.tsx` fetches OG metadata via `api.microlink.io`; module-level cache prevents re-fetch on virtualiser remount. Card shows thumbnail, site name, title, description, hostname. Renders under messages in both server-channel and DM views.
+- **Image lightbox** — click any image to open a `fixed inset-0 z-[9999]` overlay; close with ESC or click-outside. `createPortal` to `document.body`.
+- **Message grouping** — consecutive messages from the same author collapse avatar/name; group-start padding `pt-3`; compact timestamp appears on hover in the spacer.
+- **Typing indicator** — three `animate-bounce` dots with staggered delays; resolves user IDs to display names: "Roman is typing…" / "Roman and Jane are typing…" / "Roman, Jane and 2 more are typing…"
+- **Invite TTL + usage limits** — `invite_expires_at`, `invite_max_uses`, `invite_used_count` columns added via migration; TTL selector (1d / 7d / ∞) and max-uses selector (1 / 5 / 10 / ∞) in `InviteUserModal`; expired/exhausted codes shown with strikethrough + red badge.
+- **Message list virtualisation** — `@tanstack/react-virtual` replaces full DOM list; dynamic heights via `measureElement`; scroll-to-bottom only when near bottom; scroll restoration on load-more; `scrollToMessage` with highlight flash.
+- **GIN full-text index** — `supabase/migrations/20260528_messages_gin_index.sql` adds `CREATE INDEX CONCURRENTLY` on `to_tsvector('russian', content)`.
+
+### Changed
+- **Screen share frame-skip** — `capture_screen_frame` now hashes the raw BGRA frame (sampled FNV-64a, every 64th byte) and returns `None` when the screen hasn't changed. Eliminates JPEG encode + IPC round-trip on idle frames; typical CPU usage near-zero between user actions.
+- **Screen share resize** — `FilterType::Triangle` replaced with `FilterType::Nearest`; 720p→360p downscale ~5 ms → ~1-2 ms.
+- **server-slice.ts split** — messages INSERT/UPDATE and reactions realtime handlers moved to `message-slice.ts` (`initMessageRealtime`). `server-slice.ts`: 570 → 478 lines. Unblocks threads feature without merge conflicts.
+- **Screen share default resolution** — `screenShareResolution` default `"1080p"` → `"720p"` (`max_width 1920 → 1280`); 1080p GDI encode estimated ~28 ms/frame in release, tight for 30 fps.
+
+### Tests
+- 55 Rust tests (up from 31): +3 `frame_hash` tests + 3 routing tests migrated to `capture_raw_frame` + 21 NS/EC/screen-share tests.
+- 312 JS tests (up from 303): +9 invite TTL tests.
+
+---
+
+## [0.3.0] — 2026-05-27
+
+### Added
+- **Single-instance** — second launch via shortcut no longer spawns a duplicate tray icon. `tauri-plugin-single-instance` intercepts the second process at OS level; the first instance receives focus (`show → unminimize → set_focus`).
+- **Test suite (P1–P4)** — 303 JS tests (Vitest + jsdom) and 31 Rust tests (cargo test), all green. New coverage:
+  - `useUpdater.test.ts` — check / retry backoff / dismiss / installUpdate / cleanup
+  - `useChatInput.test.ts` — canSend / send / keydown / emoji / mention / attach / gif
+  - `App.smoke.test.tsx` — mount / AuthScreen after init
+  - `native-voice-engine.test.ts`, `sounds.test.ts` — audio engine, sound effects
+  - `server-slice-realtime.test.ts` — all 7 postgres_changes handlers (messages INSERT/UPDATE, reactions, servers, profiles, channels)
+  - `voice-engine.test.ts` frame section — WebRTC DataChannel pipeline, roundtrip encoder/decoder
+  - `updater-endpoint.test.ts` — live network check (skipped by default, `TEST_UPDATER=1`)
+  - Component tests: `update-banner`, `auth-screen`, `incoming-call-banner`, `offline-banner`, `message-bubble` (51 tests, 5 mutation-verified)
+- **E2E infrastructure scaffold** — `desktop/e2e/` with WebdriverIO + tauri-driver; `specs/app.e2e.ts` (launch → auth → navigation → logout) and `specs/single-instance.e2e.ts`. Run with `npm run test:e2e` after `npm run tauri build`.
+- **CI BOM guard** — `release.yml` now verifies `latest.json` has no UTF-8 BOM (reads first 3 bytes, fails with `exit 1`) before publishing to `blok-releases`.
+
+---
+
+## [0.2.19] — 2026-05-24
+
+### Fixed
+- **Auto-update non-functional** — root cause: `pompei1i/blok` is private; the Tauri updater was doing an anonymous GET and receiving 403, silently showing "up to date". Auto-update had never worked. Fix: created public `pompei1i/blok-releases`; CI now builds in the private repo → downloads artifacts → rewrites URLs in `latest.json` → publishes to `blok-releases`.
+- **`latest.json` UTF-8 BOM** — PowerShell `[System.Text.Encoding.UTF8].GetBytes()` writes an EF BB BF BOM; the Tauri updater silently rejected the JSON on Windows. Replaced with `new System.Text.UTF8Encoding($false)` (no-BOM variant).
+- **`gh release download` collision** — added `--clobber` to overwrite `latest.json` already present from the `tauri-action` build step.
+
+---
+
 ## [0.2.18] — 2026-05-22
 
 ### Fixed

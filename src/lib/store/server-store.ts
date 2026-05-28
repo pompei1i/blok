@@ -56,7 +56,7 @@ interface ServerState {
   toggleDeafen: () => void;
   toggleScreenShare: () => Promise<void>;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
-  generateInviteCode: (serverId: string) => Promise<string | null>;
+  generateInviteCode: (serverId: string, opts?: { expiresAt?: string | null; maxUses?: number | null }) => Promise<string | null>;
   joinByInviteCode: (code: string, userId: string) => Promise<string | null>;
 }
 
@@ -104,6 +104,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
         description: s.description,
         inviteCode: s.invite_code,
         createdAt: s.created_at,
+        inviteExpiresAt: s.invite_expires_at ?? null,
+        inviteMaxUses: s.invite_max_uses ?? null,
+        inviteUsedCount: s.invite_used_count ?? 0,
       }));
 
       const channelsMap: Record<string, Channel[]> = {};
@@ -300,6 +303,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
               description: s.description,
               inviteCode: s.invite_code,
               createdAt: s.created_at,
+              inviteExpiresAt: s.invite_expires_at ?? null,
+              inviteMaxUses: s.invite_max_uses ?? null,
+              inviteUsedCount: s.invite_used_count ?? 0,
             };
             set((state) => ({
               servers: [...state.servers, newServer],
@@ -832,12 +838,25 @@ export const useServerStore = create<ServerState>((set, get) => ({
     return null;
   },
 
-  generateInviteCode: async (serverId) => {
-    const code = Math.random().toString(36).slice(2, 10);
-    const { error } = await supabase.from("servers").update({ invite_code: code }).eq("id", serverId);
+  generateInviteCode: async (serverId, opts) => {
+    const bytes = new Uint8Array(5);
+    crypto.getRandomValues(bytes);
+    const code = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""); // 10 hex chars, CSPRNG
+    const { error } = await supabase.from("servers").update({
+      invite_code: code,
+      invite_expires_at: opts?.expiresAt ?? null,
+      invite_max_uses: opts?.maxUses ?? null,
+      invite_used_count: 0,
+    }).eq("id", serverId);
     if (error) return null;
     set((state) => ({
-      servers: state.servers.map((s) => s.id === serverId ? { ...s, inviteCode: code } : s),
+      servers: state.servers.map((s) => s.id === serverId ? {
+        ...s,
+        inviteCode: code,
+        inviteExpiresAt: opts?.expiresAt ?? null,
+        inviteMaxUses: opts?.maxUses ?? null,
+        inviteUsedCount: 0,
+      } : s),
     }));
     return code;
   },
@@ -846,11 +865,20 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const { data: server, error } = await supabase
       .from("servers").select("*").eq("invite_code", code.trim()).maybeSingle();
     if (error || !server) return "Invalid or expired invite code";
+    if (server.invite_expires_at && new Date(server.invite_expires_at) < new Date()) {
+      return "Invite link has expired";
+    }
+    if (server.invite_max_uses != null && (server.invite_used_count ?? 0) >= server.invite_max_uses) {
+      return "Invite link has reached its usage limit";
+    }
     const members = get().members[server.id] || [];
     if (members.some((m) => m.userId === userId)) return null;
     const { error: insertError } = await supabase
       .from("server_members").insert({ server_id: server.id, user_id: userId });
     if (insertError) return "Failed to join server";
+    await supabase.from("servers")
+      .update({ invite_used_count: (server.invite_used_count ?? 0) + 1 })
+      .eq("id", server.id);
     await get().initData(userId);
     return null;
   },
