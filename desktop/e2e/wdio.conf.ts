@@ -23,6 +23,7 @@ export const config: Options.Testrunner = {
   specs: ["./specs/**/*.e2e.ts"],
   maxInstances: 1,
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   capabilities: [
     {
       maxInstances: 1,
@@ -33,7 +34,7 @@ export const config: Options.Testrunner = {
       },
       acceptInsecureCerts: true,
     },
-  ],
+  ] as any[],
 
   logLevel: "warn",
   reporters: ["spec"],
