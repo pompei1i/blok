@@ -49,12 +49,28 @@ export const config: Options.Testrunner = {
   },
 
   // Wait for the Tauri WebView2 to fully load the React app before any test runs.
-  // Session establishment launches the binary and attaches the WebDriver, but the
-  // webview page may not yet have rendered — getTitle() returns "" until it does.
+  // tauri-driver attaches the WebDriver session before the webview has navigated
+  // from about:blank to http://tauri.localhost/ — getTitle() returns "" until then.
+  // If stuck at about:blank we nudge it explicitly.
   async before() {
+    let lastUrl = "";
     await browser.waitUntil(
-      async () => (await browser.getTitle()) !== "",
-      { timeout: 30_000, interval: 500, timeoutMsg: "Tauri WebView2 did not load within 30 s" },
+      async () => {
+        try {
+          lastUrl = await browser.getUrl();
+          if (!lastUrl || lastUrl === "about:blank") {
+            await browser.url("http://tauri.localhost/");
+          }
+          return (await browser.getTitle()) !== "";
+        } catch {
+          return false;
+        }
+      },
+      {
+        timeout: 60_000,
+        interval: 2_000,
+        timeoutMsg: `Tauri WebView2 did not load within 60 s (last url: ${lastUrl})`,
+      },
     );
   },
 
