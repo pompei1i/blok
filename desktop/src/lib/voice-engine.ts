@@ -23,6 +23,8 @@ export interface VoiceCallbacks {
   onSpeakingChange: (userId: string, speaking: boolean) => void;
   onScreenShareStart?: (userId: string, stream: MediaStream) => void;
   onScreenShareStop?: (userId: string) => void;
+  onVideoStart?: (userId: string, stream: MediaStream) => void;
+  onVideoStop?: (userId: string) => void;
 }
 
 export interface VoiceAudioSettings {

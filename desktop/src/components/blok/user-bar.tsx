@@ -7,6 +7,8 @@ import {
   PhoneOff,
   Monitor,
   MonitorOff,
+  Video,
+  VideoOff,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useServerStore } from "@/lib/store/server-store";
@@ -28,9 +30,11 @@ export function UserBar() {
     isMuted,
     isDeafened,
     isScreenSharing,
+    isCameraOn,
     toggleMute,
     toggleDeafen,
     toggleScreenShare,
+    toggleCamera,
     channels,
     activeServerId,
     voiceParticipants,
@@ -147,6 +151,20 @@ export function UserBar() {
                 />
               )}
             </div>
+          )}
+          {activeVoiceChannelId && (
+            <button
+              onClick={() => void toggleCamera()}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                isCameraOn
+                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
+                  : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
+              )}
+              title={isCameraOn ? "Turn off camera" : "Turn on camera"}
+            >
+              {isCameraOn ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+            </button>
           )}
           <button
             onClick={() => setShowSettings(true)}

@@ -3,6 +3,7 @@ import { ChatArea } from "./chat-area";
 import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
 import { ScreenShareOverlay } from "./screen-share-overlay";
+import { VideoCallOverlay } from "./video-call-overlay";
 import { IncomingCallBanner } from "./incoming-call-banner";
 import { OfflineBanner } from "./offline-banner";
 import { RightSidebar } from "./right-sidebar";
@@ -91,6 +92,7 @@ export function AppLayout() {
 
       <DMPortal />
       <ScreenShareOverlay />
+      <VideoCallOverlay />
       <IncomingCallBanner />
     </div>
   );

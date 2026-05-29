@@ -16,6 +16,7 @@ type SettingsDraft = {
   previewVideo: boolean;
   mirrorCamera: boolean;
   cameraQuality: CameraQuality;
+  cameraDevice: string;
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number;
@@ -50,6 +51,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     previewVideo,
     mirrorCamera,
     cameraQuality,
+    cameraDevice,
     noiseSuppression,
     echoCancellation,
     inputVolume,
@@ -69,6 +71,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     previewVideo,
     mirrorCamera,
     cameraQuality,
+    cameraDevice,
     noiseSuppression,
     echoCancellation,
     inputVolume,
@@ -85,6 +88,9 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
   });
   const [inputDevices, setInputDevices] = useState<string[]>([]);
   const [outputDevices, setOutputDevices] = useState<string[]>([]);
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const previewStreamRef = useRef<MediaStream | null>(null);
   const [launchOnStartup, setLaunchOnStartup] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -118,6 +124,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
       previewVideo,
       mirrorCamera,
       cameraQuality,
+      cameraDevice,
       noiseSuppression,
       echoCancellation,
       inputVolume,
@@ -138,6 +145,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     previewVideo,
     mirrorCamera,
     cameraQuality,
+    cameraDevice,
     noiseSuppression,
     echoCancellation,
     inputVolume,
@@ -151,6 +159,45 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     language,
     customCss,
   ]);
+
+  // Enumerate video input devices when video tab is open
+  useEffect(() => {
+    if (!isOpen || activeTab !== "video") return;
+    navigator.mediaDevices.enumerateDevices().then((devices) => {
+      setCameraDevices(devices.filter((d) => d.kind === "videoinput"));
+    }).catch(() => {});
+  }, [isOpen, activeTab]);
+
+  // Live camera preview in the video tab
+  useEffect(() => {
+    if (!isOpen || activeTab !== "video" || !draftSettings.previewVideo) {
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
+      return;
+    }
+    const qualityMap: Record<string, { width: number; height: number }> = {
+      "720p":  { width: 1280, height: 720 },
+      "1080p": { width: 1920, height: 1080 },
+      "1440p": { width: 2560, height: 1440 },
+    };
+    const dims = qualityMap[draftSettings.cameraQuality] ?? qualityMap["1080p"];
+    const constraints: MediaTrackConstraints = {
+      width: { ideal: dims.width },
+      height: { ideal: dims.height },
+      ...(draftSettings.cameraDevice ? { deviceId: { exact: draftSettings.cameraDevice } } : {}),
+    };
+    navigator.mediaDevices.getUserMedia({ video: constraints, audio: false }).then((stream) => {
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = stream;
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = stream;
+    }).catch(() => {});
+    return () => {
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, activeTab, draftSettings.previewVideo, draftSettings.cameraDevice, draftSettings.cameraQuality]);
 
   useEffect(() => {
     if (!isOpen || activeTab !== "audio") return;
@@ -488,23 +535,52 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                   <h3 className="text-2xl font-bold text-[var(--text-primary)]">{t("settings.video.title")}</h3>
                   <p className="text-[var(--text-muted)] mt-1">{t("settings.video.subtitle")}</p>
                 </div>
+
+                {/* Camera Access */}
+                <div className="p-5 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-3">
+                  <span className="block text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Camera Access</span>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      {cameraDevices.length > 0
+                        ? <><CheckCircle className="w-4 h-4 text-[var(--online)]" /><span className="text-[var(--online)]">Access granted</span></>
+                        : <><AlertCircle className="w-4 h-4 text-[var(--afk)]" /><span className="text-[var(--afk)]">No camera detected</span></>
+                      }
+                    </div>
+                    {cameraDevices.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.mediaDevices.getUserMedia({ video: true }).then((s) => {
+                            s.getTracks().forEach((t) => t.stop());
+                            navigator.mediaDevices.enumerateDevices().then((devs) => {
+                              setCameraDevices(devs.filter((d) => d.kind === "videoinput"));
+                            }).catch(() => {});
+                          }).catch(() => {});
+                        }}
+                        className="px-3 py-1.5 bg-[var(--accent-red)] text-white text-xs rounded-lg hover:opacity-90 transition-opacity"
+                      >
+                        Grant Access
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div className="p-6 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl space-y-5">
-                  <label className="flex items-center justify-between">
-                    <span className="text-sm text-[var(--text-primary)]">{t("settings.video.enablePreview")}</span>
-                    <input
-                      type="checkbox"
-                      checked={draftSettings.previewVideo}
-                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, previewVideo: e.target.checked }))}
-                    />
+                  {/* Device picker */}
+                  <label className="block">
+                    <span className="block text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">Camera Device</span>
+                    <select
+                      value={draftSettings.cameraDevice}
+                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, cameraDevice: e.target.value }))}
+                      className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-red)]"
+                    >
+                      <option value="">System Default</option>
+                      {cameraDevices.map((d) => (
+                        <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0, 8)}`}</option>
+                      ))}
+                    </select>
                   </label>
-                  <label className="flex items-center justify-between">
-                    <span className="text-sm text-[var(--text-primary)]">{t("settings.video.mirrorCamera")}</span>
-                    <input
-                      type="checkbox"
-                      checked={draftSettings.mirrorCamera}
-                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, mirrorCamera: e.target.checked }))}
-                    />
-                  </label>
+
                   <label className="block">
                     <span className="block text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">{t("settings.video.cameraQuality")}</span>
                     <select
@@ -517,8 +593,41 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
                       <option>1440p</option>
                     </select>
                   </label>
+
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--text-primary)]">{t("settings.video.mirrorCamera")}</span>
+                    <input
+                      type="checkbox"
+                      checked={draftSettings.mirrorCamera}
+                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, mirrorCamera: e.target.checked }))}
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-[var(--text-primary)]">{t("settings.video.enablePreview")}</span>
+                    <input
+                      type="checkbox"
+                      checked={draftSettings.previewVideo}
+                      onChange={(e) => setDraftSettings((prev) => ({ ...prev, previewVideo: e.target.checked }))}
+                    />
+                  </label>
                 </div>
 
+                {/* Live preview */}
+                {draftSettings.previewVideo && (
+                  <div className="rounded-xl overflow-hidden bg-black aspect-video relative border border-[var(--border)]">
+                    <video
+                      ref={previewVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={cn("w-full h-full object-cover", draftSettings.mirrorCamera && "scale-x-[-1]")}
+                    />
+                    <span className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] font-mono text-white">
+                      preview
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

@@ -51,6 +51,7 @@ function stopDMVoiceLocally() {
     _dmVoiceEngine = null;
     if (getActiveNativeVoiceEngine()) setActiveNativeVoiceEngine(null);
   }
+  useDMStore.setState({ isDMCameraOn: false, dmCameraUsers: {}, localDMCameraStream: null });
 }
 
 interface DMWindowState {
@@ -67,6 +68,11 @@ interface DMState {
   incomingCall: IncomingCall | null;
   outgoingCall: OutgoingCall | null;
   activeCall: ActiveDMCall | null;
+  isDMCameraOn: boolean;
+  /** Remote cameras in active DM call: userId → MediaStream */
+  dmCameraUsers: Record<string, MediaStream>;
+  /** Local camera stream for DM call self-preview */
+  localDMCameraStream: MediaStream | null;
 
   initDMData: (userId: string) => Promise<void>;
   openDM: (currentUserId: string, targetUserId: string, initialPosition?: { x: number; y: number }) => Promise<void>;
@@ -89,6 +95,7 @@ interface DMState {
   acceptCall: () => Promise<void>;
   declineCall: () => void;
   endCall: () => void;
+  toggleDMCamera: () => Promise<void>;
 }
 
 export const DM_PAYLOAD_PREFIX = "__blok_dm_payload__:";
@@ -200,11 +207,37 @@ async function resolveOrCreateDMChannel(
   return created.id;
 }
 
+function buildDMVideoCallbacks(currentUserId: string): Pick<import("../voice-engine").VoiceCallbacks, "onVideoStart" | "onVideoStop"> {
+  return {
+    onVideoStart: (userId, stream) => {
+      if (userId === currentUserId) {
+        useDMStore.setState({ localDMCameraStream: stream });
+      } else {
+        useDMStore.setState((s) => ({ dmCameraUsers: { ...s.dmCameraUsers, [userId]: stream } }));
+      }
+    },
+    onVideoStop: (userId) => {
+      if (userId === currentUserId) {
+        useDMStore.setState({ localDMCameraStream: null });
+      } else {
+        useDMStore.setState((s) => {
+          const next = { ...s.dmCameraUsers };
+          delete next[userId];
+          return { dmCameraUsers: next };
+        });
+      }
+    },
+  };
+}
+
 export const useDMStore = create<DMState>((set, get) => ({
   openDMs: {},
   incomingCall: null,
   outgoingCall: null,
   activeCall: null,
+  isDMCameraOn: false,
+  dmCameraUsers: {},
+  localDMCameraStream: null,
 
   initDMData: async (userId) => {
     try {
@@ -233,6 +266,7 @@ export const useDMStore = create<DMState>((set, get) => ({
                 onParticipantJoin: () => {},
                 onParticipantLeave: () => { stopDMVoiceLocally(); useDMStore.setState({ activeCall: null }); },
                 onSpeakingChange: () => {},
+                ...buildDMVideoCallbacks(userId),
               });
               void engine.join().then(() => {
                 _dmVoiceEngine = engine;
@@ -590,6 +624,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       onParticipantJoin: () => {},
       onParticipantLeave: () => { stopDMVoiceLocally(); useDMStore.setState({ activeCall: null }); },
       onSpeakingChange: () => {},
+      ...buildDMVideoCallbacks(currentUserId),
     });
 
     try {
@@ -628,6 +663,20 @@ export const useDMStore = create<DMState>((set, get) => ({
     }).catch(() => {});
     stopDMVoiceLocally();
     set({ activeCall: null });
+  },
+
+  toggleDMCamera: async () => {
+    const { isDMCameraOn, activeCall } = get();
+    if (!activeCall || !_dmVoiceEngine) return;
+    if (isDMCameraOn) {
+      await _dmVoiceEngine.stopCamera();
+      set({ isDMCameraOn: false, localDMCameraStream: null });
+    } else {
+      try {
+        await _dmVoiceEngine.startCamera();
+        set({ isDMCameraOn: true });
+      } catch { /* user cancelled or no camera */ }
+    }
   },
 
   deleteDMMessage: async (messageId, targetUserId) => {

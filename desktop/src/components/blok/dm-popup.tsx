@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { X, Minus, Send, Smile, PlusCircle, Paperclip, Phone, PhoneOff } from "lucide-react";
+import { X, Minus, Send, Smile, PlusCircle, Paperclip, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
 import { DM_WINDOW_W_REM, DM_WINDOW_H_REM } from "@/lib/constants";
 import type { Attachment } from "@/lib/store/types";
 import { useDMStore } from "@/lib/store/dm-store";
@@ -34,9 +34,11 @@ export function DMPopup({ dmState }: DMPopupProps) {
     endCall,
     acceptCall,
     declineCall,
+    toggleDMCamera,
     activeCall,
     outgoingCall,
     incomingCall,
+    isDMCameraOn,
   } = useDMStore();
   const { friends, presence, presenceLastSeen } = useFriendsStore();
   const { user } = useAuthStore();
@@ -207,6 +209,18 @@ export function DMPopup({ dmState }: DMPopupProps) {
             <span className="text-xs font-mono text-[var(--online)]">
               {String(Math.floor(callSeconds / 60)).padStart(2, "0")}:{String(callSeconds % 60).padStart(2, "0")}
             </span>
+            <button
+              onClick={() => void toggleDMCamera()}
+              className={cn(
+                "p-1 rounded transition-opacity",
+                isDMCameraOn
+                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
+                  : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
+              )}
+              title={isDMCameraOn ? "Turn off camera" : "Turn on camera"}
+            >
+              {isDMCameraOn ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+            </button>
             <button
               onClick={() => endCall()}
               className="p-1 bg-[var(--accent-red)] hover:opacity-90 text-white rounded transition-opacity"

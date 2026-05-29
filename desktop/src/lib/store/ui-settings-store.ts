@@ -21,6 +21,7 @@ interface UiSettingsState {
   pushToTalk: boolean;
   inputDevice: string; // empty = system default
   outputDevice: string; // empty = system default
+  cameraDevice: string; // empty = system default
   compactMode: boolean;
   showMemberList: boolean;
   themeMode: ThemeMode;
@@ -49,6 +50,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       pushToTalk: false,
       inputDevice: "",
       outputDevice: "",
+      cameraDevice: "",
       compactMode: false,
       showMemberList: true,
       themeMode: "dark",

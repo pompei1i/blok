@@ -16,7 +16,12 @@ type NativeSignalMsg =
   | { type: "screenshare_stop"; from: string }
   | { type: "screenshare_offer"; from: string; to: string; sdp: string }
   | { type: "screenshare_answer"; from: string; to: string; sdp: string }
-  | { type: "screenshare_ice"; from: string; to: string; candidate: RTCIceCandidateInit };
+  | { type: "screenshare_ice"; from: string; to: string; candidate: RTCIceCandidateInit }
+  | { type: "video_start"; from: string }
+  | { type: "video_stop"; from: string }
+  | { type: "video_offer"; from: string; to: string; sdp: string }
+  | { type: "video_answer"; from: string; to: string; sdp: string }
+  | { type: "video_ice"; from: string; to: string; candidate: RTCIceCandidateInit };
 
 const SPEAKING_TIMEOUT_MS = 400;
 
@@ -85,6 +90,12 @@ export class NativeVoiceEngine {
 
   // WebRTC: viewer side — one PC per sharer
   private _viewerPcs = new Map<string, RTCPeerConnection>();
+
+  // Camera video — sender side: one PC per viewer
+  private _videoSenderPcs = new Map<string, RTCPeerConnection>();
+  // Camera video — receiver side: one PC per sender
+  private _videoReceiverPcs = new Map<string, RTCPeerConnection>();
+  private _cameraStream: MediaStream | null = null;
 
   constructor(channelId: string, userId: string, cb: VoiceCallbacks) {
     this.channelId = channelId;
@@ -173,6 +184,9 @@ export class NativeVoiceEngine {
     // Close all WebRTC connections
     for (const id of [...this._shareePcs.keys()]) this._closeShareePc(id);
     for (const id of [...this._viewerPcs.keys()]) this._closeViewerPc(id);
+    for (const id of [...this._videoSenderPcs.keys()]) this._closeVideoSenderPc(id);
+    for (const id of [...this._videoReceiverPcs.keys()]) this._closeVideoReceiverPc(id);
+    if (this._cameraStream) { this._cameraStream.getTracks().forEach((t) => t.stop()); this._cameraStream = null; }
 
     for (const { stream } of this._remoteCanvases.values()) {
       stream.getTracks().forEach((t) => t.stop());
@@ -327,6 +341,39 @@ export class NativeVoiceEngine {
     this.cb.onScreenShareStop?.(this.userId);
   }
 
+  isCameraOn(): boolean {
+    return this._cameraStream !== null;
+  }
+
+  async startCamera(): Promise<void> {
+    if (this._cameraStream) return;
+    const { cameraDevice, cameraQuality } = useUiSettingsStore.getState();
+    const qualityMap: Record<string, { width: number; height: number }> = {
+      "720p":  { width: 1280, height: 720 },
+      "1080p": { width: 1920, height: 1080 },
+      "1440p": { width: 2560, height: 1440 },
+    };
+    const dims = qualityMap[cameraQuality] ?? qualityMap["1080p"];
+    const videoConstraints: MediaTrackConstraints = {
+      width: { ideal: dims.width },
+      height: { ideal: dims.height },
+      ...(cameraDevice ? { deviceId: { exact: cameraDevice } } : {}),
+    };
+    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+    this._cameraStream = stream;
+    await this.broadcast({ type: "video_start", from: this.userId });
+    this.cb.onVideoStart?.(this.userId, stream);
+  }
+
+  async stopCamera(): Promise<void> {
+    if (!this._cameraStream) return;
+    this._cameraStream.getTracks().forEach((t) => t.stop());
+    this._cameraStream = null;
+    for (const id of [...this._videoSenderPcs.keys()]) this._closeVideoSenderPc(id);
+    await this.broadcast({ type: "video_stop", from: this.userId });
+    this.cb.onVideoStop?.(this.userId);
+  }
+
   // ── WebRTC helpers ───────────────────────────────────────────────────────────
 
   /** Pack JPEG frame as [w:u32][h:u32][jpeg bytes] and send to all open viewer DCs. */
@@ -437,6 +484,73 @@ export class NativeVoiceEngine {
     this._viewerPcs.delete(sharerId);
   }
 
+  // ── Video WebRTC helpers ────────────────────────────────────────────────────
+
+  /** Receiver: create PC that requests video from a remote camera sender. */
+  private async _setupVideoReceiverPc(senderId: string): Promise<void> {
+    this._closeVideoReceiverPc(senderId);
+    const pc = new RTCPeerConnection(ICE_CONFIG);
+    this._videoReceiverPcs.set(senderId, pc);
+
+    pc.addTransceiver("video", { direction: "recvonly" });
+
+    pc.ontrack = ({ streams }) => {
+      if (streams[0]) this.cb.onVideoStart?.(senderId, streams[0]);
+    };
+
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        this.broadcast({ type: "video_ice", from: this.userId, to: senderId, candidate: candidate.toJSON() }).catch(() => {});
+      }
+    };
+
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await this.broadcast({ type: "video_offer", from: this.userId, to: senderId, sdp: offer.sdp! });
+    } catch {
+      this._closeVideoReceiverPc(senderId);
+    }
+  }
+
+  /** Sender: handle an offer from a viewer, answer with our camera track. */
+  private async _handleVideoOffer(viewerId: string, sdp: string): Promise<void> {
+    if (!this._cameraStream) return;
+    this._closeVideoSenderPc(viewerId);
+
+    const pc = new RTCPeerConnection(ICE_CONFIG);
+    this._videoSenderPcs.set(viewerId, pc);
+
+    for (const track of this._cameraStream.getVideoTracks()) {
+      pc.addTrack(track, this._cameraStream);
+    }
+
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        this.broadcast({ type: "video_ice", from: this.userId, to: viewerId, candidate: candidate.toJSON() }).catch(() => {});
+      }
+    };
+
+    try {
+      await pc.setRemoteDescription({ type: "offer", sdp });
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await this.broadcast({ type: "video_answer", from: this.userId, to: viewerId, sdp: answer.sdp! });
+    } catch {
+      this._closeVideoSenderPc(viewerId);
+    }
+  }
+
+  private _closeVideoSenderPc(viewerId: string): void {
+    this._videoSenderPcs.get(viewerId)?.close();
+    this._videoSenderPcs.delete(viewerId);
+  }
+
+  private _closeVideoReceiverPc(senderId: string): void {
+    this._videoReceiverPcs.get(senderId)?.close();
+    this._videoReceiverPcs.delete(senderId);
+  }
+
   // ── Signal handling ─────────────────────────────────────────────────────────
 
   private async handleSignal(msg: NativeSignalMsg): Promise<void> {
@@ -458,6 +572,8 @@ export class NativeVoiceEngine {
         this._closeShareePc(msg.from);
         this._closeViewerPc(msg.from);
         this._clearRemoteCanvas(msg.from);
+        this._closeVideoSenderPc(msg.from);
+        this._closeVideoReceiverPc(msg.from);
         break;
       case "audio": {
         const samples = base64ToInt16Array(msg.data);
@@ -500,6 +616,30 @@ export class NativeVoiceEngine {
         if (msg.to !== this.userId) break;
         const pc = this._viewerPcs.get(msg.from) ?? this._shareePcs.get(msg.from);
         if (pc) await pc.addIceCandidate(msg.candidate);
+        break;
+      }
+      case "video_start":
+        this._closeVideoReceiverPc(msg.from);
+        void this._setupVideoReceiverPc(msg.from);
+        break;
+      case "video_stop":
+        this._closeVideoReceiverPc(msg.from);
+        this.cb.onVideoStop?.(msg.from);
+        break;
+      case "video_offer":
+        if (msg.to !== this.userId) break;
+        void this._handleVideoOffer(msg.from, msg.sdp);
+        break;
+      case "video_answer": {
+        if (msg.to !== this.userId) break;
+        const vpc = this._videoReceiverPcs.get(msg.from);
+        if (vpc) await vpc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+        break;
+      }
+      case "video_ice": {
+        if (msg.to !== this.userId) break;
+        const vpc = this._videoReceiverPcs.get(msg.from) ?? this._videoSenderPcs.get(msg.from);
+        if (vpc) await vpc.addIceCandidate(msg.candidate);
         break;
       }
     }

@@ -16,6 +16,11 @@ export interface VoiceSlice {
   screenSharers: Record<string, MediaStream>;
   /** Which sharer the local user is currently watching (null = none) */
   watchingUserId: string | null;
+  isCameraOn: boolean;
+  /** Remote cameras: userId → MediaStream */
+  cameraUsers: Record<string, MediaStream>;
+  /** Local camera stream for self-preview */
+  localCameraStream: MediaStream | null;
 
   joinVoiceChannel: (channelId: string, user: User) => Promise<string | null>;
   leaveVoiceChannel: () => Promise<void>;
@@ -23,6 +28,7 @@ export interface VoiceSlice {
   toggleDeafen: () => void;
   toggleScreenShare: (sourceId?: string) => Promise<void>;
   setWatchingUserId: (userId: string) => void;
+  toggleCamera: () => Promise<void>;
 }
 
 export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (set, get) => ({
@@ -33,6 +39,9 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
   isScreenSharing: false,
   screenSharers: {},
   watchingUserId: null,
+  isCameraOn: false,
+  cameraUsers: {},
+  localCameraStream: null,
 
   joinVoiceChannel: async (channelId, user) => {
     const prevChannel = get().activeVoiceChannelId;
@@ -109,7 +118,6 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
           if (!state.screenSharers[userId]) return state;
           const next = { ...state.screenSharers };
           delete next[userId];
-          // If we were watching the stopped sharer, switch to another (or null)
           let watching = state.watchingUserId;
           if (watching === userId) {
             const remaining = Object.keys(next);
@@ -117,6 +125,24 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
           }
           return { screenSharers: next, watchingUserId: watching };
         });
+      },
+      onVideoStart: (userId, stream) => {
+        if (userId === _currentUserId) {
+          set({ localCameraStream: stream });
+        } else {
+          set((state) => ({ cameraUsers: { ...state.cameraUsers, [userId]: stream } }));
+        }
+      },
+      onVideoStop: (userId) => {
+        if (userId === _currentUserId) {
+          set({ localCameraStream: null });
+        } else {
+          set((state) => {
+            const next = { ...state.cameraUsers };
+            delete next[userId];
+            return { cameraUsers: next };
+          });
+        }
       },
     });
 
@@ -155,6 +181,9 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         isScreenSharing: false,
         screenSharers: {},
         watchingUserId: null,
+        isCameraOn: false,
+        cameraUsers: {},
+        localCameraStream: null,
       };
     });
   },
@@ -197,6 +226,21 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
 
   setWatchingUserId: (userId) => {
     set({ watchingUserId: userId });
+  },
+
+  toggleCamera: async () => {
+    const engine = getActiveNativeVoiceEngine();
+    if (!engine) return;
+    const { isCameraOn } = get();
+    if (isCameraOn) {
+      await engine.stopCamera();
+      set({ isCameraOn: false, localCameraStream: null });
+    } else {
+      try {
+        await engine.startCamera();
+        set({ isCameraOn: true });
+      } catch { /* user cancelled or no camera */ }
+    }
   },
 
   toggleScreenShare: async (sourceId?: string) => {
