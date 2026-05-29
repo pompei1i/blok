@@ -1,14 +1,16 @@
 # TODO (desktop)
 
-## В работе
-
-- [ ] Видеозвонки в voice-каналах и DM.
-
 ## Что добавить дальше
 
 - [ ] Поиск по сообщениям, пользователям и каналам.
 - [ ] Управление ролями и правами (permissions) по каналам.
 - [ ] Ветки (threads) в каналах.
+
+## Готово (v0.3.4)
+
+- [x] Видеозвонки в voice-каналах и DM: WebRTC media tracks (`getUserMedia`), viewer-offerer pattern (зеркало screen share), `VideoCallOverlay` с сеткой тайлов, кнопки в `user-bar` и `dm-popup`.
+- [x] Видео-настройки активированы: Camera Device (`enumerateDevices`), Camera Quality (constraints 720p/1080p/1440p), Mirror My Camera (`scale-x-[-1]`), Enable Camera Preview (live `<video>` в настройках), Camera Access flow.
+
 ## Готово (v0.3.2)
 
 - [x] E2E в CI: `.github/workflows/e2e.yml`, `windows-latest`, `tauri build --no-bundle`, `msedgedriver` из `$EDGEWEBDRIVER`, кеш `tauri-driver`.
