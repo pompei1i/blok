@@ -5,11 +5,11 @@
 - [ ] Search — messages, users, channels.
 - [ ] Role & permission management per channel.
 - [ ] Threads in text channels.
-- [ ] bait Phase 0 — Claude API integration: `create_server`, `create_channel`, `translate`, `create_poll`, `create_announcement` tools.
+- [ ] b.ai.t Phase 0 — Claude API integration: `create_server`, `create_channel`, `translate`, `create_poll`, `create_announcement` tools.
 
 ## Done (v0.4.0)
 
-- [x] **bait** (Blok Artificial Intelligence Toy) — Phase 0 placeholder UI:
+- [x] **b.ai.t** (Blok Artificial Intelligence Toy) — Phase 0 placeholder UI:
   - `bait-store.ts` (Zustand): `isTabOpen`, `isActive`, `openTab`, `closeTab`, `activate`, `deactivate`.
   - `FishHookIcon` — custom SVG fishing hook icon shared across bait components.
   - `BaitView` — full-screen placeholder (header, `$bait` watermark, "coming soon", disabled input).

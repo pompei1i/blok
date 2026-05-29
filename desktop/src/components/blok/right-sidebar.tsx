@@ -381,7 +381,7 @@ export function RightSidebar() {
             "text-sm font-mono font-medium flex items-center gap-1",
             isBaitActive ? "text-[var(--accent-red)]" : "text-[var(--text-primary)]",
           )}>
-            $Bait
+            $b.ai.t
             <span className="cursor-blink inline-block w-1 h-3 bg-current opacity-80" />
           </span>
           <span className="text-[10px] text-[var(--text-muted)] font-mono leading-tight">

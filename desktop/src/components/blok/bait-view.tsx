@@ -8,12 +8,12 @@ export function BaitView() {
     <div className="flex-1 bg-[var(--bg-base)] flex flex-col">
       <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)] flex items-center gap-2">
         <FishHookIcon className="w-4 h-4 text-[var(--accent-red)]" />
-        <span className="text-sm font-medium text-[var(--text-primary)]">bait</span>
+        <span className="text-sm font-medium text-[var(--text-primary)]">b.ai.t</span>
         <span className="text-xs text-[var(--text-muted)] font-mono">{t("bait.description")}</span>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center gap-3 mt-[1px]">
-        <span className="text-2xl font-mono font-semibold text-[var(--text-muted)] opacity-20">$bait</span>
+        <span className="text-2xl font-mono font-semibold text-[var(--text-muted)] opacity-20">$b.ai.t</span>
         <p className="text-xs text-[var(--text-muted)] font-mono">{t("bait.comingSoon")}</p>
       </div>
 

@@ -1,4 +1,4 @@
-# bait — Blok Artificial Intelligence Toy
+# b.ai.t — Blok Artificial Intelligence Toy
 
 An AI assistant built into Blok. Accessible via a dedicated tab in the top bar, communicates in natural language, and executes actions inside the app.
 

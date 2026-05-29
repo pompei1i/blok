@@ -62,7 +62,7 @@ export function TopBar() {
               )}
             >
               <FishHookIcon className="w-3 h-3" />
-              <span>bait</span>
+              <span>b.ai.t</span>
             </button>
             <button
               onClick={closeBaitTab}
