@@ -25,6 +25,8 @@ import { useI18n } from "@/lib/i18n";
 import { useChatInput } from "@/hooks/useChatInput";
 import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS } from "@/lib/constants";
 import { can } from "@/lib/permission";
+import { useBaitStore } from "@/lib/store/bait-store";
+import { BaitView } from "./bait-view";
 
 export function ChatArea() {
   const { t } = useI18n();
@@ -46,6 +48,8 @@ export function ChatArea() {
     messagesAtStart,
   } = useServerStore();
   const { user } = useAuthStore();
+
+  const isBaitActive = useBaitStore((s) => s.isActive);
 
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
   const canPin = can("pin_message", { userId: user?.id, server: activeServer });
@@ -168,12 +172,22 @@ export function ChatArea() {
     }
   };
 
+  if (isBaitActive) {
+    return <BaitView />;
+  }
+
   if (!activeChannel) {
+    const noServer = !activeServerId;
     return (
       <div className="flex-1 bg-[var(--bg-base)] flex flex-col items-center justify-center">
         <div className="text-center animate-fade-in">
           <pre className="text-[var(--text-muted)] text-xs mb-4 font-mono">
-{`
+{noServer ? `
+  ╔══════════════════════════╗
+  ║   SELECT A SERVER        ║
+  ║   TO START CHATTING      ║
+  ╚══════════════════════════╝
+` : `
   ╔══════════════════════════╗
   ║   SELECT A CHANNEL       ║
   ║   TO START CHATTING      ║
@@ -182,7 +196,7 @@ export function ChatArea() {
           </pre>
           <p className="text-sm text-[var(--text-muted)]">
             <span className="text-[var(--text-muted)]">$ </span>
-            {t("chat.chooseChannel")}
+            {t(noServer ? "chat.chooseServer" : "chat.chooseChannel")}
           </p>
         </div>
       </div>

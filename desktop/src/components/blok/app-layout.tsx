@@ -1,4 +1,6 @@
 import { GroupSidebar } from "./group-sidebar";
+import { BaitSidebar } from "./bait-sidebar";
+import { useBaitStore } from "@/lib/store/bait-store";
 import { ChatArea } from "./chat-area";
 import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
@@ -13,9 +15,12 @@ import { useFriendsStore } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useEffect, useState } from "react";
+import { useI18n } from "@/lib/i18n";
 
 export function AppLayout() {
+  const { t } = useI18n();
   const showMemberList = useUiSettingsStore((state) => state.showMemberList);
+  const isBaitActive = useBaitStore((s) => s.isActive);
   const { initData: initServerData } = useServerStore();
   const { initFriendsData, updatePresence } = useFriendsStore();
   const { initDMData } = useDMStore();
@@ -62,7 +67,7 @@ export function AppLayout() {
           <div className="absolute right-0 top-0 w-24 h-full terminal-grid opacity-30" />
         </div>
         <div className="relative z-10 text-center text-[var(--text-muted)] font-mono text-sm">
-          <span className="cursor-blink mr-2">$</span> loading servers and chats...
+          <span className="cursor-blink mr-2">$</span> {t("app.loading")}
         </div>
       </div>
     );
@@ -80,7 +85,7 @@ export function AppLayout() {
         <OfflineBanner />
         <TopBar />
         <div className="flex flex-1 overflow-hidden">
-          <GroupSidebar />
+          {isBaitActive ? <BaitSidebar /> : <GroupSidebar />}
           <ChatArea />
           {showMemberList && (
             <div className="hidden min-[800px]:contents">

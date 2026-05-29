@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { MessageCircle, ChevronDown, Search, UserPlus, Check, X } from "lucide-react";
+import { FishHookIcon } from "./fish-hook-icon";
+import { useI18n } from "@/lib/i18n";
+import { useBaitStore } from "@/lib/store/bait-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
@@ -53,6 +56,7 @@ function MembersView() {
   const [onlineOpen, setOnlineOpen] = useState(true);
   const [offlineOpen, setOfflineOpen] = useState(true);
 
+  const { t } = useI18n();
   const serverMembers: ServerMember[] = activeServerId ? (members[activeServerId] ?? []) : [];
   const query = search.toLowerCase().trim();
 
@@ -111,13 +115,13 @@ function MembersView() {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-[var(--text-primary)] truncate">
             @{name}
-            {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-50">you</span>}
+            {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-50">{t("members.you")}</span>}
           </p>
           {m.user?.pronouns && (
             <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{m.user.pronouns}</p>
           )}
           {inVoice.has(m.userId) && (
-            <p className="text-[10px] text-[var(--online)]">in voice</p>
+            <p className="text-[10px] text-[var(--online)]">{t("members.inVoice")}</p>
           )}
         </div>
         {!isMe && (
@@ -134,7 +138,7 @@ function MembersView() {
           <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
           <input
             type="text"
-            placeholder="search members"
+            placeholder={t("members.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors"
@@ -150,7 +154,7 @@ function MembersView() {
               className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !onlineOpen && "-rotate-90")} />
-              Online — {online.length}
+              {t("members.online")} — {online.length}
             </button>
             {onlineOpen && <div className="space-y-0.5 mt-0.5">{online.map((m) => <MemberRow key={m.userId} m={m} />)}</div>}
           </div>
@@ -163,14 +167,14 @@ function MembersView() {
               className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !offlineOpen && "-rotate-90")} />
-              Offline — {offline.length}
+              {t("members.offline")} — {offline.length}
             </button>
             {offlineOpen && <div className="space-y-0.5 mt-0.5">{offline.map((m) => <MemberRow key={m.userId} m={m} />)}</div>}
           </div>
         )}
 
         {filtered.length === 0 && (
-          <p className="py-6 text-center text-xs text-[var(--text-muted)]">No members found</p>
+          <p className="py-6 text-center text-xs text-[var(--text-muted)]">{t("members.notFound")}</p>
         )}
       </div>
     </div>
@@ -183,6 +187,7 @@ function FriendsView() {
   const { user } = useAuthStore();
   const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, acceptRequest, declineRequest, cancelRequest, loadError } = useFriendsStore();
   const { openDM } = useDMStore();
+  const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [outgoingOpen, setOutgoingOpen] = useState(true);
@@ -216,7 +221,7 @@ function FriendsView() {
           <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
           <input
             type="text"
-            placeholder="search friends"
+            placeholder={t("friends.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors"
@@ -226,7 +231,7 @@ function FriendsView() {
 
       <div className="flex items-center justify-between px-3 py-1.5">
         <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium">
-          Friends — {friends.length}
+          {t("friends.friends")} — {friends.length}
         </span>
         <button onClick={() => setShowAddFriend(true)} className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors" title="Add friend">
           <UserPlus className="w-3.5 h-3.5 text-[var(--text-muted)]" />
@@ -254,7 +259,7 @@ function FriendsView() {
                       <UserAvatar user={req.targetUser} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.targetUser?.username ?? "unknown"}</p>
-                        <p className="text-xs text-[var(--text-muted)] truncate">pending</p>
+                        <p className="text-xs text-[var(--text-muted)] truncate">{t("friends.pending")}</p>
                       </div>
                       <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
                         <X className="w-3 h-3" />
@@ -281,15 +286,15 @@ function FriendsView() {
                       <UserAvatar user={req.requesterUser} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.requesterUser?.username ?? "unknown"}</p>
-                        <p className="text-xs text-[var(--text-muted)] truncate">wants to add you</p>
+                        <p className="text-xs text-[var(--text-muted)] truncate">{t("friends.wantsToAdd")}</p>
                       </div>
                     </div>
                     <div className="mt-1.5 flex gap-1">
                       <button onClick={() => acceptRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--online)]/20 text-[var(--online)] hover:bg-[var(--online)]/30 transition-colors">
-                        <Check className="w-3 h-3" /> Accept
+                        <Check className="w-3 h-3" /> {t("friends.accept")}
                       </button>
                       <button onClick={() => declineRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--destructive)]/20 text-[var(--destructive)] hover:bg-[var(--destructive)]/30 transition-colors">
-                        <X className="w-3 h-3" /> Decline
+                        <X className="w-3 h-3" /> {t("friends.decline")}
                       </button>
                     </div>
                   </div>
@@ -319,8 +324,8 @@ function FriendsView() {
               <MessageCircle className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
             </button>
           ))}
-          {sorted.length === 0 && !query && <p className="py-6 text-center text-xs text-[var(--text-muted)]">No friends yet</p>}
-          {sorted.length === 0 && query && <p className="py-4 text-center text-xs text-[var(--text-muted)]">No results</p>}
+          {sorted.length === 0 && !query && <p className="py-6 text-center text-xs text-[var(--text-muted)]">{t("friends.noFriends")}</p>}
+          {sorted.length === 0 && query && <p className="py-4 text-center text-xs text-[var(--text-muted)]">{t("friends.noResults")}</p>}
         </div>
       </div>
     </div>
@@ -334,7 +339,9 @@ export function RightSidebar() {
   const { friends } = useFriendsStore();
   const memberCount = activeServerId ? (members[activeServerId]?.length ?? 0) : 0;
   const friendCount = friends.length;
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("members");
+  const { isTabOpen: isBaitTabOpen, isActive: isBaitActive, openTab: openBaitTab, activate: activateBait } = useBaitStore();
 
   const activeTab = activeServerId ? tab : "friends";
 
@@ -345,16 +352,43 @@ export function RightSidebar() {
         <div className="flex items-center gap-1 w-full">
           {activeServerId ? (
             <>
-              <TabBtn label="members" count={memberCount} active={activeTab === "members"} onClick={() => setTab("members")} />
-              <TabBtn label="friends" count={friendCount} active={activeTab === "friends"} onClick={() => setTab("friends")} />
+              <TabBtn label={t("sidebar.members")} count={memberCount} active={activeTab === "members"} onClick={() => setTab("members")} />
+              <TabBtn label={t("friends.friends")} count={friendCount} active={activeTab === "friends"} onClick={() => setTab("friends")} />
             </>
           ) : (
-            <TabBtn label="friends" count={friendCount} active />
+            <TabBtn label={t("friends.friends")} count={friendCount} active />
           )}
         </div>
       </div>
 
       {activeTab === "members" ? <MembersView /> : <FriendsView />}
+
+      <button
+        onClick={() => isBaitTabOpen ? activateBait() : openBaitTab()}
+        className={cn(
+          "flex items-center gap-3 px-3 border-t border-[var(--border)] transition-colors shrink-0 h-[82px]",
+          isBaitActive ? "bg-[var(--bg-elevated)]" : "hover:bg-[var(--bg-hover)]",
+        )}
+      >
+        <div className={cn(
+          "flex items-center justify-center w-8 h-8 rounded-md shrink-0 transition-colors",
+          isBaitActive ? "bg-[var(--accent-red)]/10" : "bg-[var(--bg-elevated)]",
+        )}>
+          <FishHookIcon className={cn("w-4 h-4", isBaitActive ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]")} />
+        </div>
+        <div className="flex-1 flex flex-col gap-0.5 text-left">
+          <span className={cn(
+            "text-sm font-mono font-medium flex items-center gap-1",
+            isBaitActive ? "text-[var(--accent-red)]" : "text-[var(--text-primary)]",
+          )}>
+            $Bait
+            <span className="cursor-blink inline-block w-1 h-3 bg-current opacity-80" />
+          </span>
+          <span className="text-[10px] text-[var(--text-muted)] font-mono leading-tight">
+            $blok artificial intelligence toy
+          </span>
+        </div>
+      </button>
     </div>
   );
 }

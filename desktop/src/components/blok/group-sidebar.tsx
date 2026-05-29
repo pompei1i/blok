@@ -82,11 +82,14 @@ export function GroupSidebar() {
 
   if (!activeServer) {
     return (
-      <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col items-center justify-center text-[var(--text-muted)] text-sm flex-shrink-0">
-        <p className="text-center px-4">
-          <span className="text-[var(--text-muted)]">$ </span>
-          {t("group.noGroupSelected")}
-        </p>
+      <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col flex-shrink-0">
+        <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
+          <p className="text-center px-4">
+            <span className="text-[var(--text-muted)]">$ </span>
+            {t("server.noServerSelected")}
+          </p>
+        </div>
+        <UserBar />
       </div>
     );
   }

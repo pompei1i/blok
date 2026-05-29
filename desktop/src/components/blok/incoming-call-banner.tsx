@@ -2,8 +2,10 @@ import { Phone, PhoneOff, PhoneCall } from "lucide-react";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
 import { UserAvatar } from "./user-avatar";
+import { useI18n } from "@/lib/i18n";
 
 export function IncomingCallBanner() {
+  const { t } = useI18n();
   const { incomingCall, outgoingCall, acceptCall, declineCall, cancelCall } = useDMStore();
   const { friends } = useFriendsStore();
 
@@ -23,7 +25,7 @@ export function IncomingCallBanner() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider opacity-60">
-              <span className="text-[var(--online)]">$</span> incoming call
+              {t("incomingCall.incoming")}
             </p>
             <p className="text-sm font-medium text-[var(--text-primary)] truncate">
               @{incomingCall.fromUsername}
@@ -32,14 +34,14 @@ export function IncomingCallBanner() {
           <button
             onClick={() => void acceptCall()}
             className="p-2 bg-[var(--online)] hover:opacity-90 text-white rounded-lg transition-opacity flex-shrink-0"
-            title="Accept"
+            title={t("incomingCall.accept")}
           >
             <Phone className="w-4 h-4" />
           </button>
           <button
             onClick={() => declineCall()}
             className="p-2 bg-[var(--accent-red)] hover:opacity-90 text-white rounded-lg transition-opacity flex-shrink-0"
-            title="Decline"
+            title={t("incomingCall.decline")}
           >
             <PhoneOff className="w-4 h-4" />
           </button>
@@ -58,7 +60,7 @@ export function IncomingCallBanner() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider opacity-60">
-              <span className="text-[var(--online)]">$</span> calling
+              {t("incomingCall.calling")}
             </p>
             <p className="text-sm font-medium text-[var(--text-primary)] truncate">
               @{outgoingCall.toUsername}
@@ -68,7 +70,7 @@ export function IncomingCallBanner() {
           <button
             onClick={() => cancelCall()}
             className="p-2 bg-[var(--accent-red)] hover:opacity-90 text-white rounded-lg transition-opacity flex-shrink-0"
-            title="Cancel"
+            title={t("incomingCall.cancel")}
           >
             <PhoneOff className="w-4 h-4" />
           </button>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 const TENOR_KEY = import.meta.env.VITE_TENOR_API_KEY as string | undefined;
 const TENOR_BASE = "https://api.tenor.com/v1";
@@ -21,6 +22,7 @@ interface GifPickerProps {
 }
 
 export function GifPicker({ onSelect, onClose }: GifPickerProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [gifs, setGifs] = useState<TenorResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +73,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search GIFs..."
+            placeholder={t("gif.search")}
             className="flex-1 bg-transparent text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
           />
         </div>
@@ -80,16 +82,16 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
       <div className="h-48 overflow-y-auto p-1">
         {loading ? (
           <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-xs font-mono animate-pulse">
-            loading...
+            {t("gif.loading")}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] text-xs gap-1">
-            <span>Failed to load GIFs</span>
+            <span>{t("gif.failed")}</span>
             <span className="opacity-50 font-mono">{error}</span>
           </div>
         ) : gifs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-xs">
-            No GIFs found
+            {t("gif.notFound")}
           </div>
         ) : (
           <div className="columns-2 gap-1 space-y-1">

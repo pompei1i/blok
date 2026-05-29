@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { X, Minimize2, Maximize2, Monitor } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export function ScreenShareOverlay() {
+  const { t } = useI18n();
   const { screenSharers, watchingUserId, isScreenSharing, members, activeServerId, setWatchingUserId } =
     useServerStore();
   const { user } = useAuthStore();
@@ -52,7 +54,7 @@ export function ScreenShareOverlay() {
           <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)]">
             <Monitor className="w-3 h-3 text-[var(--online)]" />
             <span className="text-[var(--online)]">{sharingName}</span>
-            <span>{isSelfSharing ? "— sharing your screen" : "is sharing screen"}</span>
+            <span>{isSelfSharing ? `— ${t("screenShare.sharingYour")}` : t("screenShare.isSharing")}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -65,7 +67,7 @@ export function ScreenShareOverlay() {
               <button
                 onClick={() => useServerStore.getState().toggleScreenShare()}
                 className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
-                title="Stop sharing"
+                title={t("screenShare.stopSharing")}
               >
                 <X className="w-3 h-3" />
               </button>
@@ -98,12 +100,12 @@ export function ScreenShareOverlay() {
             {isSelfSharing ? (
               <div className="text-center text-[var(--text-muted)] font-mono text-sm">
                 <Monitor className="w-8 h-8 mx-auto mb-2 text-[var(--online)]" />
-                <p>Your screen is being shared</p>
+                <p>{t("screenShare.beingShared")}</p>
                 <button
                   onClick={() => useServerStore.getState().toggleScreenShare()}
                   className="mt-3 px-3 py-1 bg-[var(--destructive)] text-white text-xs rounded hover:opacity-80 transition-opacity"
                 >
-                  stop sharing
+                  {t("screenShare.stop")}
                 </button>
               </div>
             ) : (

@@ -1,4 +1,5 @@
 import { Monitor, AppWindow, X, Loader2 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -113,6 +114,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
   const [selected, setSelected] = useState<string | null>(null);
 
   const { screenShareFps, screenShareResolution, screenShareQuality, setSetting } = useUiSettingsStore();
+  const { t } = useI18n();
 
   const fpsOptions = SCREEN_SHARE_FPS_OPTIONS.map((fps) => ({ value: fps, label: String(fps) }));
 
@@ -134,7 +136,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] bg-[var(--bg-surface)]">
         <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
-          <span className="text-[var(--online)] mr-1">$</span>select source
+          <span className="text-[var(--online)] mr-1">$</span>{t("screenShare.selectSource")}
         </span>
         <button
           onClick={onClose}
@@ -155,7 +157,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
             {screens.length > 0 && (
               <>
                 <p className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-1 pb-0.5 opacity-60">
-                  Monitors
+                  {t("screenShare.monitors")}
                 </p>
                 {screens.map((s) => (
                   <SourceRow key={s.id} id={s.id} label={s.name} icon={Monitor} selected={selected === s.id} onSelect={setSelected} />
@@ -165,7 +167,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
             {windows.length > 0 && (
               <>
                 <p className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-2 pb-0.5 opacity-60">
-                  Windows
+                  {t("screenShare.windows")}
                 </p>
                 {windows.map((w) => (
                   <SourceRow key={w.id} id={w.id} label={w.title} icon={AppWindow} selected={selected === w.id} onSelect={setSelected} />
@@ -173,7 +175,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
               </>
             )}
             {!loading && screens.length === 0 && windows.length === 0 && (
-              <p className="text-xs text-[var(--text-muted)] text-center py-4">No sources found</p>
+              <p className="text-xs text-[var(--text-muted)] text-center py-4">{t("screenShare.noSources")}</p>
             )}
           </>
         )}
@@ -208,7 +210,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
           onClick={() => selected && onSelect(selected)}
           className="w-full py-1.5 bg-[var(--online)] hover:opacity-90 disabled:opacity-50 text-white text-xs font-mono rounded transition-opacity"
         >
-          start sharing
+          {t("screenShare.startSharing")}
         </button>
       </div>
     </div>

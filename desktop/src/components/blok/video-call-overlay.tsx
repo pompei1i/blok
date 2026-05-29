@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Video, VideoOff, Minimize2, Maximize2, X } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import { useServerStore } from "@/lib/store/server-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -32,6 +33,7 @@ export function VideoCallOverlay() {
   const { dmCameraUsers, localDMCameraStream, isDMCameraOn, activeCall, toggleDMCamera } = useDMStore();
   const { user } = useAuthStore();
   const mirrorCamera = useUiSettingsStore((s) => s.mirrorCamera);
+  const { t } = useI18n();
   const [minimized, setMinimized] = useState(false);
 
   // Collect all video tiles: local + remote from voice channel OR DM call
@@ -48,7 +50,7 @@ export function VideoCallOverlay() {
     return u?.displayName || u?.username || userId.slice(0, 8);
   };
 
-  const localLabel = user?.displayName || user?.username || "You";
+  const localLabel = user?.displayName || user?.username || t("videoCall.you");
   const localStream = localCameraStream ?? localDMCameraStream;
   const remoteEntries = Object.entries({ ...cameraUsers, ...dmCameraUsers });
 
@@ -76,8 +78,8 @@ export function VideoCallOverlay() {
         <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border)] shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)]">
             <Video className="w-3 h-3 text-[var(--online)]" />
-            <span className="text-[var(--online)]">video call</span>
-            <span>— {tiles.length} participant{tiles.length !== 1 ? "s" : ""}</span>
+            <span className="text-[var(--online)]">{t("videoCall.title")}</span>
+            <span>— {tiles.length} {tiles.length !== 1 ? t("videoCall.participants") : t("videoCall.participant")}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -88,7 +90,7 @@ export function VideoCallOverlay() {
                   ? "hover:bg-[var(--destructive)]/20"
                   : "hover:bg-[var(--bg-hover)]",
               )}
-              title={(isCameraOn || isDMCameraOn) ? "Turn off camera" : "Turn on camera"}
+              title={(isCameraOn || isDMCameraOn) ? t("videoCall.turnOffCamera") : t("videoCall.turnOnCamera")}
             >
               {(isCameraOn || isDMCameraOn) ? <VideoOff className="w-3 h-3" /> : <Video className="w-3 h-3" />}
             </button>
@@ -101,7 +103,7 @@ export function VideoCallOverlay() {
             <button
               onClick={onToggle}
               className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
-              title="Stop all video"
+              title={t("videoCall.stopAll")}
             >
               <X className="w-3 h-3" />
             </button>
@@ -116,7 +118,7 @@ export function VideoCallOverlay() {
             {tiles.length === 0 && (
               <div className="col-span-full flex flex-col items-center justify-center py-12 text-[var(--text-muted)] font-mono text-sm">
                 <Video className="w-8 h-8 mb-2 opacity-30" />
-                <p>no video streams</p>
+                <p>{t("videoCall.noStreams")}</p>
               </div>
             )}
           </div>
