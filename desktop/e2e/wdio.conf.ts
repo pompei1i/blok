@@ -21,6 +21,9 @@ let tauriDriver: ChildProcess;
 
 export const config: Options.Testrunner = {
   specs: ["./specs/**/*.e2e.ts"],
+  // Single worker: all spec files share ONE session → one blok.exe instance.
+  // Multiple sessions would trigger tauri-plugin-single-instance and break the
+  // second session's WebView2 connection.
   maxInstances: 1,
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,6 +46,16 @@ export const config: Options.Testrunner = {
   mochaOpts: {
     ui: "bdd",
     timeout: 30_000,
+  },
+
+  // Wait for the Tauri WebView2 to fully load the React app before any test runs.
+  // Session establishment launches the binary and attaches the WebDriver, but the
+  // webview page may not yet have rendered — getTitle() returns "" until it does.
+  async before() {
+    await browser.waitUntil(
+      async () => (await browser.getTitle()) !== "",
+      { timeout: 30_000, interval: 500, timeoutMsg: "Tauri WebView2 did not load within 30 s" },
+    );
   },
 
   // Start tauri-driver before the test session
