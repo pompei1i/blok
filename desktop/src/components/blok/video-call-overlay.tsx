@@ -10,7 +10,9 @@ import { cn } from "@/lib/utils";
 function VideoTile({ stream, label, muted, mirror }: { stream: MediaStream; label: string; muted?: boolean; mirror?: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
+    if (!ref.current) return;
+    ref.current.srcObject = stream;
+    ref.current.play().catch(() => {});
   }, [stream]);
   return (
     <div className="relative bg-black rounded overflow-hidden aspect-video">

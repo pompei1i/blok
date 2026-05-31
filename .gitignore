@@ -32,3 +32,11 @@ dist-ssr
 # Build cache / local tools
 .next/
 .claude/
+website
+plans
+
+# Generated NSIS assets (produced by scripts/gen-nsis-assets.mjs)
+desktop/src-tauri/nsis-res/
+
+# Installer build cache
+installer/src-tauri/target/

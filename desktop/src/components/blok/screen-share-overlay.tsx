@@ -19,9 +19,9 @@ export function ScreenShareOverlay() {
   const watchingStream = watchingUserId ? screenSharers[watchingUserId] ?? null : null;
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = watchingStream;
-    }
+    if (!videoRef.current) return;
+    videoRef.current.srcObject = watchingStream;
+    if (watchingStream) videoRef.current.play().catch(() => {});
   }, [watchingStream]);
 
   useEffect(() => {

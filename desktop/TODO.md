@@ -7,6 +7,15 @@
 - [ ] Threads in text channels.
 - [ ] b.ai.t Phase 0 — Claude API integration: `create_server`, `create_channel`, `translate`, `create_poll`, `create_announcement` tools.
 
+## Done (v0.5.0)
+
+- [x] Screen share / camera black screen fix: `.play()` called explicitly after `srcObject` assigned — `autoPlay` unreliable in Tauri/WebView2 when `srcObject` is set dynamically.
+- [x] Late-joiner fix: re-broadcast `screenshare_start` / `video_start` on `join` so users entering an active channel see existing streams.
+- [x] TURN servers added (`openrelay.metered.ca`) for ICE connectivity behind strict NAT.
+- [x] Custom stub installer (`installer/`) — frameless dark Tauri window: downloads latest release from GitHub API, runs NSIS silently (`/S /D=path`), custom path picker, auto-closes after install.
+- [x] NSIS installer branding: `header.bmp` (150×57) + `sidebar.bmp` (164×314) generated via `scripts/gen-nsis-assets.mjs`.
+- [x] Website (`getblok.app`) — landing page with auto-updating download button (GitHub API), PayPal donation, terminal aesthetic matching app style.
+
 ## Done (v0.4.0)
 
 - [x] **b.ai.t** (Blok Artificial Intelligence Toy) — Phase 0 placeholder UI:

@@ -1,0 +1,251 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0a0a0a;
+  --fg: #e0e0e0;
+  --dim: #555555;
+  --accent: #ffffff;
+  --border: #252525;
+  --error: #ff5555;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+.root {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Consolas', 'Cascadia Code', 'Courier New', monospace;
+  color: var(--fg);
+  user-select: none;
+}
+
+/* ── Titlebar ─────────────────────────────────────────────────────────────── */
+
+.titlebar {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar-label {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 6px;
+  font-family: inherit;
+  border-radius: 2px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: var(--error);
+  background: rgba(255, 85, 85, 0.1);
+}
+
+/* ── Content ──────────────────────────────────────────────────────────────── */
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 40px 28px;
+  gap: 10px;
+}
+
+/* ── ASCII art ────────────────────────────────────────────────────────────── */
+
+.ascii {
+  font-size: 7.5px;
+  line-height: 1.2;
+  color: var(--accent);
+  white-space: pre;
+  margin-bottom: 10px;
+  font-family: 'Consolas', 'Cascadia Code', 'Courier New', monospace;
+  opacity: 0;
+  animation: fade-in 0.4s ease forwards;
+}
+
+@keyframes fade-in {
+  to { opacity: 1; }
+}
+
+/* ── Text ─────────────────────────────────────────────────────────────────── */
+
+.tagline {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+}
+
+.version-tag {
+  font-size: 10px;
+  color: #383838;
+}
+
+.status {
+  font-size: 11px;
+  color: var(--dim);
+  min-height: 16px;
+}
+
+.status.error {
+  color: var(--error);
+}
+
+/* ── Button ───────────────────────────────────────────────────────────────── */
+
+.btn {
+  margin-top: 6px;
+  padding: 9px 0;
+  width: 200px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 3px;
+  text-transform: lowercase;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Progress ─────────────────────────────────────────────────────────────── */
+
+.progress-wrap {
+  width: 100%;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.progress-track {
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+  position: relative;
+  overflow: visible;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+  position: relative;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -2px;
+  width: 3px;
+  height: 5px;
+  background: var(--accent);
+}
+
+.progress-bar.indeterminate {
+  width: 30%;
+  animation: scan 1.4s ease-in-out infinite;
+}
+
+@keyframes scan {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+
+.progress-pct {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+/* ── Done checkmark ───────────────────────────────────────────────────────── */
+
+.check {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+/* ── Path picker ──────────────────────────────────────────────────────────── */
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 340px;
+  width: 100%;
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+}
+
+.path-text {
+  flex: 1;
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.path-browse {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  padding: 0;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.path-browse:hover {
+  opacity: 1;
+}

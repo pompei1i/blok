@@ -29,6 +29,15 @@ const ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ],
 };
 
@@ -561,6 +570,12 @@ export class NativeVoiceEngine {
       case "join":
         this.cb.onParticipantJoin(msg.from);
         await this.broadcast({ type: "hello", from: this.userId });
+        if (this.isScreenSharing()) {
+          await this.broadcast({ type: "screenshare_start", from: this.userId });
+        }
+        if (this._cameraStream) {
+          await this.broadcast({ type: "video_start", from: this.userId });
+        }
         break;
       case "hello":
         this.cb.onParticipantJoin(msg.from);
