@@ -90,13 +90,9 @@ jobs:
         working-directory: installer
         run: npm install
 
-      - name: Build stub installer (frontend)
+      - name: Build stub installer
         working-directory: installer
-        run: npm run build
-
-      - name: Build stub installer (binary)
-        working-directory: installer/src-tauri
-        run: cargo build --release
+        run: npx tauri build --no-bundle
 
       - name: Rename stub installer
         run: Copy-Item "installer\src-tauri\target\release\blok-ui.exe" "blok-installer.exe"
