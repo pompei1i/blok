@@ -105,6 +105,8 @@ jobs:
         run: |
           $exe = (Get-Item "blok_*-setup.exe").Name
           $sig = (Get-Item "blok_*-setup.exe.sig").Name
+          gh release delete "${{ github.ref_name }}" --repo pompei1i/blok-releases --yes 2>&1 | Out-Null
+          $LASTEXITCODE = 0
           gh release create "${{ github.ref_name }}" `
             --repo pompei1i/blok-releases `
             --title "`$blok ${{ github.ref_name }}" `
