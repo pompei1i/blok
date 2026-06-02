@@ -1,22 +1,15 @@
 {
-  "name": "desktop",
+  "name": "blok-web",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "tauri:dev": "vite",
-    "tauri:build": "tsc && vite build",
-    "tauri": "tauri"
+    "start": "next start"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-updater": "^2.10.1",
     "@vercel/analytics": "^1.3.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.564.0",
@@ -30,12 +23,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",
-    "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
     "tailwindcss": "^4.2.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "typescript": "~5.8.3"
   }
 }

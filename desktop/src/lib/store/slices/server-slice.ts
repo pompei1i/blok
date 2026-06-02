@@ -125,6 +125,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
       setCurrentUserId(_userId);
       get().initMessageRealtime(_userId);
+      get().initPollRealtime(_userId);
       if (voicePresenceCh) await supabase.removeChannel(voicePresenceCh);
       const ch = supabase.channel("voice-presence", { config: { presence: { key: _userId } } });
       setVoicePresenceCh(ch);

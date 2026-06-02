@@ -27,7 +27,42 @@ export interface MessageSlice {
   pinMessage: (messageId: string, channelId: string) => Promise<void>;
   addReaction: (messageId: string, channelId: string, emoji: string, userId: string) => Promise<void>;
   removeReaction: (messageId: string, channelId: string, emoji: string, userId: string) => Promise<void>;
+  searchMessages: (channelId: string, query: string) => Promise<Message[]>;
 }
+
+function mapMessageRow(m: any): Message {
+  return {
+    id: m.id,
+    channelId: m.channel_id,
+    authorId: m.author_id,
+    replyToId: m.reply_to_id ?? undefined,
+    content: m.content,
+    isEdited: m.is_edited,
+    isPinned: m.pinned ?? false,
+    createdAt: m.created_at,
+    updatedAt: m.updated_at,
+    author: m.author ? mapProfile(m.author) : undefined,
+    attachments: Array.isArray(m.attachments)
+      ? m.attachments.map((a: any) => ({
+          id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
+          mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
+        }))
+      : [],
+    reactions: Array.isArray(m.message_reactions)
+      ? m.message_reactions.map((r: any) => ({
+          id: r.id, messageId: r.message_id, userId: r.user_id,
+          emoji: r.emoji, createdAt: r.created_at,
+        }))
+      : [],
+  };
+}
+
+const MESSAGE_SELECT = `
+  id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
+  author:profiles(id, username, display_name, avatar_url, accent_color, pronouns),
+  attachments(id, message_id, url, filename, media_type, size_bytes, created_at),
+  message_reactions(id, message_id, user_id, emoji, created_at)
+`;
 
 export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice> = (set, get) => ({
   messages: {},
@@ -53,8 +88,8 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
           }
         }
         const { data: attachData } = await supabase.from("attachments").select("*").eq("message_id", m.id);
-        const parsedMessage = {
-          id: m.id, channelId: m.channel_id, authorId: m.author_id, replyToId: m.reply_to_id,
+        const parsedMessage: Message = {
+          id: m.id, channelId: m.channel_id, authorId: m.author_id, replyToId: m.reply_to_id ?? undefined,
           content: m.content, isEdited: m.is_edited, createdAt: m.created_at, updatedAt: m.updated_at,
           author,
           attachments: (attachData ?? []).map((a: any) => ({
@@ -62,6 +97,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
             mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
           })),
         };
+
         if (get().messagesLoaded.has(m.channel_id)) {
           set((state) => ({
             messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), parsedMessage] },
@@ -138,12 +174,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
 
     const { data, error } = await supabase
       .from("messages")
-      .select(`
-        id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
-        author:profiles(id, username, display_name, avatar_url, accent_color, pronouns),
-        attachments(id, message_id, url, filename, media_type, size_bytes, created_at),
-        message_reactions(id, message_id, user_id, emoji, created_at)
-      `)
+      .select(MESSAGE_SELECT)
       .eq("channel_id", channelId)
       .order("created_at", { ascending: false })
       .limit(MESSAGE_PAGE_SIZE);
@@ -158,32 +189,11 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       return;
     }
 
-    const messages: Message[] = (data || []).reverse().map((m) => ({
-      id: m.id,
-      channelId: m.channel_id,
-      authorId: m.author_id,
-      replyToId: m.reply_to_id,
-      content: m.content,
-      isEdited: m.is_edited,
-      isPinned: m.pinned ?? false,
-      createdAt: m.created_at,
-      updatedAt: m.updated_at,
-      author: m.author ? mapProfile(m.author) : undefined,
-      attachments: Array.isArray(m.attachments)
-        ? m.attachments.map((a: any) => ({
-            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
-            mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
-          }))
-        : [],
-      reactions: Array.isArray(m.message_reactions)
-        ? m.message_reactions.map((r: any) => ({
-            id: r.id, messageId: r.message_id, userId: r.user_id,
-            emoji: r.emoji, createdAt: r.created_at,
-          }))
-        : [],
-    }));
-
+    const messages: Message[] = (data || []).reverse().map(mapMessageRow);
     const isAtStart = (data || []).length < MESSAGE_PAGE_SIZE;
+    const messageIds = messages.map((m) => m.id);
+
+    void get().loadPollsForMessages(messageIds, _currentUserId ?? "");
 
     set((state) => {
       const loading = new Set(state.messagesLoading);
@@ -226,12 +236,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
 
     const { data, error } = await supabase
       .from("messages")
-      .select(`
-        id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
-        author:profiles(id, username, display_name, avatar_url, accent_color, pronouns),
-        attachments(id, message_id, url, filename, media_type, size_bytes, created_at),
-        message_reactions(id, message_id, user_id, emoji, created_at)
-      `)
+      .select(MESSAGE_SELECT)
       .eq("channel_id", channelId)
       .lt("created_at", oldestCreatedAt)
       .order("created_at", { ascending: false })
@@ -247,30 +252,8 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       return;
     }
 
-    const older: Message[] = (data || []).reverse().map((m) => ({
-      id: m.id,
-      channelId: m.channel_id,
-      authorId: m.author_id,
-      replyToId: m.reply_to_id,
-      content: m.content,
-      isEdited: m.is_edited,
-      isPinned: m.pinned ?? false,
-      createdAt: m.created_at,
-      updatedAt: m.updated_at,
-      author: m.author ? mapProfile(m.author) : undefined,
-      attachments: Array.isArray(m.attachments)
-        ? m.attachments.map((a: any) => ({
-            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
-            mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
-          }))
-        : [],
-      reactions: Array.isArray(m.message_reactions)
-        ? m.message_reactions.map((r: any) => ({
-            id: r.id, messageId: r.message_id, userId: r.user_id,
-            emoji: r.emoji, createdAt: r.created_at,
-          }))
-        : [],
-    }));
+    const older: Message[] = (data || []).reverse().map(mapMessageRow);
+    void get().loadPollsForMessages(older.map((m) => m.id), _currentUserId ?? "");
 
     set((state) => {
       const loading = new Set(state.messagesLoading);
@@ -385,5 +368,32 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
     }));
     await supabase.from("message_reactions").delete()
       .eq("message_id", messageId).eq("user_id", userId).eq("emoji", emoji);
+  },
+
+  searchMessages: async (channelId, query) => {
+    if (query.length < 2) return [];
+    const { data, error } = await supabase
+      .from("messages")
+      .select(`
+        id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
+        author:profiles(id, username, display_name, avatar_url, accent_color, pronouns)
+      `)
+      .eq("channel_id", channelId)
+      .ilike("content", `%${query}%`)
+      .order("created_at", { ascending: false })
+      .limit(25);
+    if (error) { console.error("searchMessages error", error); return []; }
+    return (data || []).map((m) => ({
+      id: m.id,
+      channelId: m.channel_id,
+      authorId: m.author_id,
+      replyToId: m.reply_to_id ?? undefined,
+      content: m.content,
+      isEdited: m.is_edited,
+      isPinned: m.pinned ?? false,
+      createdAt: m.created_at,
+      updatedAt: m.updated_at,
+      author: m.author ? mapProfile(m.author as any) : undefined,
+    }));
   },
 });

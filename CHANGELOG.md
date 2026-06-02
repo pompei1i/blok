@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.6.0] — 2026-06-02
+
+### Added
+- **In-channel search** — 🔍 icon in channel header + `Ctrl+F`. Modal with debounced Supabase ILIKE query, ↑↓ keyboard navigation, Enter jumps to message with flash highlight. Searches only non-empty messages in the current channel.
+- **Polls** — 📊 button in chat toolbar opens a poll creator panel. Choose question, up to 10 options, single or multiple choice, anonymous or open votes. Votes require explicit confirmation (select → click "Vote"). Progress bars with percentages shown after voting. Open polls show voter names on hover. Realtime vote count updates via Supabase Realtime on `poll_votes`. DB: `polls`, `poll_options`, `poll_votes` tables with RLS.
+- **Right-click context menu** — `onContextMenu` on any message opens the action menu at cursor position.
+- **Portal-based context menu** — menu rendered via `createPortal` into `document.body` with `position: fixed`; never clipped by other messages, never closes when moving cursor toward it. Closes on outside click or `Escape`.
+- **"original deleted message :("** — reply preview now shows this when the original message has been deleted, instead of the generic "original message".
+
+### Changed
+- **Project structure cleanup** — removed dead root Tauri files (`src/`, `src-tauri/`, `vite.config.ts`, `index.html`, `tsconfig.node.json`, `build.ps1`). Shared `lib/i18n.ts`, `lib/store/ui-settings-store.ts`, `locales/` moved to proper root locations. `desktop/README.md` slimmed to quick-start only.
+- Root `package.json` renamed to `blok-web`, dead Tauri scripts and deps removed.
+
+### Tests
+- 335 JS tests (up from 320): +11 poll-slice tests, +4 search tests.
+
+---
+
+## [0.5.0] — 2026-06-02
+
+### Added
+- **Custom stub installer** — frameless dark Tauri window (`installer/`) that downloads the latest release from the GitHub API, runs the NSIS installer silently (`/S /D=path`), shows a custom path picker, and auto-closes after install.
+- **NSIS installer branding** — `header.bmp` (150×57) and `sidebar.bmp` (164×314) generated via `scripts/gen-nsis-assets.mjs`.
+- **TURN servers** — `openrelay.metered.ca` added to ICE configuration for connectivity behind strict NAT.
+- **Website** — `getblok.app` landing page with auto-updating download button (GitHub API), PayPal donation link, and terminal aesthetic matching the app.
+
+### Fixed
+- **Screen share / camera black screen** — `.play()` called explicitly after `srcObject` is assigned; `autoplay` is unreliable in Tauri/WebView2 when `srcObject` is set dynamically.
+- **Late-joiner streams** — `screenshare_start` / `video_start` re-broadcast on `join` so users entering an active channel see existing streams.
+
+---
+
+## [0.4.0] — 2026-05-30
+
+### Added
+- **b.ai.t — Phase 0 placeholder UI** — Blok Artificial Intelligence Toy:
+  - `bait-store.ts` (Zustand): `isTabOpen`, `isActive`, `openTab`, `closeTab`, `activate`, `deactivate`.
+  - `FishHookIcon` — custom SVG fishing hook icon shared across bait components.
+  - `BaitView` — full-screen placeholder rendered in `ChatArea` when bait is active.
+  - `BaitSidebar` — left sidebar replacement with context, quick commands, and history sections.
+  - TopBar tab — bait opens as a first-class tab; clicking a server tab deactivates bait.
+  - `RightSidebar` `$Bait` panel — always-visible trigger at the bottom (`h-[82px]`).
+- **Full i18n coverage** — 62+ new keys added to all 6 locales (EN/RU/UK/PL/DE/ES): `incomingCall.*`, `screenShare.*`, `videoCall.*`, `gif.*`, `members.*`, `friends.*`, `update.*`, `bait.*`, `sidebar.*`, `server.*`, `app.loading`, `topBar.cancel/closeBait`. Previously untranslated components now fully covered.
+- **Empty state differentiation** — no server selected → "SELECT A SERVER" prompt; server selected but no channel → "SELECT A CHANNEL" prompt.
+- **UserBar in GroupSidebar** — shown even when no server is selected.
+
+---
+
 ## [0.3.2] — 2026-05-28
 
 ### Added

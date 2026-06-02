@@ -52,6 +52,26 @@ export interface Reaction {
   createdAt: string;
 }
 
+export interface PollOption {
+  id: string;
+  pollId: string;
+  text: string;
+  position: number;
+  voteCount: number;
+  voters: string[];
+}
+
+export interface Poll {
+  id: string;
+  messageId: string;
+  question: string;
+  isMultipleChoice: boolean;
+  isAnonymous: boolean;
+  options: PollOption[];
+  myVotes: string[];
+  totalVotes: number;
+}
+
 export interface Message {
   id: string;
   channelId: string;
@@ -62,6 +82,7 @@ export interface Message {
   isPinned?: boolean;
   createdAt: string;
   updatedAt: string;
+  poll?: Poll;
   // Included in joined queries
   author?: User;
   attachments?: Attachment[];

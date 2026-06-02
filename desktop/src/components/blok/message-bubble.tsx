@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { UrlPreview, extractFirstUrl } from "./url-preview";
+import { PollView } from "./poll-view";
 import type { Message, DMMessage, User, Reaction } from "@/lib/store/types";
 import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X as XIcon } from "lucide-react";
@@ -137,6 +138,7 @@ interface MessageBubbleProps {
   onRemoveReact?: (emoji: string) => void;
   onEdit?: (messageId: string, newContent: string) => void;
   currentUserId?: string;
+  onVotePoll?: (pollId: string, optionIds: string[]) => void;
 }
 
 export function MessageBubble({
@@ -155,6 +157,7 @@ export function MessageBubble({
   onRemoveReact,
   onEdit,
   currentUserId,
+  onVotePoll,
 }: MessageBubbleProps) {
   const { t } = useI18n();
   const { presence, presenceLastSeen } = useFriendsStore();
@@ -164,13 +167,26 @@ export function MessageBubble({
     ? ("online" as const)
     : effectiveStatus(presence[authorId ?? ""], presenceLastSeen[authorId ?? ""]);
   const [showTimestamp, setShowTimestamp] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const showMenu = menuPos !== null;
   const [showQuickEmoji, setShowQuickEmoji] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const msgRef = useRef<HTMLDivElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  const openMenuAt = (clientX: number, clientY: number) => {
+    const W = 160; // w-40 = 160px
+    const H = 240; // estimated max height
+    const x = Math.min(clientX, window.innerWidth - W - 8);
+    const y = clientY + H > window.innerHeight ? clientY - H : clientY + 4;
+    setMenuPos({ x, y });
+    setShowQuickEmoji(false);
+  };
+
+  const closeMenu = () => setMenuPos(null);
 
   useEffect(() => {
     if (!lightboxSrc) return;
@@ -188,7 +204,7 @@ export function MessageBubble({
   const startEdit = () => {
     setEditValue(message.content ?? "");
     setIsEditing(true);
-    setShowMenu(false);
+    closeMenu();
   };
 
   const commitEdit = () => {
@@ -204,18 +220,23 @@ export function MessageBubble({
 
   useEffect(() => {
     if (!showMenu) return;
-    const handleClick = (e: MouseEvent) => {
+    const onMouseDown = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false);
+        closeMenu();
       }
     };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showMenu]);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMenu(); };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showMenu]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = () => {
     if (message.content) void navigator.clipboard.writeText(message.content);
-    setShowMenu(false);
+    closeMenu();
   };
 
   const formatTime = (dateString: string) =>
@@ -272,7 +293,7 @@ export function MessageBubble({
                     </>
                   ) : (
                     <span className={cn("italic opacity-50", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>
-                      original message
+                      original deleted message :(
                     </span>
                   )}
                 </span>
@@ -370,12 +391,14 @@ export function MessageBubble({
 
   return (
     <div
+      ref={msgRef}
       className={cn(
         "group flex gap-3 px-4 hover:bg-[var(--bg-hover)]/50 transition-colors",
         showAvatar ? "pt-3 pb-0.5" : "pt-0 pb-0.5",
       )}
       onMouseEnter={() => setShowTimestamp(true)}
-      onMouseLeave={() => { setShowTimestamp(false); setShowMenu(false); }}
+      onMouseLeave={() => setShowTimestamp(false)}
+      onContextMenu={(e) => { e.preventDefault(); openMenuAt(e.clientX, e.clientY); }}
     >
       {showAvatar ? (
         <div className="relative flex-shrink-0 self-start mt-0.5">
@@ -411,7 +434,7 @@ export function MessageBubble({
                   {!replyToMessage.content && <span className="ml-1 opacity-50 italic">attachment</span>}
                 </>
               ) : (
-                <span className="opacity-50 italic">original message</span>
+                <span className="opacity-50 italic">original deleted message :(</span>
               )}
             </span>
           </button>
@@ -460,6 +483,13 @@ export function MessageBubble({
             dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
           />
         ) : null}
+
+        {"poll" in message && message.poll && onVotePoll && (
+          <PollView
+            poll={message.poll}
+            onVote={(optionIds) => onVotePoll((message as Message).poll!.id, optionIds)}
+          />
+        )}
         {firstUrl && <UrlPreview url={firstUrl} />}
 
         {"attachments" in message && message.attachments && message.attachments.length > 0 && (
@@ -522,6 +552,7 @@ export function MessageBubble({
             })}
           </div>
         )}
+
       </div>
 
       <div
@@ -531,13 +562,16 @@ export function MessageBubble({
         {onReact && (
           <div className="relative">
             <button
-              onClick={() => { setShowQuickEmoji((v) => !v); setShowMenu(false); }}
+              onClick={() => { setShowQuickEmoji((v) => !v); closeMenu(); }}
               className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
             >
               <Smile className="w-4 h-4 text-[var(--text-muted)]" />
             </button>
             {showQuickEmoji && (
-              <div className="absolute right-0 top-full mt-1 flex gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl p-1 z-50">
+              <div className={cn(
+                "absolute right-0 flex gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl p-1 z-50",
+                "top-full mt-1",
+              )}>
                 {QUICK_EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
@@ -552,59 +586,69 @@ export function MessageBubble({
           </div>
         )}
         <button
-          onClick={() => { setShowMenu((v) => !v); setShowQuickEmoji(false); }}
+          onClick={(e) => {
+            if (showMenu) { closeMenu(); return; }
+            const r = e.currentTarget.getBoundingClientRect();
+            openMenuAt(r.right, r.bottom);
+          }}
           className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
         >
           <MoreHorizontal className="w-4 h-4 text-[var(--text-muted)]" />
         </button>
 
-        {showMenu && (
-          <div className="absolute right-0 top-full mt-1 w-40 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1 z-50">
-            {onReply && (
-              <button
-                onClick={() => { onReply(message as Message | DMMessage); setShowMenu(false); }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                <CornerUpLeft className="w-3 h-3" /> Reply
-              </button>
-            )}
+      </div>
+
+      {showMenu && menuPos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", left: menuPos.x, top: menuPos.y, zIndex: 9998 }}
+          className="w-40 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
+        >
+          {onReply && (
             <button
-              onClick={handleCopy}
+              onClick={() => { onReply(message as Message | DMMessage); closeMenu(); }}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
             >
-              <Copy className="w-3 h-3" /> {t("message.copy")}
+              <CornerUpLeft className="w-3 h-3" /> Reply
             </button>
-            {onPin && (
+          )}
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <Copy className="w-3 h-3" /> {t("message.copy")}
+          </button>
+          {onPin && (
+            <button
+              onClick={() => { onPin(message.id); closeMenu(); }}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <Pin className="w-3 h-3" />
+              {"isPinned" in message && message.isPinned ? "Unpin" : "Pin"}
+            </button>
+          )}
+          {isOwn && onEdit && (
+            <button
+              onClick={startEdit}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <Edit2 className="w-3 h-3" /> {t("message.edit")}
+            </button>
+          )}
+          {isOwn && onDelete && (
+            <>
+              <div className="my-1 border-t border-[var(--border)]" />
               <button
-                onClick={() => { onPin(message.id); setShowMenu(false); }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+                onClick={() => { onDelete(message.id); closeMenu(); }}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors"
               >
-                <Pin className="w-3 h-3" />
-                {"isPinned" in message && message.isPinned ? "Unpin" : "Pin"}
+                <Trash2 className="w-3 h-3" /> {t("message.delete")}
               </button>
-            )}
-            {isOwn && onEdit && (
-              <button
-                onClick={startEdit}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                <Edit2 className="w-3 h-3" /> {t("message.edit")}
-              </button>
-            )}
-            {isOwn && onDelete && (
-              <>
-                <div className="my-1 border-t border-[var(--border)]" />
-                <button
-                  onClick={() => { onDelete(message.id); setShowMenu(false); }}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors"
-                >
-                  <Trash2 className="w-3 h-3" /> {t("message.delete")}
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+            </>
+          )}
+        </div>,
+        document.body
+      )}
       {lightboxSrc && createPortal(
         <div
           className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center cursor-pointer"

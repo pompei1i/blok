@@ -65,6 +65,9 @@ blok/
 - Пагинация истории: подгрузка по 30 сообщений при скролле к началу, позиция сохраняется
 - Markdown-подобное форматирование + XSS-защита (DOMPurify)
 - Оффлайн-баннер при потере соединения
+- **Поиск по каналу** (`Ctrl+F` / 🔍): модальное окно, ILIKE-запрос, ↑↓ навигация, прыжок к сообщению
+- **Опросы**: один/несколько вариантов, анонимный/открытый, подтверждение голоса, realtime-счётчики, прогресс-бары
+- Контекстное меню по ПКМ, портальный рендер (не обрезается и не закрывается при движении мыши)
 
 ### Голосовые каналы
 - **Десктоп**: native audio engine на базе cpal (Rust) через Tauri IPC
@@ -161,6 +164,9 @@ VITE_TENOR_API_KEY=...   # опционально
 | `dm_channels` | DM-каналы |
 | `dm_messages` | Сообщения в DM |
 | `user_presence` | Статусы присутствия (heartbeat `online_at`) |
+| `polls` | Опросы (вопрос, тип, анонимность) |
+| `poll_options` | Варианты ответов |
+| `poll_votes` | Голоса (`UNIQUE(poll_option_id, user_id)`) |
 
 `servers.invite_code` — nullable VARCHAR, генерируется по запросу владельца.
 
@@ -181,7 +187,7 @@ npm run test:watch    # watch-режим
 npm run test:ui       # UI в браузере
 ```
 
-Покрытие: store-экшены (`generateInviteCode`, `joinByInviteCode`, `loadMoreMessages`), DM-store, friends-store, auth-store, UI-settings-store, утилиты, i18n-покрытие всех локалей.
+Покрытие: store-экшены (`generateInviteCode`, `joinByInviteCode`, `loadMoreMessages`), DM-store, friends-store, auth-store, UI-settings-store, message search, poll-slice (loadPollsForMessages, votePoll, realtime routing), утилиты, i18n.
 
 ## Релизы
 

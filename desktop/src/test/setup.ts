@@ -38,11 +38,17 @@ const mockQuery = {
   gt: vi.fn().mockReturnThis(),
   gte: vi.fn().mockReturnThis(),
   in: vi.fn().mockReturnThis(),
+  is: vi.fn().mockReturnThis(),
+  ilike: vi.fn().mockReturnThis(),
+  not: vi.fn().mockReturnThis(),
+  filter: vi.fn().mockReturnThis(),
   order: vi.fn().mockReturnThis(),
   limit: vi.fn().mockReturnThis(),
   single: vi.fn().mockResolvedValue({ data: null, error: null }),
   maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-  then: vi.fn(),
+  // Default implementation resolves with empty data so unmatched calls (e.g. fetchThreadCounts)
+  // don't hang tests. Tests override per-call using resolveWith() → mockImplementationOnce.
+  then: vi.fn().mockImplementation((resolve: (v: unknown) => void) => resolve({ data: null, error: null })),
 };
 
 // Make every chainable method return the query object itself

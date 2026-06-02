@@ -10,6 +10,8 @@ import {
   CornerUpLeft,
   Pin,
   ChevronDown,
+  Search,
+  BarChart2,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useServerStore } from "@/lib/store/server-store";
@@ -19,6 +21,8 @@ import { EmojiPicker } from "./emoji-picker";
 import { GifPicker } from "./gif-picker";
 import { MentionPicker } from "./mention-picker";
 import { AttachmentPicker } from "./attachment-picker";
+import { SearchModal } from "./search-modal";
+import { PollCreator } from "./poll-creator";
 import type { Message } from "@/lib/store/types";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -46,6 +50,9 @@ export function ChatArea() {
     removeReaction,
     loadMoreMessages,
     messagesAtStart,
+    polls,
+    createPoll,
+    votePoll,
   } = useServerStore();
   const { user } = useAuthStore();
 
@@ -63,6 +70,8 @@ export function ChatArea() {
   const [showPinnedList, setShowPinnedList] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [showPollCreator, setShowPollCreator] = useState(false);
 
   const chat = useChatInput({ activeChannelId, user });
 
@@ -93,7 +102,6 @@ export function ChatArea() {
     overscan: 5,
   });
 
-  // Reset near-bottom flag when switching channels
   useEffect(() => {
     if (activeChannelId !== prevChannelIdRef.current) {
       prevChannelIdRef.current = activeChannelId;
@@ -102,7 +110,18 @@ export function ChatArea() {
     }
   }, [activeChannelId]);
 
-  // Restore scroll position after load-more
+  // Ctrl+F / Cmd+F → open search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f" && activeChannelId) {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [activeChannelId]);
+
   useLayoutEffect(() => {
     if (prevScrollHeightRef.current !== null && messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop =
@@ -111,12 +130,10 @@ export function ChatArea() {
     }
   }, [channelMessages.length]);
 
-  // Scroll to bottom when new messages arrive (only if user was near bottom)
   useEffect(() => {
     if (isNearBottomRef.current && channelMessages.length > 0) {
       virtualizer.scrollToIndex(channelMessages.length - 1, { align: "end" });
     }
-  // virtualizer identity is stable — intentionally not in deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelMessages.length]);
 
@@ -207,7 +224,6 @@ export function ChatArea() {
     const idx = channelMessages.findIndex((m) => m.id === id);
     if (idx === -1) return;
     virtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" });
-    // Wait for scroll + re-render, then flash
     setTimeout(() => {
       const el = messageRefs.current[id];
       if (el) {
@@ -242,7 +258,24 @@ export function ChatArea() {
         <span className="font-medium text-[var(--text-primary)]">{activeChannel.name}</span>
         <div className="ml-2 h-4 w-px bg-[var(--border)]" />
         <span className="ml-2 text-sm text-[var(--text-muted)]">{t("chat.channelTopic")}</span>
+        <button
+          onClick={() => setIsSearchOpen(true)}
+          className="ml-auto p-1.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          title={`${t("search.title").replace("{channel}", activeChannel.name)} (Ctrl+F)`}
+        >
+          <Search className="w-4 h-4" />
+        </button>
       </div>
+
+      {/* Search modal */}
+      {isSearchOpen && (
+        <SearchModal
+          channelId={activeChannelId!}
+          channelName={activeChannel.name}
+          onClose={() => setIsSearchOpen(false)}
+          onJumpToMessage={scrollToMessage}
+        />
+      )}
 
       {/* Pinned messages bar */}
       {pinnedMessages.length > 0 && (
@@ -334,12 +367,12 @@ export function ChatArea() {
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
             {virtualizer.getVirtualItems().map((vItem) => {
               const message = channelMessages[vItem.index];
+              if (!message) return null;
               const prevMessage = channelMessages[vItem.index - 1];
               const showAvatar =
                 !prevMessage ||
                 prevMessage.authorId !== message.authorId ||
-                new Date(message.createdAt).getTime() -
-                  new Date(prevMessage.createdAt).getTime() >
+                new Date(message.createdAt).getTime() - new Date(prevMessage.createdAt).getTime() >
                   MESSAGE_GROUP_THRESHOLD_MS;
               const replyToMsg = message.replyToId
                 ? channelMessages.find((m) => m.id === message.replyToId) ?? null
@@ -363,7 +396,7 @@ export function ChatArea() {
                   className="pb-1"
                 >
                   <MessageBubble
-                    message={message}
+                    message={polls[message.id] ? { ...message, poll: polls[message.id] } : message}
                     user={message.author || user || undefined}
                     isOwn={message.authorId === user?.id}
                     showAvatar={showAvatar}
@@ -377,6 +410,7 @@ export function ChatArea() {
                     onReact={activeChannelId && user ? (emoji) => addReaction(message.id, activeChannelId, emoji, user.id) : undefined}
                     onRemoveReact={activeChannelId && user ? (emoji) => removeReaction(message.id, activeChannelId, emoji, user.id) : undefined}
                     currentUserId={user?.id}
+                    onVotePoll={user ? (pollId, optionIds) => void votePoll(pollId, optionIds, user.id) : undefined}
                   />
                 </div>
               );
@@ -399,6 +433,18 @@ export function ChatArea() {
           </span>
           <span>{typingText}…</span>
         </div>
+      )}
+
+      {/* Poll creator */}
+      {showPollCreator && (
+        <PollCreator
+          onClose={() => setShowPollCreator(false)}
+          onSubmit={async (params) => {
+            if (!activeChannelId || !user) return;
+            await createPoll({ ...params, channelId: activeChannelId, authorId: user.id });
+            setShowPollCreator(false);
+          }}
+        />
       )}
 
       {/* Reply bar */}
@@ -515,6 +561,18 @@ export function ChatArea() {
               />
             )}
           </div>
+
+          {/* Poll creator button */}
+          <button
+            onClick={() => setShowPollCreator((v) => !v)}
+            className={cn(
+              "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
+              showPollCreator && "bg-[var(--bg-hover)] text-[var(--accent-red)]",
+            )}
+            title={t("poll.title")}
+          >
+            <BarChart2 className="w-5 h-5 text-[var(--text-muted)]" />
+          </button>
 
           {/* Text input */}
           <input
