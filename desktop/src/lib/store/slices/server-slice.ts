@@ -1,7 +1,7 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
-import type { Server, Category, Channel, ServerMember, User, VoiceParticipant } from "../types";
+import type { Server, Category, Channel, ServerMember, User, VoiceParticipant, Role } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import {
   voicePresenceCh, setVoicePresenceCh,
@@ -16,6 +16,7 @@ export interface ServerSlice {
   channels: Record<string, Channel[]>;
   channelIndex: Record<string, Channel>;
   members: Record<string, ServerMember[]>;
+  roles: Record<string, Role[]>;
   userProfileCache: Record<string, User>;
   memberUserIndex: Record<string, { serverId: string; memberId: string }[]>;
   openTabs: string[];
@@ -34,6 +35,15 @@ export interface ServerSlice {
   openTab: (serverId: string) => void;
   closeTab: (serverId: string) => void;
   patchUser: (user: User) => void;
+  // Roles
+  createRole: (data: { serverId: string; name: string; color?: string; permissions: number }) => Promise<void>;
+  updateRole: (roleId: string, serverId: string, data: { name?: string; color?: string; permissions?: number }) => Promise<void>;
+  deleteRole: (roleId: string, serverId: string) => Promise<void>;
+  assignRole: (memberId: string, serverId: string, roleId: string | null) => Promise<void>;
+  kickMember: (memberId: string, serverId: string) => Promise<void>;
+  // Search
+  searchUsers: (serverId: string, query: string) => User[];
+  searchChannels: (serverId: string, query: string) => Channel[];
 }
 
 export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> = (set, get) => ({
@@ -44,6 +54,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   channels: {},
   channelIndex: {},
   members: {},
+  roles: {},
   userProfileCache: {},
   memberUserIndex: {},
   openTabs: [],
@@ -51,17 +62,19 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
   initData: async (_userId) => {
     try {
-      const [serverRes, channelRes, categoryRes, memberRes] = await Promise.all([
+      const [serverRes, channelRes, categoryRes, memberRes, rolesRes] = await Promise.all([
         supabase.from("servers").select("*"),
         supabase.from("channels").select("*"),
         supabase.from("categories").select("*"),
         supabase.from("server_members").select("*, user:profiles(*)"),
+        supabase.from("roles").select("*"),
       ]);
 
       if (serverRes.error) console.error("Err loading servers", serverRes.error);
       if (channelRes.error) console.error("Err loading channels", channelRes.error);
       if (categoryRes.error) console.error("Err loading categories", categoryRes.error);
       if (memberRes.error) console.error("Err loading members", memberRes.error);
+      if (rolesRes.error) console.error("Err loading roles", rolesRes.error);
 
       const servers: Server[] = (serverRes.data || []).map((s) => ({
         id: s.id, ownerId: s.owner_id, name: s.name, iconUrl: s.icon_url,
@@ -109,13 +122,23 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         memberUserIndex[m.user_id].push({ serverId: m.server_id, memberId: m.id });
       });
 
+      const rolesMap: Record<string, Role[]> = {};
+      (rolesRes.data || []).forEach((r) => {
+        if (!rolesMap[r.server_id]) rolesMap[r.server_id] = [];
+        rolesMap[r.server_id].push({
+          id: r.id, serverId: r.server_id, name: r.name, color: r.color,
+          permissions: r.permissions, position: r.position,
+          isDefault: r.is_default, createdAt: r.created_at,
+        });
+      });
+
       const firstServer = servers[0] ?? null;
       const firstServerChannels = firstServer ? (channelsMap[firstServer.id] ?? []) : [];
       const firstTextChannel = firstServerChannels.find((c) => c.type === "text") ?? firstServerChannels[0] ?? null;
 
       set({
         servers, categories: categoriesMap, channels: channelsMap, channelIndex,
-        members: membersMap, userProfileCache, memberUserIndex,
+        members: membersMap, roles: rolesMap, userProfileCache, memberUserIndex,
         activeServerId: firstServer?.id ?? null,
         activeChannelId: firstTextChannel?.id ?? null,
         openTabs: servers.map((s) => s.id),
@@ -442,6 +465,89 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       openTabs: newTabs, activeServerId: newActiveServerId, activeChannelId: newActiveChannelId,
       unreadCounts: newActiveChannelId ? { ...s.unreadCounts, [newActiveChannelId]: 0 } : s.unreadCounts,
     }));
+  },
+
+  createRole: async (data) => {
+    const pos = (get().roles[data.serverId] ?? []).length;
+    const { data: row, error } = await supabase.from("roles")
+      .insert({ server_id: data.serverId, name: data.name, color: data.color ?? null, permissions: data.permissions, position: pos })
+      .select().single();
+    if (error) { console.error("createRole failed", error); throw error; }
+    const role: Role = {
+      id: row.id, serverId: row.server_id, name: row.name, color: row.color,
+      permissions: row.permissions, position: row.position, isDefault: row.is_default, createdAt: row.created_at,
+    };
+    set((s) => ({ roles: { ...s.roles, [data.serverId]: [...(s.roles[data.serverId] ?? []), role] } }));
+  },
+
+  updateRole: async (roleId, serverId, data) => {
+    const { error } = await supabase.from("roles").update({
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.color !== undefined && { color: data.color }),
+      ...(data.permissions !== undefined && { permissions: data.permissions }),
+    }).eq("id", roleId);
+    if (error) { console.error("updateRole failed", error); throw error; }
+    set((s) => ({
+      roles: {
+        ...s.roles,
+        [serverId]: (s.roles[serverId] ?? []).map((r) =>
+          r.id === roleId ? { ...r, ...data } : r
+        ),
+      },
+    }));
+  },
+
+  deleteRole: async (roleId, serverId) => {
+    const { error } = await supabase.from("roles").delete().eq("id", roleId);
+    if (error) { console.error("deleteRole failed", error); throw error; }
+    set((s) => ({
+      roles: { ...s.roles, [serverId]: (s.roles[serverId] ?? []).filter((r) => r.id !== roleId) },
+      members: {
+        ...s.members,
+        [serverId]: (s.members[serverId] ?? []).map((m) => m.roleId === roleId ? { ...m, roleId: undefined } : m),
+      },
+    }));
+  },
+
+  assignRole: async (memberId, serverId, roleId) => {
+    const { error } = await supabase.from("server_members").update({ role_id: roleId }).eq("id", memberId);
+    if (error) { console.error("assignRole failed", error); throw error; }
+    set((s) => ({
+      members: {
+        ...s.members,
+        [serverId]: (s.members[serverId] ?? []).map((m) =>
+          m.id === memberId ? { ...m, roleId: roleId ?? undefined } : m
+        ),
+      },
+    }));
+  },
+
+  kickMember: async (memberId, serverId) => {
+    const { error } = await supabase.from("server_members").delete().eq("id", memberId);
+    if (error) { console.error("kickMember failed", error); throw error; }
+    set((s) => ({
+      members: { ...s.members, [serverId]: (s.members[serverId] ?? []).filter((m) => m.id !== memberId) },
+    }));
+  },
+
+  searchUsers: (serverId, query) => {
+    if (!query || query.length < 1) return [];
+    const q = query.toLowerCase();
+    return (get().members[serverId] ?? [])
+      .filter((m) => m.user && (
+        m.user.username.toLowerCase().includes(q) ||
+        (m.user.displayName?.toLowerCase().includes(q))
+      ))
+      .map((m) => m.user!)
+      .slice(0, 20);
+  },
+
+  searchChannels: (serverId, query) => {
+    if (!query || query.length < 1) return [];
+    const q = query.toLowerCase();
+    return (get().channels[serverId] ?? [])
+      .filter((c) => c.name.toLowerCase().includes(q))
+      .slice(0, 20);
   },
 
   patchUser: (user) => {

@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/i18n";
 
 const QUICK_COMMANDS: { key: TranslationKey; prompt: string }[] = [
+  { key: "bait.cmd.summarize",    prompt: "Summarize the recent messages in the current channel for me." },
   { key: "bait.cmd.createServer", prompt: "Create a new server for me. Ask me for the name." },
   { key: "bait.cmd.translate",    prompt: "I want to translate a message. Ask me what text to translate and into which language." },
   { key: "bait.cmd.poll",         prompt: "Create a poll in the current channel. Ask me for the question and answer options." },

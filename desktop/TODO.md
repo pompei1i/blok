@@ -1,10 +1,59 @@
 # TODO (desktop)
 
+## b.ai.t roadmap
+
+### Phase 0.5 — polish & reliability (text assistant)
+
+- [ ] **Prompt caching** — add `cache_control: { type: "ephemeral" }` to the system prompt block so repeated requests reuse the cached system prompt + tools (cuts cost ~10× on cache hits). See Anthropic prompt caching docs.
+- [ ] **Streaming responses** — switch to `client.messages.stream()` and emit tokens to `bait-store` as they arrive; show partial text in BaitView in real time instead of waiting for the full response.
+- [ ] **Model routing** — Haiku 4.5 for tool-only requests (poll, create channel, timer); Sonnet 4.6 for analysis/summarization/translation. Detect intent before the first API call.
+- [ ] **Rate limiting** — max 10 requests/minute per session; show "slow down" message instead of erroring; queue or drop excess calls.
+- [ ] **Smart language detection for translate** — auto-detect message language; only offer "Translate with b.ai.t" context menu item when language ≠ current app locale. If they match → "Already in your language".
+- [ ] **Tool: `delete_message(messageId)`** — let bait delete a message by ID (with confirmation in the response).
+- [ ] **Tool: `search_messages(query, channelId?)`** — bait can look up messages by keyword and quote them in its reply.
+- [ ] **Tool: `set_channel_topic(topic)`** — set the topic of the active channel.
+- [ ] **Error resilience** — retry once on Anthropic 529 (overload); surface clear error text for 401 (bad key) and 429 (rate limit) separately.
+- [ ] **Per-server history** — persist separate conversation history per `serverId` so switching servers doesn't mix contexts.
+
+---
+
+### Phase 1 — bait in voice (bot service)
+
+> Separate Node.js/Bun service. bait joins a voice channel as a virtual user and streams audio.
+
+- [ ] **DB migration** — `ALTER TABLE profiles ADD COLUMN is_bot BOOLEAN DEFAULT false`; add `bot_session_id UUID` + `bot_session_by UUID` to `voice_channels` for one-bot-per-channel exclusivity.
+- [ ] **Bot user seed** — create a `bait` profile row in Supabase with `is_bot = true`; exclude it from member lists and presence displays.
+- [ ] **Bot service scaffold** — Node.js/Bun + Hono micro-service; connects to Supabase as the bot user; listens for join/leave commands via Supabase Realtime.
+- [ ] **yt-dlp + ffmpeg pipeline** — `yt-dlp` extracts audio URL → `ffmpeg` converts to i16 PCM 48 kHz mono → streamed via Supabase Realtime channel to voice participants.
+- [ ] **Music queue** — commands: `play <url|query>`, `skip`, `pause`, `resume`, `stop`, `nowplaying`, `queue`; queue state stored in bot-service memory (or Redis for multi-instance).
+- [ ] **BaitSidebar voice controls** — when user is in a voice channel, show Now Playing widget + skip/stop buttons in BaitSidebar.
+- [ ] **Soundboard** — 5–10 short sound effects (`airhorn`, `applause`, etc.) stored as static files on the bot service; `soundboard(name)` tool.
+- [ ] **Spotify via spotdl** — `spotdl` resolves Spotify track URLs to YouTube equivalents; add disclaimer about ToS.
+- [ ] **SoundCloud fallback** — SoundCloud public API as a legal alternative when yt-dlp is blocked.
+- [ ] **Deploy** — Railway or Fly.io; health-check endpoint; env vars for Supabase URL + service_role key + Anthropic key.
+
+---
+
+### Phase 2 — advanced AI (after Phase 1 ships)
+
+- [ ] **Voice commands (STT)** — pipe microphone input through Whisper API (or browser `SpeechRecognition`); send transcript to bait instead of typed text.
+- [ ] **Thread summarization** — `summarize_thread(threadId)` tool; Claude reads the thread messages and returns a TL;DR.
+- [ ] **LFG (party finder)** — `lfg(game, mode, slots)` tool; posts a structured "Looking for Group" message with a join button; tracks who clicked.
+- [ ] **In-voice trivia** — `trivia(category, rounds)` tool; bot posts questions in chat, accepts answers in voice channel; keeps score.
+- [ ] **Proactive suggestions** — after N messages in a channel, bait optionally surfaces a contextual suggestion in BaitSidebar ("5 people are discussing X — want me to create a poll?").
+- [ ] **Multi-tool server bootstrap** — "create a server for a gaming community with 10 channels" → single prompt → bait creates server, channels, and an initial announcement in one tool chain.
+
+---
+
 ## Up next
 
-- [ ] Role & permission management per channel.
-- [ ] Search by users and channels (current search covers messages only).
-- [ ] b.ai.t Phase 1 — context-aware suggestions, message summarization, smarter tool chaining.
+_(none — all shipped in v0.8.0)_
+
+## Done (v0.8.0)
+
+- [x] **Role & permission management** — `roles` DB table (bitfield permissions); `RoleManagerModal` (⚙ gear in sidebar): create/edit roles with name, color, permission checkboxes; assign roles to members via dropdown; kick member; `permission.ts` updated with `Perm` flags — non-owners get permissions from their role.
+- [x] **Search by users & channels** — `SearchModal` now has 3 tabs: Messages (in-channel ILIKE, existing), Users (client-side filter on loaded members), Channels (client-side filter, click to navigate). Props: `serverId`, `onSelectChannel`.
+- [x] **b.ai.t Phase 1** — context-aware: last 20 channel messages injected into system prompt; `summarize_channel` tool (Claude writes summary from context); `get_channel_members` tool; "summarize channel" quick command in BaitSidebar.
 
 ## Done (v0.7.0)
 

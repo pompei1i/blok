@@ -44,6 +44,7 @@ export function ChatArea() {
     messagesLoading,
     typingUsers,
     members,
+    roles,
     servers,
     deleteMessage,
     editMessage,
@@ -55,13 +56,13 @@ export function ChatArea() {
     polls,
     createPoll,
     votePoll,
+    setActiveChannel,
   } = useServerStore();
   const { user } = useAuthStore();
 
   const isBaitActive = useBaitStore((s) => s.isActive);
 
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
-  const canPin = can("pin_message", { userId: user?.id, server: activeServer });
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +84,11 @@ export function ChatArea() {
   const channelMessages = activeChannelId ? messages[activeChannelId] || [] : [];
   const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
   const serverMembers = activeServerId ? members[activeServerId] || [] : [];
+  const myMember = serverMembers.find((m) => m.userId === user?.id);
+  const myRole = myMember?.roleId
+    ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember.roleId) ?? null
+    : null;
+  const canPin = can("pin_message", { userId: user?.id, server: activeServer, role: myRole });
   const mentionableUsers = serverMembers.map((m) => m.user).filter(Boolean) as import("@/lib/store/types").User[];
   const typingNames = typing
     .filter((uid) => uid !== user?.id)
@@ -274,10 +280,12 @@ export function ChatArea() {
       {/* Search modal */}
       {isSearchOpen && (
         <SearchModal
+          serverId={activeServerId!}
           channelId={activeChannelId!}
           channelName={activeChannel.name}
           onClose={() => setIsSearchOpen(false)}
           onJumpToMessage={scrollToMessage}
+          onSelectChannel={(cid) => { setActiveChannel(cid); setIsSearchOpen(false); }}
         />
       )}
 

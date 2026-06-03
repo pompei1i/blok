@@ -224,6 +224,7 @@
   "bait.quickCommands": "Швидкі команди",
   "bait.history": "Історія",
   "bait.noHistory": "немає діалогів",
+  "bait.cmd.summarize": "підсумуй канал",
   "bait.cmd.createServer": "створи сервер",
   "bait.cmd.translate": "переклади повідомлення",
   "bait.cmd.poll": "створи опитування",

@@ -22,6 +22,7 @@ import { UserBar } from "./user-bar";
 import { useI18n } from "@/lib/i18n";
 import { CreateChannelModal } from "./create-channel-modal";
 import { InviteUserModal } from "./invite-user-modal";
+import { RoleManagerModal } from "./role-manager-modal";
 import { can } from "@/lib/permission";
 
 export function GroupSidebar() {
@@ -38,6 +39,8 @@ export function GroupSidebar() {
     leaveVoiceChannel,
     unreadCounts,
     deleteChannel,
+    members,
+    roles,
   } = useServerStore();
   const { user } = useAuthStore();
   const [expandedSections, setExpandedSections] = useState({
@@ -54,8 +57,17 @@ export function GroupSidebar() {
   // Local state for modal
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelModalType, setChannelModalType] = useState<"text" | "voice">("text");
+  const [showRoleManager, setShowRoleManager] = useState(false);
 
-  const canManage = can("manage_server", { userId: user?.id, server: activeServer ?? null });
+  // Resolve current user's role in this server
+  const serverMembers = activeServerId ? members[activeServerId] ?? [] : [];
+  const myMember = serverMembers.find((m) => m.userId === user?.id);
+  const myRole = myMember?.roleId
+    ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember.roleId) ?? null
+    : null;
+  const roleCtx = { userId: user?.id, server: activeServer ?? null, role: myRole };
+
+  const canManage = can("manage_server", roleCtx);
 
   const [showInviteUser, setShowInviteUser] = useState(false);
   const [joiningChannel, setJoiningChannel] = useState<string | null>(null);
@@ -111,9 +123,15 @@ export function GroupSidebar() {
                 <UserPlus className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
             )}
-            <button className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors">
-              <Settings className="w-4 h-4 text-[var(--text-muted)]" />
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setShowRoleManager(true)}
+                title="Roles & Permissions"
+                className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
+              >
+                <Settings className="w-4 h-4 text-[var(--text-muted)]" />
+              </button>
+            )}
           </div>
         </div>
         {activeServer.description && (
@@ -356,6 +374,12 @@ export function GroupSidebar() {
           onClose={() => setShowInviteUser(false)}
           serverId={activeServer.id}
           serverName={activeServer.name}
+        />
+      )}
+      {activeServer && showRoleManager && (
+        <RoleManagerModal
+          serverId={activeServer.id}
+          onClose={() => setShowRoleManager(false)}
         />
       )}
     </div>

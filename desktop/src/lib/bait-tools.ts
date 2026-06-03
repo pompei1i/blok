@@ -86,6 +86,22 @@ export const BAIT_TOOLS: Anthropic.Tool[] = [
       required: ["delay_seconds", "message"],
     },
   },
+  {
+    name: "summarize_channel",
+    description: "Summarize the recent messages in the current channel. Write your summary in the 'summary' field — it will be shown to the user.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        summary: { type: "string", description: "Your concise summary of the recent channel messages" },
+      },
+      required: ["summary"],
+    },
+  },
+  {
+    name: "get_channel_members",
+    description: "Retrieve the list of members currently in the active server.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
 ];
 
 export async function executeTool(
@@ -159,6 +175,24 @@ export async function executeTool(
       }, delaySec * 1000);
       const label = delaySec < 60 ? `${delaySec}s` : `${Math.round(delaySec / 60)}m`;
       return { content: `Timer set. Message will be sent in ${label}.`, label: `✓ timer set (${label})` };
+    }
+
+    case "summarize_channel": {
+      const summary = input.summary as string;
+      return { content: summary, label: "✓ channel summarized" };
+    }
+
+    case "get_channel_members": {
+      if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      const serverMembers = useServerStore.getState().members[ctx.serverId] ?? [];
+      if (serverMembers.length === 0) return { content: "No members found.", label: "✓ 0 members" };
+      const names = serverMembers
+        .map((m) => m.user?.displayName || m.user?.username || m.userId)
+        .join(", ");
+      return {
+        content: `Members (${serverMembers.length}): ${names}`,
+        label: `✓ ${serverMembers.length} members`,
+      };
     }
 
     default:

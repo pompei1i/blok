@@ -57,8 +57,30 @@ export const useBaitStore = create<BaitStore>()(
         };
         set({ messages: [...messages, userMsg], isLoading: true });
 
-        const { activeServerId, activeChannelId } = useServerStore.getState();
+        const { activeServerId, activeChannelId, servers, channels, messages: channelMessages } = useServerStore.getState();
         const userId = useAuthStore.getState().user?.id ?? "";
+
+        // Build context from current server/channel and last 20 messages
+        const activeServer = servers.find((s) => s.id === activeServerId);
+        const activeChannel = activeServerId && activeChannelId
+          ? (channels[activeServerId] ?? []).find((c) => c.id === activeChannelId)
+          : null;
+        const recentMsgs = activeChannelId ? (channelMessages[activeChannelId] ?? []).slice(-20) : [];
+        const channelContext = recentMsgs.length > 0
+          ? "\n\nRecent messages in #" + (activeChannel?.name ?? "channel") + " (oldest first):\n" +
+            recentMsgs.map((m) => `[${m.author?.username ?? "?"}]: ${m.content}`).join("\n")
+          : "";
+        const serverContext = activeServer
+          ? `\n\nActive server: "${activeServer.name}"${activeChannel ? `. Active channel: #${activeChannel.name} (${activeChannel.type})` : ""}.`
+          : "";
+
+        const systemPrompt =
+          "You are b.ai.t — Blok's built-in AI assistant. " +
+          "Blok is a team chat app (like Discord). " +
+          "Use the provided tools to perform actions in the app. " +
+          "Be concise and helpful. Respond in the same language the user writes in." +
+          serverContext +
+          channelContext;
 
         const history: Anthropic.MessageParam[] = [...messages, userMsg].map((m) => ({
           role: m.role,
@@ -71,11 +93,7 @@ export const useBaitStore = create<BaitStore>()(
           let response = await client.messages.create({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 1024,
-            system:
-              "You are b.ai.t — Blok's built-in AI assistant. " +
-              "Blok is a team chat app (like Discord). " +
-              "Use the provided tools to perform actions in the app. " +
-              "Be concise and helpful. Respond in the same language the user writes in.",
+            system: systemPrompt,
             tools: BAIT_TOOLS,
             messages: history,
           });
@@ -110,11 +128,7 @@ export const useBaitStore = create<BaitStore>()(
             response = await client.messages.create({
               model: "claude-haiku-4-5-20251001",
               max_tokens: 1024,
-              system:
-                "You are b.ai.t — Blok's built-in AI assistant. " +
-                "Blok is a team chat app (like Discord). " +
-                "Use the provided tools to perform actions in the app. " +
-                "Be concise and helpful. Respond in the same language the user writes in.",
+              system: systemPrompt,
               tools: BAIT_TOOLS,
               messages: history,
             });

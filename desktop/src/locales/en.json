@@ -224,6 +224,7 @@
   "bait.quickCommands": "Quick Commands",
   "bait.history": "History",
   "bait.noHistory": "no conversations",
+  "bait.cmd.summarize": "summarize channel",
   "bait.cmd.createServer": "create a server",
   "bait.cmd.translate": "translate message",
   "bait.cmd.poll": "create a poll",

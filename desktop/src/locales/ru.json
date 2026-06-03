@@ -224,6 +224,7 @@
   "bait.quickCommands": "Быстрые команды",
   "bait.history": "История",
   "bait.noHistory": "нет диалогов",
+  "bait.cmd.summarize": "резюмируй канал",
   "bait.cmd.createServer": "создай сервер",
   "bait.cmd.translate": "переведи сообщение",
   "bait.cmd.poll": "создай опрос",
