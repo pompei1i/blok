@@ -39,6 +39,11 @@ jobs:
         working-directory: desktop
         run: node scripts/gen-nsis-assets.mjs
 
+      - name: Delete existing private release (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "${{ github.ref_name }}" --yes 2>&1 | Out-Null; $LASTEXITCODE = 0
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -48,6 +53,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TENOR_API_KEY: ${{ secrets.VITE_TENOR_API_KEY }}
+          VITE_BAIT_DEFAULT_KEY: ${{ secrets.VITE_BAIT_DEFAULT_KEY }}
         with:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
