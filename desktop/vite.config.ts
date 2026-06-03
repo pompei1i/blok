@@ -9,8 +9,17 @@ const host = process.env.TAURI_DEV_HOST;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://vite.dev/config/
+const stubAnthropicAgentToolset = {
+  name: "stub-anthropic-agent-toolset",
+  load(id: string) {
+    if (id.includes("@anthropic-ai") && id.includes("agent-toolset")) {
+      return "export default {}";
+    }
+  },
+};
+
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), stubAnthropicAgentToolset],
 
   resolve: {
     alias: {
