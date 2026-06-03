@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Search,
   BarChart2,
+  Megaphone,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useServerStore } from "@/lib/store/server-store";
@@ -20,6 +21,7 @@ import { MessageBubble } from "./message-bubble";
 import { EmojiPicker } from "./emoji-picker";
 import { GifPicker } from "./gif-picker";
 import { MentionPicker } from "./mention-picker";
+import { AtMentionDropdown } from "./at-mention-dropdown";
 import { AttachmentPicker } from "./attachment-picker";
 import { SearchModal } from "./search-modal";
 import { PollCreator } from "./poll-creator";
@@ -72,6 +74,7 @@ export function ChatArea() {
   const dragCounter = useRef(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showPollCreator, setShowPollCreator] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
 
   const chat = useChatInput({ activeChannelId, user });
 
@@ -80,6 +83,7 @@ export function ChatArea() {
   const channelMessages = activeChannelId ? messages[activeChannelId] || [] : [];
   const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
   const serverMembers = activeServerId ? members[activeServerId] || [] : [];
+  const mentionableUsers = serverMembers.map((m) => m.user).filter(Boolean) as import("@/lib/store/types").User[];
   const typingNames = typing
     .filter((uid) => uid !== user?.id)
     .map((uid) => serverMembers.find((m) => m.userId === uid)?.user?.username ?? "someone");
@@ -539,6 +543,14 @@ export function ChatArea() {
         )}
 
         <div className="flex items-center gap-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border)] px-3 py-2 relative">
+          {chat.mentionQuery !== null && (
+            <AtMentionDropdown
+              query={chat.mentionQuery}
+              members={mentionableUsers}
+              activeIndex={mentionIndex}
+              onSelect={(username) => { chat.insertMention(username); inputRef.current?.focus(); }}
+            />
+          )}
           {/* Attachment picker */}
           <div className="relative">
             <button
@@ -579,8 +591,31 @@ export function ChatArea() {
             ref={inputRef}
             type="text"
             value={chat.inputValue}
-            onChange={(e) => chat.setInputValue(e.target.value)}
-            onKeyDown={chat.handleKeyDown}
+            onChange={(e) => {
+              chat.handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+              setMentionIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (chat.mentionQuery !== null) {
+                const filtered = mentionableUsers
+                  .filter((u) =>
+                    u.username.toLowerCase().includes(chat.mentionQuery!.toLowerCase()) ||
+                    (u.displayName ?? "").toLowerCase().includes(chat.mentionQuery!.toLowerCase())
+                  )
+                  .slice(0, 8);
+                if (filtered.length > 0) {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex((i) => (i + 1) % filtered.length); return; }
+                  if (e.key === "ArrowUp")   { e.preventDefault(); setMentionIndex((i) => (i - 1 + filtered.length) % filtered.length); return; }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    chat.insertMention(filtered[mentionIndex % filtered.length].username);
+                    return;
+                  }
+                }
+                if (e.key === "Escape") { e.preventDefault(); chat.setMentionQuery(null); return; }
+              }
+              chat.handleKeyDown(e);
+            }}
             placeholder={t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
             className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
           />
@@ -653,6 +688,20 @@ export function ChatArea() {
               />
             )}
           </div>
+
+          {/* Announce toggle */}
+          <button
+            onClick={() => chat.setIsAnnouncement(!chat.isAnnouncement)}
+            title={chat.isAnnouncement ? "Sending as announcement (click to cancel)" : "Send as announcement"}
+            className={cn(
+              "p-1 rounded transition-colors flex-shrink-0",
+              chat.isAnnouncement
+                ? "text-[var(--accent-red)] bg-[var(--bg-hover)]"
+                : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)]",
+            )}
+          >
+            <Megaphone className="w-4 h-4" />
+          </button>
 
           {/* Send button */}
           <button

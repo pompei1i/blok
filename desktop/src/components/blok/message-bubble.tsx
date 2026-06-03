@@ -7,7 +7,8 @@ import { UrlPreview, extractFirstUrl } from "./url-preview";
 import { PollView } from "./poll-view";
 import type { Message, DMMessage, User, Reaction } from "@/lib/store/types";
 import { useState, useRef, useEffect } from "react";
-import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X as XIcon } from "lucide-react";
+import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X as XIcon, Languages, Megaphone } from "lucide-react";
+import { useBaitStore } from "@/lib/store/bait-store";
 import { AudioPlayer } from "./audio-player";
 import { VideoPlayer } from "./video-player";
 import { useI18n } from "@/lib/i18n";
@@ -395,6 +396,7 @@ export function MessageBubble({
       className={cn(
         "group flex gap-3 px-4 hover:bg-[var(--bg-hover)]/50 transition-colors",
         showAvatar ? "pt-3 pb-0.5" : "pt-0 pb-0.5",
+        "isAnnouncement" in message && message.isAnnouncement && "border-l-2 border-[var(--accent-red)] bg-[var(--accent-red)]/5",
       )}
       onMouseEnter={() => setShowTimestamp(true)}
       onMouseLeave={() => setShowTimestamp(false)}
@@ -444,6 +446,11 @@ export function MessageBubble({
             <span className="text-sm font-medium text-[var(--text-primary)]">
               @{user?.username || "Unknown"}
             </span>
+            {"isAnnouncement" in message && message.isAnnouncement && (
+              <span className="flex items-center gap-0.5 text-[10px] font-mono font-semibold text-[var(--accent-red)] uppercase tracking-wide leading-none">
+                <Megaphone className="w-3 h-3" /> announcement
+              </span>
+            )}
             {user?.pronouns && (
               <span className="text-xs text-[var(--text-muted)] opacity-60 leading-none">
                 {user.pronouns}
@@ -602,7 +609,7 @@ export function MessageBubble({
         <div
           ref={menuRef}
           style={{ position: "fixed", left: menuPos.x, top: menuPos.y, zIndex: 9998 }}
-          className="w-40 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
+          className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
         >
           {onReply && (
             <button
@@ -618,6 +625,20 @@ export function MessageBubble({
           >
             <Copy className="w-3 h-3" /> {t("message.copy")}
           </button>
+          {message.content && (
+            <button
+              onClick={() => {
+                const { openTab, sendMessage, apiKey } = useBaitStore.getState();
+                if (!apiKey) return;
+                openTab();
+                sendMessage(`Translate this message: "${message.content}"`);
+                closeMenu();
+              }}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <Languages className="w-3 h-3" /> Translate with b.ai.t
+            </button>
+          )}
           {onPin && (
             <button
               onClick={() => { onPin(message.id); closeMenu(); }}

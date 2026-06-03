@@ -1,21 +1,22 @@
 import { Zap, History, Hash, Volume2 } from "lucide-react";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useServerStore } from "@/lib/store/server-store";
+import { useBaitStore } from "@/lib/store/bait-store";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/lib/i18n";
 
-const QUICK_COMMAND_KEYS: TranslationKey[] = [
-  "bait.cmd.createServer",
-  "bait.cmd.translate",
-  "bait.cmd.poll",
-  "bait.cmd.announce",
-  "bait.cmd.channel",
+const QUICK_COMMANDS: { key: TranslationKey; prompt: string }[] = [
+  { key: "bait.cmd.createServer", prompt: "Create a new server for me. Ask me for the name." },
+  { key: "bait.cmd.translate",    prompt: "I want to translate a message. Ask me what text to translate and into which language." },
+  { key: "bait.cmd.poll",         prompt: "Create a poll in the current channel. Ask me for the question and answer options." },
+  { key: "bait.cmd.announce",     prompt: "Send an announcement to the current channel. Ask me what the announcement should say." },
+  { key: "bait.cmd.channel",      prompt: "Create a new channel in the current server. Ask me for the channel name and type (text or voice)." },
 ];
 
 export function BaitSidebar() {
   const { t } = useI18n();
   const { activeServerId, activeChannelId, servers, channels } = useServerStore();
+  const { sendMessage, messages } = useBaitStore();
 
   const activeServer = servers.find((s) => s.id === activeServerId);
   const activeChannel = activeServerId
@@ -61,14 +62,11 @@ export function BaitSidebar() {
             <Zap className="w-3 h-3" /> {t("bait.quickCommands")}
           </p>
           <div className="space-y-0.5">
-            {QUICK_COMMAND_KEYS.map((key) => (
+            {QUICK_COMMANDS.map(({ key, prompt }) => (
               <button
                 key={key}
-                disabled
-                className={cn(
-                  "w-full text-left px-2 py-1.5 rounded-md text-xs font-mono text-[var(--text-muted)]",
-                  "cursor-not-allowed opacity-60",
-                )}
+                onClick={() => sendMessage(prompt)}
+                className="w-full text-left px-2 py-1.5 rounded-md text-xs font-mono text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] cursor-pointer"
               >
                 <span className="text-[var(--accent-red)] mr-1">$</span>{t(key)}
               </button>
@@ -81,7 +79,9 @@ export function BaitSidebar() {
             <History className="w-3 h-3" /> {t("bait.history")}
           </p>
           <div className="px-2 py-3 text-center">
-            <p className="text-[10px] text-[var(--text-muted)] font-mono">{t("bait.noHistory")}</p>
+            <p className="text-[10px] text-[var(--text-muted)] font-mono">
+              {messages.length > 0 ? `${messages.length} messages` : t("bait.noHistory")}
+            </p>
           </div>
         </div>
 

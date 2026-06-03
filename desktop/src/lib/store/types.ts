@@ -80,6 +80,7 @@ export interface Message {
   content: string;
   isEdited: boolean;
   isPinned?: boolean;
+  isAnnouncement?: boolean;
   createdAt: string;
   updatedAt: string;
   poll?: Poll;

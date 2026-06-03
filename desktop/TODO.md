@@ -2,9 +2,16 @@
 
 ## Up next
 
-- [ ] b.ai.t Phase 0 — Claude API integration: `create_server`, `create_channel`, `translate`, `create_poll`, `create_announcement` tools.
 - [ ] Role & permission management per channel.
 - [ ] Search by users and channels (current search covers messages only).
+- [ ] b.ai.t Phase 1 — context-aware suggestions, message summarization, smarter tool chaining.
+
+## Done (v0.7.0)
+
+- [x] **b.ai.t — Claude API integration** — Claude Haiku via `@anthropic-ai/sdk`; 5 tools: `create_server`, `create_channel`, `translate`, `create_poll`, `create_announcement`; `set_timer` schedules a message after N seconds. API key embedded at build time via `VITE_BAIT_DEFAULT_KEY`. Chat history persisted across restarts.
+- [x] **"Translate with b.ai.t"** — right-click any message → opens b.ai.t and sends translation request.
+- [x] **Announcements** — 📢 toggle in chat input; red left border + badge in message list; always sends desktop notification to all server members regardless of active channel.
+- [x] **@mention autocomplete** — type `@` in chat input → inline dropdown of server members filtered as you type; ↑↓ / Enter / Tab to select, Escape to close.
 
 ## Done (v0.6.0)
 

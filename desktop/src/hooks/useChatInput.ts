@@ -20,6 +20,8 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
   const [attachments, setAttachments] = useState<File[]>([]);
   const [gifAttachments, setGifAttachments] = useState<Attachment[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [isAnnouncement, setIsAnnouncement] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [fileProgress, setFileProgress] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -105,6 +107,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isEdited: false,
+        isAnnouncement,
         author: user,
         attachments: [
           ...uploadedAttachments,
@@ -118,6 +121,8 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
       setAttachments([]);
       setGifAttachments([]);
       setReplyTo(null);
+      setIsAnnouncement(false);
+      setMentionQuery(null);
       setShowGifPicker(false);
     } catch (err) {
       console.error("Failed to send message", err);
@@ -125,6 +130,22 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
       setIsUploading(false);
       setFileProgress(0);
     }
+  };
+
+  const handleInputChange = (value: string, selectionStart: number) => {
+    setInputValue(value);
+    const before = value.slice(0, selectionStart);
+    const match = before.match(/@(\S*)$/);
+    setMentionQuery(match ? match[1] : null);
+  };
+
+  const insertMention = (username: string) => {
+    setInputValue((prev) => {
+      const match = prev.match(/@\S*$/);
+      if (!match) return prev + `@${username} `;
+      return prev.slice(0, prev.lastIndexOf(match[0])) + `@${username} `;
+    });
+    setMentionQuery(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -165,6 +186,12 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
   return {
     inputValue,
     setInputValue,
+    isAnnouncement,
+    setIsAnnouncement,
+    mentionQuery,
+    setMentionQuery,
+    handleInputChange,
+    insertMention,
     showEmojiPicker,
     setShowEmojiPicker,
     showGifPicker,

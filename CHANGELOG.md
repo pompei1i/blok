@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0] — 2026-06-03
+
+### Added
+- **b.ai.t — Claude API integration** — Claude Haiku (`claude-haiku-4-5`) wired up via `@anthropic-ai/sdk`. Five tools: `create_server`, `create_channel`, `translate`, `create_poll`, `create_announcement`. Additional `set_timer` tool schedules a message to the active channel after N seconds (in-session). API key embedded at build time via `VITE_BAIT_DEFAULT_KEY` env var; chat history persisted in localStorage.
+- **"Translate with b.ai.t"** — new item in message right-click context menu. Opens b.ai.t tab and sends the message content for translation automatically.
+- **Announcements** — 📢 megaphone toggle in the chat input toolbar. Announcement messages render with a red left border and `ANNOUNCEMENT` badge. Always fires a desktop notification (`📢 #channel`) to all server members, even if they are in the same channel.
+- **@mention autocomplete** — typing `@` in the chat input shows an inline dropdown of server members with avatars and presence dots. Filters as you type; keyboard navigation with ↑↓, confirm with Enter or Tab, dismiss with Escape or by continuing past a space.
+
+### Fixed
+- Polls not appearing after creation via b.ai.t — realtime message INSERT now calls `loadPollsForMessages` for the new message ID.
+
+---
+
 ## [0.6.0] — 2026-06-02
 
 ### Added

@@ -39,6 +39,7 @@ function mapMessageRow(m: any): Message {
     content: m.content,
     isEdited: m.is_edited,
     isPinned: m.pinned ?? false,
+    isAnnouncement: m.is_announcement ?? false,
     createdAt: m.created_at,
     updatedAt: m.updated_at,
     author: m.author ? mapProfile(m.author) : undefined,
@@ -90,7 +91,8 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
         const { data: attachData } = await supabase.from("attachments").select("*").eq("message_id", m.id);
         const parsedMessage: Message = {
           id: m.id, channelId: m.channel_id, authorId: m.author_id, replyToId: m.reply_to_id ?? undefined,
-          content: m.content, isEdited: m.is_edited, createdAt: m.created_at, updatedAt: m.updated_at,
+          content: m.content, isEdited: m.is_edited, isAnnouncement: m.is_announcement ?? false,
+          createdAt: m.created_at, updatedAt: m.updated_at,
           author,
           attachments: (attachData ?? []).map((a: any) => ({
             id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
@@ -103,14 +105,21 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
             messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), parsedMessage] },
             messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
           }));
+          void get().loadPollsForMessages([m.id], _currentUserId ?? "");
         }
         const { activeChannelId } = get();
-        if (m.channel_id !== activeChannelId && m.author_id !== _currentUserId) {
-          set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
+        const isAnnouncement = m.is_announcement === true;
+        const isOtherChannel = m.channel_id !== activeChannelId;
+        const isOtherUser = m.author_id !== _currentUserId;
+        if (isOtherUser && (isOtherChannel || isAnnouncement)) {
+          if (isOtherChannel) {
+            set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
+          }
           playNotificationBeep();
           const channelName = get().channelIndex[m.channel_id]?.name ?? "blok";
           const preview = parsedMessage.content?.slice(0, NOTIFICATION_PREVIEW_LEN) || (parsedMessage.attachments?.length ? "sent an attachment" : "");
-          sendDesktopNotification(`#${channelName}`, `${author?.username ?? "someone"}: ${preview}`);
+          const title = isAnnouncement ? `📢 #${channelName}` : `#${channelName}`;
+          sendDesktopNotification(title, `${author?.username ?? "someone"}: ${preview}`);
         }
       }
     ).subscribe();
@@ -277,7 +286,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
   addMessage: async (channelId, message) => {
     const { data: insertedMsg, error } = await supabase
       .from("messages")
-      .insert({ channel_id: channelId, author_id: message.authorId, content: message.content, reply_to_id: message.replyToId ?? null })
+      .insert({ channel_id: channelId, author_id: message.authorId, content: message.content, reply_to_id: message.replyToId ?? null, is_announcement: message.isAnnouncement ?? false })
       .select()
       .single();
     if (error) { console.error("Message send failed", error); return; }
