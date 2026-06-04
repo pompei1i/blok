@@ -47,7 +47,12 @@
 
 ## Up next
 
-_(none — all shipped in v0.8.0)_
+_(none queued)_
+
+## Done (v0.8.x)
+
+- [x] **Per-user voice volume** — right-click on any non-self participant in the voice channel list → context menu; slider 0–200% (step 5, default 100); applied in `NativeVoiceEngine` by scaling i16 samples before `audio_receive` — no Rust changes required.
+- [x] **Local mute** — "Замутить для себя" toggle in the same context menu; silences one participant for the local client only (skips `audio_receive` for that peer); state in voice-slice, reset on leave.
 
 ## Done (v0.8.0)
 

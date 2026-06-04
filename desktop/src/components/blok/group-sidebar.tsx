@@ -16,7 +16,8 @@ import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { playSound } from "@/lib/sounds";
 import { UserBar } from "./user-bar";
 import { useI18n } from "@/lib/i18n";
@@ -41,6 +42,10 @@ export function GroupSidebar() {
     deleteChannel,
     members,
     roles,
+    userVolumes,
+    locallyMuted,
+    setUserVolume,
+    setLocalMute,
   } = useServerStore();
   const { user } = useAuthStore();
   const [expandedSections, setExpandedSections] = useState({
@@ -73,6 +78,21 @@ export function GroupSidebar() {
   const [joiningChannel, setJoiningChannel] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [confirmDeleteChannelId, setConfirmDeleteChannelId] = useState<string | null>(null);
+
+  type CtxMenu = { userId: string; name: string; x: number; y: number };
+  const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) {
+        setCtxMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [ctxMenu]);
 
   const handleVoiceChannelClick = async (channelId: string) => {
     if (!user || joiningChannel) return;
@@ -304,10 +324,16 @@ export function GroupSidebar() {
                       <div className="ml-6 mt-1 space-y-1">
                         {participants.map((participant) => {
                           const displayUser = participant.userId === user?.id ? user : participant.user;
+                          const isSelf = participant.userId === user?.id;
                           return (
                             <div
                               key={participant.userId}
                               className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-muted)]"
+                              onContextMenu={isSelf ? undefined : (e) => {
+                                e.preventDefault();
+                                const name = displayUser?.displayName || displayUser?.username || participant.userId.slice(0, 8);
+                                setCtxMenu({ userId: participant.userId, name, x: e.clientX, y: e.clientY });
+                              }}
                             >
                               <div
                                 className={cn(
@@ -381,6 +407,56 @@ export function GroupSidebar() {
           serverId={activeServer.id}
           onClose={() => setShowRoleManager(false)}
         />
+      )}
+
+      {ctxMenu && createPortal(
+        <div
+          ref={ctxMenuRef}
+          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
+          className="w-52 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-2 px-3 space-y-3"
+        >
+          <p className="text-[11px] font-semibold text-[var(--text-muted)] truncate">{ctxMenu.name}</p>
+
+          {/* Volume slider */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-[var(--text-muted)]">Громкость</span>
+              <span className="text-[11px] font-mono text-[var(--text-primary)]">
+                {userVolumes[ctxMenu.userId] ?? 100}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={5}
+              value={userVolumes[ctxMenu.userId] ?? 100}
+              onChange={(e) => setUserVolume(ctxMenu.userId, Number(e.target.value))}
+              className="w-full h-1 accent-[var(--online)] cursor-pointer"
+            />
+            <div className="flex justify-between text-[9px] text-[var(--text-muted)] opacity-50">
+              <span>0</span><span>100</span><span>200</span>
+            </div>
+          </div>
+
+          {/* Local mute toggle */}
+          <button
+            onClick={() => {
+              setLocalMute(ctxMenu.userId, !locallyMuted[ctxMenu.userId]);
+              setCtxMenu(null);
+            }}
+            className={cn(
+              "w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] transition-colors",
+              locallyMuted[ctxMenu.userId]
+                ? "bg-[var(--destructive)] bg-opacity-15 text-[var(--destructive)] hover:bg-opacity-25"
+                : "hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
+            )}
+          >
+            <VolumeX className="w-3.5 h-3.5 flex-shrink-0" />
+            {locallyMuted[ctxMenu.userId] ? "Снять мут" : "Замутить для себя"}
+          </button>
+        </div>,
+        document.body,
       )}
     </div>
   );

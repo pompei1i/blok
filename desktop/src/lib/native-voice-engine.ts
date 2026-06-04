@@ -106,6 +106,10 @@ export class NativeVoiceEngine {
   private _videoReceiverPcs = new Map<string, RTCPeerConnection>();
   private _cameraStream: MediaStream | null = null;
 
+  // Per-user local controls (not synced to remote)
+  private _userVolumes = new Map<string, number>();
+  private _localMuted = new Set<string>();
+
   constructor(channelId: string, userId: string, cb: VoiceCallbacks) {
     this.channelId = channelId;
     this.userId = userId;
@@ -221,6 +225,15 @@ export class NativeVoiceEngine {
   setInputVolume(_volume: number): void {}
 
   setNoiseGateThreshold(_value: number): void {}
+
+  setUserVolume(userId: string, volume: number): void {
+    this._userVolumes.set(userId, volume);
+  }
+
+  setLocalMute(userId: string, muted: boolean): void {
+    if (muted) this._localMuted.add(userId);
+    else this._localMuted.delete(userId);
+  }
 
   isScreenSharing(): boolean {
     return this._screenCaptureTimer !== null || this._screenVideoEl !== null;
@@ -591,7 +604,10 @@ export class NativeVoiceEngine {
         this._closeVideoReceiverPc(msg.from);
         break;
       case "audio": {
-        const samples = base64ToInt16Array(msg.data);
+        if (this._localMuted.has(msg.from)) break;
+        const raw = base64ToInt16Array(msg.data);
+        const vol = (this._userVolumes.get(msg.from) ?? 100) / 100;
+        const samples = vol === 1 ? raw : raw.map(s => Math.max(-32768, Math.min(32767, Math.round(s * vol))));
         const speaking = await invoke<boolean>("audio_receive", { from: msg.from, samples, rate: msg.rate ?? 48000 });
         this.updateSpeaking(msg.from, speaking);
         break;

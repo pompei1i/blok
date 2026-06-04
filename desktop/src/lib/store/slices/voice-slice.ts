@@ -21,6 +21,10 @@ export interface VoiceSlice {
   cameraUsers: Record<string, MediaStream>;
   /** Local camera stream for self-preview */
   localCameraStream: MediaStream | null;
+  /** Per-user volume override: 0–200, default 100 */
+  userVolumes: Record<string, number>;
+  /** Users locally muted (only affects this client's playback) */
+  locallyMuted: Record<string, boolean>;
 
   joinVoiceChannel: (channelId: string, user: User) => Promise<string | null>;
   leaveVoiceChannel: () => Promise<void>;
@@ -29,6 +33,8 @@ export interface VoiceSlice {
   toggleScreenShare: (sourceId?: string) => Promise<void>;
   setWatchingUserId: (userId: string) => void;
   toggleCamera: () => Promise<void>;
+  setUserVolume: (userId: string, volume: number) => void;
+  setLocalMute: (userId: string, muted: boolean) => void;
 }
 
 export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (set, get) => ({
@@ -42,6 +48,8 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
   isCameraOn: false,
   cameraUsers: {},
   localCameraStream: null,
+  userVolumes: {},
+  locallyMuted: {},
 
   joinVoiceChannel: async (channelId, user) => {
     const prevChannel = get().activeVoiceChannelId;
@@ -184,6 +192,8 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         isCameraOn: false,
         cameraUsers: {},
         localCameraStream: null,
+        userVolumes: {},
+        locallyMuted: {},
       };
     });
   },
@@ -278,5 +288,15 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         }
       } catch { /* user cancelled */ }
     }
+  },
+
+  setUserVolume: (userId, volume) => {
+    set((s) => ({ userVolumes: { ...s.userVolumes, [userId]: volume } }));
+    getActiveNativeVoiceEngine()?.setUserVolume(userId, volume);
+  },
+
+  setLocalMute: (userId, muted) => {
+    set((s) => ({ locallyMuted: { ...s.locallyMuted, [userId]: muted } }));
+    getActiveNativeVoiceEngine()?.setLocalMute(userId, muted);
   },
 });

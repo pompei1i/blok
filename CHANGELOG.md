@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.1] — 2026-06-04
+
+### Added
+- **Per-user voice volume** — right-click any non-self participant in the voice channel list to open a context menu. Slider controls playback gain 0–200 % (step 5, default 100 %). Applied in JS before samples reach the native engine — no Rust changes required.
+- **Local mute** — "Замутить для себя" toggle in the same context menu. Silences one participant for the local client only; resets on leave.
+
+---
+
+## [0.8.0] — 2026-06-04
+
+### Added
+- **Role & permission management** — `roles` DB table with bitfield permissions; `RoleManagerModal` (⚙ gear, owner-only): create/edit/delete roles, assign to members, kick member; `permission.ts` `Perm` flags.
+- **Search by users & channels** — `SearchModal` adds Users and Channels tabs (client-side filter).
+- **b.ai.t Phase 1** — last 20 channel messages in system prompt; `summarize_channel` + `get_channel_members` tools; "summarize channel" quick command.
+
+---
+
 ## [0.7.0] — 2026-06-03
 
 ### Added
