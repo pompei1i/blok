@@ -159,7 +159,7 @@ export const useBaitStore = create<BaitStore>()(
     }),
     {
       name: "bait-store",
-      partialize: (s) => ({ apiKey: s.apiKey, messages: s.messages }),
+      partialize: (s) => ({ messages: s.messages }),
     }
   )
 );

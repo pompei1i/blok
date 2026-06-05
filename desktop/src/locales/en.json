@@ -41,6 +41,7 @@
   "settings.account.saving": "Saving...",
   "settings.account.saveChanges": "Save Changes",
   "settings.account.savedSuccess": "Profile updated successfully!",
+  "settings.account.saveError": "Failed to save profile. Please try again.",
   "settings.video.title": "Video Settings",
   "settings.video.subtitle": "Configure your camera preferences.",
   "settings.video.enablePreview": "Enable Camera Preview",

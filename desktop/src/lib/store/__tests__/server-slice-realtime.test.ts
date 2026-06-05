@@ -161,15 +161,19 @@ describe("realtime: messages INSERT", () => {
       activeChannelId: "ch-1",
       userProfileCache: {},
     });
+    // New behaviour: single joined MESSAGE_SELECT query instead of two separate fetches.
     q().single.mockResolvedValueOnce({
       data: {
-        id: "author-1", username: "alice", email: "alice@test.com",
-        display_name: "Alice", avatar_url: null, accent_color: null, pronouns: null,
-        created_at: "",
+        id: "m-1", channel_id: "ch-1", author_id: "author-1",
+        reply_to_id: null, content: "hello", is_edited: false,
+        is_announcement: false, pinned: false,
+        created_at: "2024-01-15T12:00:00Z", updated_at: "2024-01-15T12:00:00Z",
+        author: { id: "author-1", username: "alice", display_name: "Alice", avatar_url: null, accent_color: null, pronouns: null },
+        attachments: [],
+        message_reactions: [],
       },
       error: null,
     });
-    resolveQuery([]);
 
     await msgInsert(makeMsgPayload());
 
@@ -189,7 +193,9 @@ describe("realtime: messages INSERT", () => {
       },
       userProfileCache: { "other": makeUser("other", "bob") },
     });
-    resolveQuery([]);
+    // Unread/notification fires from fastMessage (no DB round-trip needed).
+    // Leave q().single returning default null — that's fine, unread is incremented
+    // before the background fetch.
 
     // author_id="other" !== _currentUserId="user-1"; channel_id="ch-2" !== activeChannelId="ch-1"
     await msgInsert(makeMsgPayload({ channel_id: "ch-2", author_id: "other" }));
@@ -222,10 +228,22 @@ describe("realtime: messages INSERT", () => {
       activeChannelId: "ch-1",
       userProfileCache: { "author-1": makeUser("author-1", "alice") },
     });
-    resolveQuery([{
-      id: "att-1", message_id: "m-1", url: "https://cdn.example.com/file.png",
-      filename: "file.png", media_type: "image/png", size_bytes: 1234, created_at: "",
-    }]);
+    // New behaviour: attachments arrive via the single joined MESSAGE_SELECT fetch.
+    q().single.mockResolvedValueOnce({
+      data: {
+        id: "m-1", channel_id: "ch-1", author_id: "author-1",
+        reply_to_id: null, content: "hello", is_edited: false,
+        is_announcement: false, pinned: false,
+        created_at: "2024-01-15T12:00:00Z", updated_at: "2024-01-15T12:00:00Z",
+        author: { id: "author-1", username: "alice", display_name: "Alice", avatar_url: null, accent_color: null, pronouns: null },
+        attachments: [{
+          id: "att-1", message_id: "m-1", url: "https://cdn.example.com/file.png",
+          filename: "file.png", media_type: "image/png", size_bytes: 1234, created_at: "",
+        }],
+        message_reactions: [],
+      },
+      error: null,
+    });
 
     await msgInsert(makeMsgPayload());
 

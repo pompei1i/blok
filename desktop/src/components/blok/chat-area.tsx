@@ -1,4 +1,4 @@
-import { useRef, useLayoutEffect, useEffect, useState } from "react";
+import { useRef, useLayoutEffect, useEffect, useState, useMemo } from "react";
 import {
   Hash,
   Send,
@@ -46,6 +46,7 @@ export function ChatArea() {
     members,
     roles,
     servers,
+    userProfileCache,
     deleteMessage,
     editMessage,
     pinMessage,
@@ -79,20 +80,55 @@ export function ChatArea() {
 
   const chat = useChatInput({ activeChannelId, user });
 
-  const serverChannels = activeServerId ? channels[activeServerId] || [] : [];
-  const activeChannel = serverChannels.find((c) => c.id === activeChannelId);
-  const channelMessages = activeChannelId ? messages[activeChannelId] || [] : [];
-  const typing = activeChannelId ? typingUsers[activeChannelId] || [] : [];
-  const serverMembers = activeServerId ? members[activeServerId] || [] : [];
-  const myMember = serverMembers.find((m) => m.userId === user?.id);
-  const myRole = myMember?.roleId
-    ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember.roleId) ?? null
-    : null;
+  const serverChannels = useMemo(
+    () => (activeServerId ? channels[activeServerId] ?? [] : []),
+    [channels, activeServerId],
+  );
+  const activeChannel = useMemo(
+    () => serverChannels.find((c) => c.id === activeChannelId),
+    [serverChannels, activeChannelId],
+  );
+  const channelMessages = useMemo(
+    () => (activeChannelId ? messages[activeChannelId] ?? [] : []),
+    [messages, activeChannelId],
+  );
+  // O(1) lookup by id — replaces O(n) find() calls inside the virtualizer render loop.
+  const messageIndex = useMemo(() => {
+    const map = new Map<string, import("@/lib/store/types").Message>();
+    for (const msg of channelMessages) map.set(msg.id, msg);
+    return map;
+  }, [channelMessages]);
+
+  const typing = activeChannelId ? typingUsers[activeChannelId] ?? [] : [];
+  const serverMembers = useMemo(
+    () => (activeServerId ? members[activeServerId] ?? [] : []),
+    [members, activeServerId],
+  );
+  // Keyed by userId for O(1) lookup in typingNames map below.
+  const memberByUserId = useMemo(() => {
+    const map = new Map<string, (typeof serverMembers)[number]>();
+    for (const m of serverMembers) map.set(m.userId, m);
+    return map;
+  }, [serverMembers]);
+
+  const myMember = memberByUserId.get(user?.id ?? "");
+  const myRole = useMemo(
+    () => myMember?.roleId
+      ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember!.roleId) ?? null
+      : null,
+    [myMember, roles, activeServerId],
+  );
   const canPin = can("pin_message", { userId: user?.id, server: activeServer, role: myRole });
-  const mentionableUsers = serverMembers.map((m) => m.user).filter(Boolean) as import("@/lib/store/types").User[];
-  const typingNames = typing
-    .filter((uid) => uid !== user?.id)
-    .map((uid) => serverMembers.find((m) => m.userId === uid)?.user?.username ?? "someone");
+  const mentionableUsers = useMemo(
+    () => serverMembers.map((m) => m.user).filter(Boolean) as import("@/lib/store/types").User[],
+    [serverMembers],
+  );
+  const typingNames = useMemo(
+    () => typing
+      .filter((uid) => uid !== user?.id)
+      .map((uid) => memberByUserId.get(uid)?.user?.username ?? "someone"),
+    [typing, user?.id, memberByUserId],
+  );
   const typingText =
     typingNames.length === 1
       ? `${typingNames[0]} is typing`
@@ -101,14 +137,35 @@ export function ChatArea() {
       : typingNames.length > 2
       ? `${typingNames.slice(0, 2).join(", ")} and ${typingNames.length - 2} more are typing`
       : "";
-  const pinnedMessages = channelMessages.filter((m) => m.isPinned);
+  const pinnedMessages = useMemo(
+    () => channelMessages.filter((m) => m.isPinned),
+    [channelMessages],
+  );
   const isAtStart = activeChannelId ? messagesAtStart.has(activeChannelId) : true;
   const isLoadingMore = activeChannelId ? messagesLoading.has(activeChannelId) : false;
 
   const virtualizer = useVirtualizer({
     count: channelMessages.length,
     getScrollElement: () => messagesContainerRef.current,
-    estimateSize: () => 64,
+    // Content-aware estimate: avoids large layout shifts and incorrect scroll
+    // position when jumping channels. measureElement self-corrects after render,
+    // but the initial estimate determines scrollToIndex accuracy.
+    estimateSize: (index) => {
+      const msg = channelMessages[index];
+      if (!msg) return 64;
+      // Base: grouped message (no avatar header) is shorter than a new group.
+      const prev = channelMessages[index - 1];
+      const isGrouped = prev &&
+        prev.authorId === msg.authorId &&
+        new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() < MESSAGE_GROUP_THRESHOLD_MS;
+      let h = isGrouped ? 28 : 56;            // avatar row or compact continuation
+      if (msg.replyToId) h += 36;             // reply preview bar
+      if (msg.content) h += Math.ceil(msg.content.length / 62) * 22;
+      if (msg.attachments?.length) h += msg.attachments.length * 108;
+      if (msg.poll) h += 180;
+      if ((msg.reactions?.length ?? 0) > 0) h += 32;
+      return Math.min(h, 640);               // cap: prevent absurd estimates
+    },
     overscan: 5,
   });
 
@@ -231,7 +288,8 @@ export function ChatArea() {
   }
 
   const scrollToMessage = (id: string) => {
-    const idx = channelMessages.findIndex((m) => m.id === id);
+    if (!messageIndex.has(id)) return;
+    const idx = channelMessages.indexOf(messageIndex.get(id)!);
     if (idx === -1) return;
     virtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" });
     setTimeout(() => {
@@ -387,8 +445,13 @@ export function ChatArea() {
                 new Date(message.createdAt).getTime() - new Date(prevMessage.createdAt).getTime() >
                   MESSAGE_GROUP_THRESHOLD_MS;
               const replyToMsg = message.replyToId
-                ? channelMessages.find((m) => m.id === message.replyToId) ?? null
+                ? (messageIndex.get(message.replyToId) ?? null)
                 : null;
+              // Prefer the live cache entry over the embedded author snapshot so
+              // profile updates (avatar, username) are reflected without re-fetching
+              // or iterating message arrays on every patchUser call.
+              const resolvedAuthor =
+                userProfileCache[message.authorId] ?? message.author ?? user ?? undefined;
 
               return (
                 <div
@@ -409,7 +472,7 @@ export function ChatArea() {
                 >
                   <MessageBubble
                     message={polls[message.id] ? { ...message, poll: polls[message.id] } : message}
-                    user={message.author || user || undefined}
+                    user={resolvedAuthor}
                     isOwn={message.authorId === user?.id}
                     showAvatar={showAvatar}
                     replyToMessage={replyToMsg}

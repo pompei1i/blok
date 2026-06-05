@@ -6,6 +6,7 @@ import type { ServerStore } from "../server-store.shape";
 import {
   voicePresenceCh, setVoicePresenceCh,
   _currentUserId, setCurrentUserId,
+  trackDataChannel, clearDataChannels,
 } from "./_shared";
 
 export interface ServerSlice {
@@ -149,6 +150,10 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       setCurrentUserId(_userId);
       get().initMessageRealtime(_userId);
       get().initPollRealtime(_userId);
+      // Clean up channels from any previous initData call (e.g. joinByInviteCode
+      // calls initData twice — without this, the first set of channels leaks and
+      // fires duplicate events for every subsequent server/profile/channel change).
+      await clearDataChannels();
       if (voicePresenceCh) await supabase.removeChannel(voicePresenceCh);
       const ch = supabase.channel("voice-presence", { config: { presence: { key: _userId } } });
       setVoicePresenceCh(ch);
@@ -207,89 +212,96 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         .on("presence", { event: "leave" }, syncPresence)
         .subscribe();
 
-      supabase.channel("public:servers").on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "servers" },
-        (payload) => {
-          const s = payload.new;
-          const newServer: Server = {
-            id: s.id, ownerId: s.owner_id, name: s.name, iconUrl: s.icon_url,
-            description: s.description, inviteCode: s.invite_code, createdAt: s.created_at,
-            inviteExpiresAt: s.invite_expires_at ?? null,
-            inviteMaxUses: s.invite_max_uses ?? null,
-            inviteUsedCount: s.invite_used_count ?? 0,
-          };
-          set((state) => ({ servers: [...state.servers, newServer], openTabs: [...state.openTabs, newServer.id] }));
-        }
-      ).subscribe();
-
-      supabase.channel("public:profiles").on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "profiles" },
-        (payload) => {
-          const updated = mapProfile(payload.new as any);
-          set((state) => {
-            // Targeted members update: only rebuild server arrays containing this user
-            const targets = state.memberUserIndex[updated.id] ?? [];
-            const affectedServerIds = new Set(targets.map((t) => t.serverId));
-            const updatedMembers = { ...state.members };
-            for (const srvId of affectedServerIds) {
-              updatedMembers[srvId] = (updatedMembers[srvId] ?? []).map(
-                (m) => m.userId === updated.id ? { ...m, user: updated } : m
-              );
-            }
-            return {
-              userProfileCache: { ...state.userProfileCache, [updated.id]: updated },
-              members: updatedMembers,
-              voiceParticipants: Object.fromEntries(
-                Object.entries(state.voiceParticipants).map(([chId, parts]) => [
-                  chId, parts.map((p) => p.user?.id === updated.id ? { ...p, user: updated } : p),
-                ])
-              ),
+      trackDataChannel(
+        supabase.channel("public:servers").on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "servers" },
+          (payload) => {
+            const s = payload.new;
+            const newServer: Server = {
+              id: s.id, ownerId: s.owner_id, name: s.name, iconUrl: s.icon_url,
+              description: s.description, inviteCode: s.invite_code, createdAt: s.created_at,
+              inviteExpiresAt: s.invite_expires_at ?? null,
+              inviteMaxUses: s.invite_max_uses ?? null,
+              inviteUsedCount: s.invite_used_count ?? 0,
             };
-          });
-        }
-      ).subscribe();
+            set((state) => ({ servers: [...state.servers, newServer], openTabs: [...state.openTabs, newServer.id] }));
+          }
+        ).subscribe()
+      );
 
-      supabase.channel("public:channels").on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "channels" },
-        (payload) => {
-          const c = payload.new;
-          const newChannel: Channel = {
-            id: c.id, serverId: c.server_id, categoryId: c.category_id, name: c.name,
-            type: c.type, topic: c.topic, position: c.position,
-            isPrivate: c.is_private, createdAt: c.created_at,
-          };
-          set((state) => ({
-            channels: { ...state.channels, [c.server_id]: [...(state.channels[c.server_id] || []), newChannel].sort((a, b) => a.position - b.position) },
-            channelIndex: { ...state.channelIndex, [newChannel.id]: newChannel },
-          }));
-        }
-      ).subscribe();
+      trackDataChannel(
+        supabase.channel("public:profiles").on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "profiles" },
+          (payload) => {
+            const updated = mapProfile(payload.new as any);
+            set((state) => {
+              const targets = state.memberUserIndex[updated.id] ?? [];
+              const affectedServerIds = new Set(targets.map((t) => t.serverId));
+              const updatedMembers = { ...state.members };
+              for (const srvId of affectedServerIds) {
+                updatedMembers[srvId] = (updatedMembers[srvId] ?? []).map(
+                  (m) => m.userId === updated.id ? { ...m, user: updated } : m
+                );
+              }
+              return {
+                userProfileCache: { ...state.userProfileCache, [updated.id]: updated },
+                members: updatedMembers,
+                voiceParticipants: Object.fromEntries(
+                  Object.entries(state.voiceParticipants).map(([chId, parts]) => [
+                    chId, parts.map((p) => p.user?.id === updated.id ? { ...p, user: updated } : p),
+                  ])
+                ),
+              };
+            });
+          }
+        ).subscribe()
+      );
 
-      supabase.channel("public:channels:delete").on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "channels" },
-        (payload) => {
-          const channelId = payload.old.id;
-          set((state) => {
-            const newChannels: Record<string, Channel[]> = {};
-            const newChannelIndex = { ...state.channelIndex };
-            delete newChannelIndex[channelId];
-            for (const [sid, chs] of Object.entries(state.channels)) {
-              newChannels[sid] = chs.filter((c) => c.id !== channelId);
-            }
-            return {
-              channels: newChannels,
-              channelIndex: newChannelIndex,
-              activeChannelId: state.activeChannelId === channelId
-                ? Object.values(newChannels).flat().find((c) => c.type === "text")?.id ?? null
-                : state.activeChannelId,
+      trackDataChannel(
+        supabase.channel("public:channels").on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "channels" },
+          (payload) => {
+            const c = payload.new;
+            const newChannel: Channel = {
+              id: c.id, serverId: c.server_id, categoryId: c.category_id, name: c.name,
+              type: c.type, topic: c.topic, position: c.position,
+              isPrivate: c.is_private, createdAt: c.created_at,
             };
-          });
-        }
-      ).subscribe();
+            set((state) => ({
+              channels: { ...state.channels, [c.server_id]: [...(state.channels[c.server_id] || []), newChannel].sort((a, b) => a.position - b.position) },
+              channelIndex: { ...state.channelIndex, [newChannel.id]: newChannel },
+            }));
+          }
+        ).subscribe()
+      );
+
+      trackDataChannel(
+        supabase.channel("public:channels:delete").on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "channels" },
+          (payload) => {
+            const channelId = payload.old.id;
+            set((state) => {
+              const newChannels: Record<string, Channel[]> = {};
+              const newChannelIndex = { ...state.channelIndex };
+              delete newChannelIndex[channelId];
+              for (const [sid, chs] of Object.entries(state.channels)) {
+                newChannels[sid] = chs.filter((c) => c.id !== channelId);
+              }
+              return {
+                channels: newChannels,
+                channelIndex: newChannelIndex,
+                activeChannelId: state.activeChannelId === channelId
+                  ? Object.values(newChannels).flat().find((c) => c.type === "text")?.id ?? null
+                  : state.activeChannelId,
+              };
+            });
+          }
+        ).subscribe()
+      );
 
     } catch (e) {
       console.error(e);
@@ -566,17 +578,15 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
           (m) => m.userId === user.id ? { ...m, user } : m
         );
       }
+      // Messages are NOT iterated here. Message author is resolved at render-time
+      // from userProfileCache (see ChatArea resolvedAuthor), so updating the cache
+      // below is sufficient — no O(n×channels) message scan needed.
       return {
         userProfileCache: { ...state.userProfileCache, [user.id]: user },
         members: updatedMembers,
         voiceParticipants: Object.fromEntries(
           Object.entries(state.voiceParticipants).map(([chId, parts]) => [
             chId, parts.map((p) => p.user?.id === user.id ? { ...p, user } : p),
-          ])
-        ),
-        messages: Object.fromEntries(
-          Object.entries(state.messages).map(([chId, msgs]) => [
-            chId, msgs.map((m) => m.author?.id === user.id ? { ...m, author: user } : m),
           ])
         ),
       };

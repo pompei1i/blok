@@ -41,6 +41,7 @@
   "settings.account.saving": "Zapisywanie...",
   "settings.account.saveChanges": "Zapisz zmiany",
   "settings.account.savedSuccess": "Profil zaktualizowany pomyślnie!",
+  "settings.account.saveError": "Nie udało się zapisać profilu. Spróbuj ponownie.",
   "settings.video.title": "Ustawienia wideo",
   "settings.video.subtitle": "Skonfiguruj preferencje kamery.",
   "settings.video.enablePreview": "Włącz podgląd kamery",

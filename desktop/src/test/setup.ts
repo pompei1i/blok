@@ -40,6 +40,7 @@ const mockQuery = {
   in: vi.fn().mockReturnThis(),
   is: vi.fn().mockReturnThis(),
   ilike: vi.fn().mockReturnThis(),
+  textSearch: vi.fn().mockReturnThis(),
   not: vi.fn().mockReturnThis(),
   filter: vi.fn().mockReturnThis(),
   order: vi.fn().mockReturnThis(),

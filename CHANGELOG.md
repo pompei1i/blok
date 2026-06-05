@@ -1,10 +1,24 @@
 # Changelog
 
+## [0.9.0] — 2026-06-05
+
+### Added
+- **Member context menu (RightSidebar)** — right-click any non-self member: View Profile (placeholder), Add/Remove Friend, Message, Call, Mention (dispatches `blok:mention-user`), Invite to Server (copies code to clipboard), Kick (owner or `kick_member` permission only).
+
+### Changed
+- **RoleManagerModal** — removed Pin Messages and Kick Members from the permissions UI (all users can pin; kick is now in the right-click menu); role badge moved next to the username in the members list.
+- **Roles RLS fix** — added `GRANT` on `roles` table + `SECURITY DEFINER is_server_owner()` function to fix 403/42501 errors caused by RLS on `servers` blocking the policy subquery.
+- **b.ai.t API key** — `apiKey` removed from Zustand `persist` partialize; always read from `VITE_BAIT_DEFAULT_KEY` at runtime, never cached in localStorage.
+- **Docs** — root README rewritten in English; `desktop/README.md` slimmed to quick-start; `plans/BAIT.md` split from TODO; no duplicate content across doc files.
+- **Performance** — `useMemo` wrappers on derived channel/member lists in `chat-area.tsx`; user profile cache propagated to message rendering.
+
+---
+
 ## [0.8.1] — 2026-06-04
 
 ### Added
 - **Per-user voice volume** — right-click any non-self participant in the voice channel list to open a context menu. Slider controls playback gain 0–200 % (step 5, default 100 %). Applied in JS before samples reach the native engine — no Rust changes required.
-- **Local mute** — "Замутить для себя" toggle in the same context menu. Silences one participant for the local client only; resets on leave.
+- **Local mute** — "Mute for me" toggle in the same context menu. Silences one participant for the local client only; resets on leave.
 
 ---
 

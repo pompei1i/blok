@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { MessageCircle, ChevronDown, Search, UserPlus, Check, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { MessageCircle, ChevronDown, Search, UserPlus, UserMinus, Check, X, User, Phone, AtSign, Link2, UserX } from "lucide-react";
+import { can } from "@/lib/permission";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useI18n } from "@/lib/i18n";
 import { useBaitStore } from "@/lib/store/bait-store";
@@ -48,13 +50,30 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
 // ─── Members view ─────────────────────────────────────────────────────────────
 
 function MembersView() {
-  const { activeServerId, members, channels, voiceParticipants } = useServerStore();
-  const { presence, presenceLastSeen } = useFriendsStore();
-  const { openDM } = useDMStore();
+  const { activeServerId, members, channels, voiceParticipants, servers, roles, kickMember, generateInviteCode } = useServerStore();
+  const { presence, presenceLastSeen, friends, sendFriendRequest, removeFriend } = useFriendsStore();
+  const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
   const [search, setSearch] = useState("");
   const [onlineOpen, setOnlineOpen] = useState(true);
   const [offlineOpen, setOfflineOpen] = useState(true);
+
+  type MemberCtxMenu = { member: ServerMember; x: number; y: number };
+  const [ctxMenu, setCtxMenu] = useState<MemberCtxMenu | null>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node))
+        setCtxMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [ctxMenu]);
+
+  const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
+  const serverRoles = activeServerId ? (roles[activeServerId] ?? []) : [];
 
   const { t } = useI18n();
   const serverMembers: ServerMember[] = activeServerId ? (members[activeServerId] ?? []) : [];
@@ -101,6 +120,12 @@ function MembersView() {
     return (
       <button
         onClick={() => { if (user && !isMe) openDM(user.id, m.userId); }}
+        onContextMenu={isMe ? undefined : (e) => {
+          e.preventDefault();
+          const menuH = 260;
+          const y = e.clientY + menuH > window.innerHeight ? e.clientY - menuH : e.clientY;
+          setCtxMenu({ member: m, x: Math.min(e.clientX, window.innerWidth - 200), y });
+        }}
         disabled={isMe}
         className={cn(
           "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-left transition-all",
@@ -177,6 +202,122 @@ function MembersView() {
           <p className="py-6 text-center text-xs text-[var(--text-muted)]">{t("members.notFound")}</p>
         )}
       </div>
+
+      {ctxMenu && createPortal((() => {
+        const m = ctxMenu.member;
+        const username = m.nickname ?? m.user?.displayName ?? m.user?.username ?? m.userId.slice(0, 8);
+        const friendship = friends.find((f) =>
+          (f.requesterId === user?.id && f.targetId === m.userId) ||
+          (f.targetId === user?.id && f.requesterId === m.userId),
+        );
+        const myMember = serverMembers.find((sm) => sm.userId === user?.id);
+        const myRole = myMember?.roleId
+          ? serverRoles.find((r) => r.id === myMember.roleId) ?? null
+          : null;
+        const canKick = can("kick_member", { userId: user?.id, server: activeServer, role: myRole });
+
+        const close = () => setCtxMenu(null);
+
+        return (
+          <div
+            ref={ctxMenuRef}
+            style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
+            className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1 text-xs"
+          >
+            <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border)] truncate font-medium">
+              @{username}
+            </div>
+
+            {/* View Profile — placeholder */}
+            <button
+              disabled
+              className="w-full flex items-center gap-2 px-3 py-2 text-[var(--text-muted)] opacity-40 cursor-not-allowed"
+            >
+              <User className="w-3.5 h-3.5 flex-shrink-0" />
+              Просмотр профиля
+            </button>
+
+            {/* Add / Remove friend */}
+            {friendship ? (
+              <button
+                onClick={() => { void removeFriend(friendship.id); close(); }}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              >
+                <UserMinus className="w-3.5 h-3.5 flex-shrink-0" />
+                Удалить из друзей
+              </button>
+            ) : (
+              <button
+                onClick={() => { if (user && m.user?.username) void sendFriendRequest(m.user.username, user.id); close(); }}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              >
+                <UserPlus className="w-3.5 h-3.5 flex-shrink-0" />
+                Добавить в друзья
+              </button>
+            )}
+
+            {/* Message */}
+            <button
+              onClick={() => { if (user) void openDM(user.id, m.userId); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+            >
+              <MessageCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              Написать
+            </button>
+
+            {/* Call */}
+            <button
+              onClick={() => { void callUser(m.userId, username); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+              Позвонить
+            </button>
+
+            {/* Mention */}
+            <button
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("blok:mention-user", { detail: m.user?.username ?? username }));
+                close();
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+            >
+              <AtSign className="w-3.5 h-3.5 flex-shrink-0" />
+              Упомянуть
+            </button>
+
+            {/* Invite to server */}
+            {activeServerId && (
+              <button
+                onClick={() => {
+                  void generateInviteCode(activeServerId).then((code) => {
+                    if (code) navigator.clipboard.writeText(code).catch(() => {});
+                  });
+                  close();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              >
+                <Link2 className="w-3.5 h-3.5 flex-shrink-0" />
+                Пригласить на сервер
+              </button>
+            )}
+
+            {/* Kick — owner or has kick_member perm */}
+            {canKick && (
+              <>
+                <div className="my-1 border-t border-[var(--border)]" />
+                <button
+                  onClick={() => { if (activeServerId) void kickMember(m.id, activeServerId); close(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+                >
+                  <UserX className="w-3.5 h-3.5 flex-shrink-0" />
+                  Кикнуть
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })(), document.body)}
     </div>
   );
 }

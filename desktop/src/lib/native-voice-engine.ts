@@ -110,6 +110,13 @@ export class NativeVoiceEngine {
   private _userVolumes = new Map<string, number>();
   private _localMuted = new Set<string>();
 
+  // ICE candidate queues — candidates that arrived before setRemoteDescription completed.
+  // Keyed by peer id. Flushed immediately after each setRemoteDescription call.
+  private _pendingViewerIce = new Map<string, RTCIceCandidateInit[]>();
+  private _pendingShareeIce = new Map<string, RTCIceCandidateInit[]>();
+  private _pendingVideoReceiverIce = new Map<string, RTCIceCandidateInit[]>();
+  private _pendingVideoSenderIce = new Map<string, RTCIceCandidateInit[]>();
+
   constructor(channelId: string, userId: string, cb: VoiceCallbacks) {
     this.channelId = channelId;
     this.userId = userId;
@@ -268,7 +275,6 @@ export class NativeVoiceEngine {
         }
         this._captureInFlight = true;
         const t0 = performance.now();
-        console.time("capture");
         invoke<{ data: string; w: number; h: number } | null>(
           "capture_screen_frame", { sourceId, maxWidth, jpegQuality: jpegQualityRust }
         ).then((frame) => {
@@ -276,7 +282,6 @@ export class NativeVoiceEngine {
             this._sendFrameViaDC(frame.w, frame.h, frame.data);
           }
         }).catch(() => {}).finally(() => {
-          console.timeEnd("capture");
           this._captureInFlight = false;
           if (this._screenCaptureTimer !== null) {
             const wait = Math.max(0, intervalMs - (performance.now() - t0));
@@ -396,6 +401,42 @@ export class NativeVoiceEngine {
     this.cb.onVideoStop?.(this.userId);
   }
 
+  // ── ICE queue helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Queue an ICE candidate if the PC has no remote description yet, otherwise
+   * add it immediately. Candidates queued here are flushed by _flushIceQueue
+   * right after the corresponding setRemoteDescription call completes.
+   */
+  private _queueOrAddIce(
+    pc: RTCPeerConnection,
+    candidate: RTCIceCandidateInit,
+    queue: Map<string, RTCIceCandidateInit[]>,
+    peerId: string,
+  ): void {
+    if (!pc.remoteDescription) {
+      const pending = queue.get(peerId) ?? [];
+      pending.push(candidate);
+      queue.set(peerId, pending);
+      return;
+    }
+    pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+  }
+
+  /** Drain queued ICE candidates after setRemoteDescription has completed. */
+  private async _flushIceQueue(
+    pc: RTCPeerConnection,
+    queue: Map<string, RTCIceCandidateInit[]>,
+    peerId: string,
+  ): Promise<void> {
+    const candidates = queue.get(peerId);
+    if (!candidates?.length) return;
+    queue.delete(peerId);
+    for (const c of candidates) {
+      await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+    }
+  }
+
   // ── WebRTC helpers ───────────────────────────────────────────────────────────
 
   /** Pack JPEG frame as [w:u32][h:u32][jpeg bytes] and send to all open viewer DCs. */
@@ -444,7 +485,6 @@ export class NativeVoiceEngine {
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._viewerPcs.set(sharerId, pc);
 
-    // Viewer is offerer and creates the data channel
     const dc = pc.createDataChannel("screen", { ordered: false, maxRetransmits: 0 });
     dc.binaryType = "arraybuffer";
     dc.onmessage = (e) => this._onScreenFrame(sharerId, e.data as ArrayBuffer);
@@ -460,6 +500,7 @@ export class NativeVoiceEngine {
       await pc.setLocalDescription(offer);
       await this.broadcast({ type: "screenshare_offer", from: this.userId, to: sharerId, sdp: offer.sdp! });
     } catch {
+      this._pendingViewerIce.delete(sharerId);
       this._closeViewerPc(sharerId);
     }
   }
@@ -471,7 +512,6 @@ export class NativeVoiceEngine {
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._shareePcs.set(viewerId, pc);
 
-    // Sharer receives the data channel created by the viewer
     pc.ondatachannel = ({ channel }) => {
       channel.binaryType = "arraybuffer";
       this._shareeChannels.set(viewerId, channel);
@@ -486,10 +526,13 @@ export class NativeVoiceEngine {
 
     try {
       await pc.setRemoteDescription({ type: "offer", sdp });
+      // Flush any viewer ICE candidates that arrived before this setRemoteDescription.
+      await this._flushIceQueue(pc, this._pendingShareeIce, viewerId);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await this.broadcast({ type: "screenshare_answer", from: this.userId, to: viewerId, sdp: answer.sdp! });
     } catch {
+      this._pendingShareeIce.delete(viewerId);
       this._closeShareePc(viewerId);
     }
   }
@@ -499,11 +542,13 @@ export class NativeVoiceEngine {
     this._shareeChannels.delete(viewerId);
     this._shareePcs.get(viewerId)?.close();
     this._shareePcs.delete(viewerId);
+    this._pendingShareeIce.delete(viewerId);
   }
 
   private _closeViewerPc(sharerId: string): void {
     this._viewerPcs.get(sharerId)?.close();
     this._viewerPcs.delete(sharerId);
+    this._pendingViewerIce.delete(sharerId);
   }
 
   // ── Video WebRTC helpers ────────────────────────────────────────────────────
@@ -531,6 +576,7 @@ export class NativeVoiceEngine {
       await pc.setLocalDescription(offer);
       await this.broadcast({ type: "video_offer", from: this.userId, to: senderId, sdp: offer.sdp! });
     } catch {
+      this._pendingVideoReceiverIce.delete(senderId);
       this._closeVideoReceiverPc(senderId);
     }
   }
@@ -555,10 +601,13 @@ export class NativeVoiceEngine {
 
     try {
       await pc.setRemoteDescription({ type: "offer", sdp });
+      // Flush any viewer ICE candidates that arrived before this setRemoteDescription.
+      await this._flushIceQueue(pc, this._pendingVideoSenderIce, viewerId);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await this.broadcast({ type: "video_answer", from: this.userId, to: viewerId, sdp: answer.sdp! });
     } catch {
+      this._pendingVideoSenderIce.delete(viewerId);
       this._closeVideoSenderPc(viewerId);
     }
   }
@@ -566,11 +615,13 @@ export class NativeVoiceEngine {
   private _closeVideoSenderPc(viewerId: string): void {
     this._videoSenderPcs.get(viewerId)?.close();
     this._videoSenderPcs.delete(viewerId);
+    this._pendingVideoSenderIce.delete(viewerId);
   }
 
   private _closeVideoReceiverPc(senderId: string): void {
     this._videoReceiverPcs.get(senderId)?.close();
     this._videoReceiverPcs.delete(senderId);
+    this._pendingVideoReceiverIce.delete(senderId);
   }
 
   // ── Signal handling ─────────────────────────────────────────────────────────
@@ -618,59 +669,84 @@ export class NativeVoiceEngine {
       case "screenshare_start": {
         this._clearRemoteCanvas(msg.from);
         this._closeViewerPc(msg.from);
+        this._pendingViewerIce.delete(msg.from);
         const canvas = document.createElement("canvas");
         canvas.width = 1920;
         canvas.height = 1080;
         const stream = (canvas as HTMLCanvasElement & { captureStream(fps?: number): MediaStream }).captureStream(0);
         this._remoteCanvases.set(msg.from, { canvas, stream });
         this.cb.onScreenShareStart?.(msg.from, stream);
-        // Kick off WebRTC negotiation — viewer is the offerer
-        void this._setupViewerPc(msg.from);
+        await this._setupViewerPc(msg.from);
         break;
       }
       case "screenshare_stop":
+        this._pendingViewerIce.delete(msg.from);
         this._closeViewerPc(msg.from);
         this._clearRemoteCanvas(msg.from);
         this.cb.onScreenShareStop?.(msg.from);
         break;
       case "screenshare_offer":
         if (msg.to !== this.userId) break;
-        void this._handleShareeOffer(msg.from, msg.sdp);
+        await this._handleShareeOffer(msg.from, msg.sdp);
         break;
       case "screenshare_answer": {
         if (msg.to !== this.userId) break;
         const pc = this._viewerPcs.get(msg.from);
-        if (pc) await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+        if (pc) {
+          await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+          // Flush sharer ICE candidates that arrived before this answer was processed.
+          await this._flushIceQueue(pc, this._pendingViewerIce, msg.from);
+        }
         break;
       }
       case "screenshare_ice": {
         if (msg.to !== this.userId) break;
-        const pc = this._viewerPcs.get(msg.from) ?? this._shareePcs.get(msg.from);
-        if (pc) await pc.addIceCandidate(msg.candidate);
+        const viewerPc = this._viewerPcs.get(msg.from);
+        if (viewerPc) {
+          this._queueOrAddIce(viewerPc, msg.candidate, this._pendingViewerIce, msg.from);
+          break;
+        }
+        const shareePc = this._shareePcs.get(msg.from);
+        if (shareePc) {
+          this._queueOrAddIce(shareePc, msg.candidate, this._pendingShareeIce, msg.from);
+        }
         break;
       }
       case "video_start":
+        this._pendingVideoReceiverIce.delete(msg.from);
         this._closeVideoReceiverPc(msg.from);
-        void this._setupVideoReceiverPc(msg.from);
+        await this._setupVideoReceiverPc(msg.from);
         break;
       case "video_stop":
+        this._pendingVideoReceiverIce.delete(msg.from);
         this._closeVideoReceiverPc(msg.from);
         this.cb.onVideoStop?.(msg.from);
         break;
       case "video_offer":
         if (msg.to !== this.userId) break;
-        void this._handleVideoOffer(msg.from, msg.sdp);
+        await this._handleVideoOffer(msg.from, msg.sdp);
         break;
       case "video_answer": {
         if (msg.to !== this.userId) break;
         const vpc = this._videoReceiverPcs.get(msg.from);
-        if (vpc) await vpc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+        if (vpc) {
+          await vpc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+          // Flush sender ICE candidates that arrived before this answer was processed.
+          await this._flushIceQueue(vpc, this._pendingVideoReceiverIce, msg.from);
+        }
         break;
       }
       case "video_ice": {
         if (msg.to !== this.userId) break;
-        const vpc = this._videoReceiverPcs.get(msg.from) ?? this._videoSenderPcs.get(msg.from);
-        if (vpc) await vpc.addIceCandidate(msg.candidate);
+        const vReceiverPc = this._videoReceiverPcs.get(msg.from);
+        if (vReceiverPc) {
+          this._queueOrAddIce(vReceiverPc, msg.candidate, this._pendingVideoReceiverIce, msg.from);
+          break;
+        }
+        const vSenderPc = this._videoSenderPcs.get(msg.from);
+        if (vSenderPc) {
+          this._queueOrAddIce(vSenderPc, msg.candidate, this._pendingVideoSenderIce, msg.from);
+        }
         break;
       }
     }

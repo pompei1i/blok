@@ -258,6 +258,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     const { useServerStore } = await import("./server-store");
     await useServerStore.getState().leaveVoiceChannel();
+    const { clearDataChannels } = await import("./slices/_shared");
+    await clearDataChannels();
     await supabase.auth.signOut();
     set({ user: null, isAuthenticated: false, error: null });
   },

@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { X, Plus, Trash2, Shield, Users } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Plus, Trash2, Shield, Users, UserX } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { Perm } from "@/lib/permission";
@@ -18,10 +19,8 @@ const PERM_LABELS: { flag: number; label: string }[] = [
   { flag: Perm.INVITE_MEMBER,  label: "Invite Members" },
   { flag: Perm.CREATE_CHANNEL, label: "Create Channels" },
   { flag: Perm.DELETE_CHANNEL, label: "Delete Channels" },
-  { flag: Perm.PIN_MESSAGE,    label: "Pin Messages" },
   { flag: Perm.MANAGE_SERVER,  label: "Manage Server" },
   { flag: Perm.MANAGE_ROLES,   label: "Manage Roles" },
-  { flag: Perm.KICK_MEMBER,    label: "Kick Members" },
 ];
 
 const PRESET_COLORS = [
@@ -40,6 +39,20 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
+
+  type MemberCtx = { memberId: string; username: string; x: number; y: number };
+  const [memberCtx, setMemberCtx] = useState<MemberCtx | null>(null);
+  const memberCtxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!memberCtx) return;
+    const close = (e: MouseEvent) => {
+      if (memberCtxRef.current && !memberCtxRef.current.contains(e.target as Node))
+        setMemberCtx(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [memberCtx]);
 
   const serverRoles = roles[serverId] ?? [];
   const serverMembers = members[serverId] ?? [];
@@ -295,12 +308,29 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                     : null;
                   const isCurrentUser = member.userId === user?.id;
                   return (
-                    <div key={member.id} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors">
+                    <div
+                      key={member.id}
+                      className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
+                      onContextMenu={isCurrentUser ? undefined : (e) => {
+                        e.preventDefault();
+                        setMemberCtx({ memberId: member.id, username: member.user?.username ?? member.userId, x: e.clientX, y: e.clientY });
+                      }}
+                    >
                       <UserAvatar user={member.user} size="sm" className="flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-[var(--text-primary)] truncate block">
-                          @{member.user?.username ?? member.userId}
-                        </span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-medium text-[var(--text-primary)] truncate">
+                            @{member.user?.username ?? member.userId}
+                          </span>
+                          {memberRole && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+                              style={{ backgroundColor: (memberRole.color ?? "#6b7280") + "33", color: memberRole.color ?? "#6b7280" }}
+                            >
+                              {memberRole.name}
+                            </span>
+                          )}
+                        </div>
                         {member.user?.displayName && (
                           <span className="text-[10px] text-[var(--text-muted)] truncate block">{member.user.displayName}</span>
                         )}
@@ -316,23 +346,6 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
-                      {memberRole && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-                          style={{ backgroundColor: (memberRole.color ?? "#6b7280") + "33", color: memberRole.color ?? "#6b7280" }}
-                        >
-                          {memberRole.name}
-                        </span>
-                      )}
-                      {!isCurrentUser && (
-                        <button
-                          onClick={() => void kickMember(member.id, serverId)}
-                          className="p-1 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors opacity-0 group-hover:opacity-100"
-                          title="Kick member"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </div>
                   );
                 })}
@@ -341,6 +354,29 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
           </div>
         )}
       </div>
+
+      {memberCtx && createPortal(
+        <div
+          ref={memberCtxRef}
+          style={{ position: "fixed", left: memberCtx.x, top: memberCtx.y, zIndex: 99999 }}
+          className="w-44 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
+        >
+          <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border)] truncate">
+            @{memberCtx.username}
+          </div>
+          <button
+            onClick={() => {
+              void kickMember(memberCtx.memberId, serverId);
+              setMemberCtx(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <UserX className="w-3.5 h-3.5 flex-shrink-0" />
+            Kick
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

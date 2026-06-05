@@ -41,6 +41,7 @@
   "settings.account.saving": "Guardando...",
   "settings.account.saveChanges": "Guardar cambios",
   "settings.account.savedSuccess": "¡Perfil actualizado correctamente!",
+  "settings.account.saveError": "No se pudo guardar el perfil. Inténtalo de nuevo.",
   "settings.video.title": "Ajustes de vídeo",
   "settings.video.subtitle": "Configura tus preferencias de cámara.",
   "settings.video.enablePreview": "Activar vista previa de cámara",

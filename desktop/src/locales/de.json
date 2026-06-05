@@ -41,6 +41,7 @@
   "settings.account.saving": "Wird gespeichert...",
   "settings.account.saveChanges": "Änderungen speichern",
   "settings.account.savedSuccess": "Profil erfolgreich aktualisiert!",
+  "settings.account.saveError": "Profil konnte nicht gespeichert werden. Bitte erneut versuchen.",
   "settings.video.title": "Videoeinstellungen",
   "settings.video.subtitle": "Kameraeinstellungen konfigurieren.",
   "settings.video.enablePreview": "Kameravorschau aktivieren",

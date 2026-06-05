@@ -265,23 +265,22 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  setIsSaving(true);
  setMessage(null);
 
- await new Promise((resolve) => setTimeout(resolve, 500));
-
- updateUser({
- displayName: formData.displayName,
- username: formData.username,
- email: formData.email,
- bio: formData.bio,
- pronouns: formData.pronouns,
- ...(avatarBase64 ? { avatarUrl: avatarBase64 } : {}),
- });
-
- setMessage({ type: "success", text: t("settings.account.savedSuccess") });
- setIsSaving(false);
-
- setTimeout(() => {
- setMessage(null);
- }, 3000);
+ try {
+  await updateUser({
+   displayName: formData.displayName,
+   username: formData.username,
+   email: formData.email,
+   bio: formData.bio,
+   pronouns: formData.pronouns,
+   ...(avatarBase64 ? { avatarUrl: avatarBase64 } : {}),
+  });
+  setMessage({ type: "success", text: t("settings.account.savedSuccess") });
+  setTimeout(() => setMessage(null), 3000);
+ } catch {
+  setMessage({ type: "error", text: t("settings.account.saveError") });
+ } finally {
+  setIsSaving(false);
+ }
  };
 
  const handleApplySettings = async () => {

@@ -236,12 +236,19 @@ describe("patchUser (server-store)", () => {
   const user = { id: "u1", username: "alice", email: "a@a.com", displayName: "Alice", createdAt: "2024-01-01" };
   const updatedUser = { ...user, displayName: "Alicia" };
 
-  it("patches author on messages", () => {
+  it("updates userProfileCache so render-time author resolution picks up the change", () => {
+    // patchUser no longer iterates message arrays (O(n×channels) was too expensive).
+    // Instead it writes to userProfileCache; ChatArea resolves author at render via
+    // `userProfileCache[message.authorId] ?? message.author`.
     useServerStore.setState({
       messages: { c1: [{ ...makeMessage("m1", "c1"), author: user }] },
+      userProfileCache: { u1: user },
     });
     useServerStore.getState().patchUser(updatedUser);
-    expect(useServerStore.getState().messages["c1"][0].author?.displayName).toBe("Alicia");
+    // Cache entry must be updated — this is what MessageBubble reads at render.
+    expect(useServerStore.getState().userProfileCache["u1"].displayName).toBe("Alicia");
+    // Embedded message.author snapshot is intentionally NOT mutated.
+    expect(useServerStore.getState().messages["c1"][0].author?.displayName).toBe("Alice");
   });
 
   it("patches user on members", () => {

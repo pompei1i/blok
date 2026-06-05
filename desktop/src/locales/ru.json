@@ -41,6 +41,7 @@
   "settings.account.saving": "Сохранение...",
   "settings.account.saveChanges": "Сохранить изменения",
   "settings.account.savedSuccess": "Профиль обновлён!",
+  "settings.account.saveError": "Не удалось сохранить профиль. Попробуйте ещё раз.",
   "settings.video.title": "Настройки видео",
   "settings.video.subtitle": "Настройте параметры камеры.",
   "settings.video.enablePreview": "Включить превью камеры",

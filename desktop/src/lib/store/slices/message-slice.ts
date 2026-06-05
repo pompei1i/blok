@@ -6,7 +6,7 @@ import { playNotificationBeep } from "../../sounds";
 import { sendDesktopNotification } from "../../notifications";
 import type { Message, Reaction } from "../types";
 import type { ServerStore } from "../server-store.shape";
-import { _currentUserId } from "./_shared";
+import { _currentUserId, trackDataChannel } from "./_shared";
 
 export interface MessageSlice {
   messages: Record<string, Message[]>;
@@ -59,7 +59,7 @@ function mapMessageRow(m: any): Message {
 }
 
 const MESSAGE_SELECT = `
-  id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
+  id, channel_id, author_id, reply_to_id, content, is_edited, is_announcement, pinned, created_at, updated_at,
   author:profiles(id, username, display_name, avatar_url, accent_color, pronouns),
   attachments(id, message_id, url, filename, media_type, size_bytes, created_at),
   message_reactions(id, message_id, user_id, emoji, created_at)
@@ -75,104 +75,138 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
   typingUsers: {},
 
   initMessageRealtime: (_userId) => {
+    trackDataChannel(
     supabase.channel("public:messages").on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "messages" },
       async (payload) => {
         const m = payload.new;
-        let author = get().userProfileCache[m.author_id];
-        if (!author) {
-          const { data } = await supabase.from("profiles").select("*").eq("id", m.author_id).single();
-          if (data) {
-            author = mapProfile(data);
-            set((state) => ({ userProfileCache: { ...state.userProfileCache, [m.author_id]: author! } }));
-          }
-        }
-        const { data: attachData } = await supabase.from("attachments").select("*").eq("message_id", m.id);
-        const parsedMessage: Message = {
-          id: m.id, channelId: m.channel_id, authorId: m.author_id, replyToId: m.reply_to_id ?? undefined,
-          content: m.content, isEdited: m.is_edited, isAnnouncement: m.is_announcement ?? false,
+        const cachedAuthor = get().userProfileCache[m.author_id];
+
+        // Fast path: author cached + no attachments expected → build from payload immediately,
+        // then do a single background fetch to pick up any attachments/reactions.
+        // This avoids 2 sequential round-trips (profiles + attachments) on every message.
+        const fastMessage: Message = {
+          id: m.id, channelId: m.channel_id, authorId: m.author_id,
+          replyToId: m.reply_to_id ?? undefined,
+          content: m.content, isEdited: m.is_edited,
+          isAnnouncement: m.is_announcement ?? false,
           createdAt: m.created_at, updatedAt: m.updated_at,
-          author,
-          attachments: (attachData ?? []).map((a: any) => ({
-            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
-            mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
-          })),
+          author: cachedAuthor,
+          attachments: [],
+          reactions: [],
+          isPinned: false,
         };
 
         if (get().messagesLoaded.has(m.channel_id)) {
           set((state) => ({
-            messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), parsedMessage] },
+            messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), fastMessage] },
             messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
           }));
           void get().loadPollsForMessages([m.id], _currentUserId ?? "");
         }
-        const { activeChannelId } = get();
-        const isAnnouncement = m.is_announcement === true;
-        const isOtherChannel = m.channel_id !== activeChannelId;
-        const isOtherUser = m.author_id !== _currentUserId;
-        if (isOtherUser && (isOtherChannel || isAnnouncement)) {
-          if (isOtherChannel) {
-            set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
+
+        // Notification and unread use fastMessage — payload has all required fields
+        // (content, author_id, channel_id, is_announcement) and must not wait on the
+        // background DB fetch so unread counts are always incremented promptly.
+        {
+          const { activeChannelId } = get();
+          const isAnnouncement = fastMessage.isAnnouncement;
+          const isOtherChannel = m.channel_id !== activeChannelId;
+          const isOtherUser = m.author_id !== _currentUserId;
+          if (isOtherUser && (isOtherChannel || isAnnouncement)) {
+            if (isOtherChannel) {
+              set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
+            }
+            playNotificationBeep();
+            const channelName = get().channelIndex[m.channel_id]?.name ?? "blok";
+            const preview = fastMessage.content?.slice(0, NOTIFICATION_PREVIEW_LEN) || "sent an attachment";
+            const title = isAnnouncement ? `📢 #${channelName}` : `#${channelName}`;
+            sendDesktopNotification(title, `${cachedAuthor?.username ?? "someone"}: ${preview}`);
           }
-          playNotificationBeep();
-          const channelName = get().channelIndex[m.channel_id]?.name ?? "blok";
-          const preview = parsedMessage.content?.slice(0, NOTIFICATION_PREVIEW_LEN) || (parsedMessage.attachments?.length ? "sent an attachment" : "");
-          const title = isAnnouncement ? `📢 #${channelName}` : `#${channelName}`;
-          sendDesktopNotification(title, `${author?.username ?? "someone"}: ${preview}`);
+        }
+
+        // Single joined fetch: resolves author avatar/username if not cached,
+        // and picks up any attachments/reactions. Patches the already-inserted message.
+        const { data: fullRow } = await supabase
+          .from("messages")
+          .select(MESSAGE_SELECT)
+          .eq("id", m.id)
+          .single();
+
+        if (fullRow) {
+          const fullMessage = mapMessageRow(fullRow);
+          if (!cachedAuthor && fullMessage.author) {
+            set((state) => ({ userProfileCache: { ...state.userProfileCache, [m.author_id]: fullMessage.author! } }));
+          }
+          if (get().messagesLoaded.has(m.channel_id)) {
+            set((state) => ({
+              messages: {
+                ...state.messages,
+                [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
+                  msg.id === m.id ? fullMessage : msg
+                ),
+              },
+            }));
+          }
         }
       }
-    ).subscribe();
+    ).subscribe()
+    );
 
-    supabase.channel("public:messages:update").on(
-      "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "messages" },
-      (payload) => {
-        const m = payload.new;
-        if (!get().messagesLoaded.has(m.channel_id)) return;
-        set((state) => ({
-          messages: {
-            ...state.messages,
-            [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
-              msg.id === m.id ? { ...msg, content: m.content, isEdited: m.is_edited, updatedAt: m.updated_at } : msg
-            ),
-          },
-        }));
-      }
-    ).subscribe();
-
-    supabase.channel("public:message_reactions").on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "message_reactions" },
-      (payload) => {
-        if (payload.eventType === "INSERT") {
-          const r = payload.new;
-          const reaction = { id: r.id, messageId: r.message_id, userId: r.user_id, emoji: r.emoji, createdAt: r.created_at };
-          set((state) => {
-            const channelId = state.messageChannelIndex[r.message_id];
-            if (!channelId) return state;
-            return {
-              messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
-                m.id === r.message_id && !m.reactions?.some((rx) => rx.id === r.id)
-                  ? { ...m, reactions: [...(m.reactions || []), reaction] } : m
-              ) },
-            };
-          });
-        } else if (payload.eventType === "DELETE") {
-          const r = payload.old;
-          set((state) => {
-            const channelId = state.messageChannelIndex[r.message_id];
-            if (!channelId) return state;
-            return {
-              messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
-                m.id === r.message_id
-                  ? { ...m, reactions: (m.reactions || []).filter((rx) => rx.id !== r.id) } : m
-              ) },
-            };
-          });
+    trackDataChannel(
+      supabase.channel("public:messages:update").on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        (payload) => {
+          const m = payload.new;
+          if (!get().messagesLoaded.has(m.channel_id)) return;
+          set((state) => ({
+            messages: {
+              ...state.messages,
+              [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
+                msg.id === m.id ? { ...msg, content: m.content, isEdited: m.is_edited, updatedAt: m.updated_at } : msg
+              ),
+            },
+          }));
         }
-      }
-    ).subscribe();
+      ).subscribe()
+    );
+
+    trackDataChannel(
+      supabase.channel("public:message_reactions").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "message_reactions" },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const r = payload.new;
+            const reaction = { id: r.id, messageId: r.message_id, userId: r.user_id, emoji: r.emoji, createdAt: r.created_at };
+            set((state) => {
+              const channelId = state.messageChannelIndex[r.message_id];
+              if (!channelId) return state;
+              return {
+                messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
+                  m.id === r.message_id && !m.reactions?.some((rx) => rx.id === r.id)
+                    ? { ...m, reactions: [...(m.reactions || []), reaction] } : m
+                ) },
+              };
+            });
+          } else if (payload.eventType === "DELETE") {
+            const r = payload.old;
+            set((state) => {
+              const channelId = state.messageChannelIndex[r.message_id];
+              if (!channelId) return state;
+              return {
+                messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
+                  m.id === r.message_id
+                    ? { ...m, reactions: (m.reactions || []).filter((rx) => rx.id !== r.id) } : m
+                ) },
+              };
+            });
+          }
+        }
+      ).subscribe()
+    );
   },
 
   loadMessages: async (channelId) => {
@@ -217,8 +251,12 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       if (isAtStart) updatedAtStart.add(channelId);
       if (order.length > MESSAGE_LRU_LIMIT) {
         const evictId = order[order.length - 1];
+        // Targeted delete: iterate only the evicted channel's messages (O(k))
+        // instead of Object.entries(index).filter(...)  which is O(total_cached).
+        for (const msg of updatedMessages[evictId] ?? []) {
+          delete updatedIndex[msg.id];
+        }
         delete updatedMessages[evictId];
-        updatedIndex = Object.fromEntries(Object.entries(updatedIndex).filter(([, chId]) => chId !== evictId));
         updatedLoaded.delete(evictId);
         updatedAtStart.delete(evictId);
       }
@@ -381,24 +419,50 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
 
   searchMessages: async (channelId, query) => {
     if (query.length < 2) return [];
-    const { data, error } = await supabase
+
+    const SEARCH_SELECT = `
+      id, channel_id, author_id, reply_to_id, content, is_edited, is_announcement,
+      pinned, created_at, updated_at,
+      author:profiles(id, username, display_name, avatar_url, accent_color, pronouns)
+    `;
+
+    // Primary: full-text search via GIN index on to_tsvector('simple', content).
+    // 'simple' config is language-neutral — no stemming, matches all languages.
+    // Requires: CREATE INDEX messages_content_fts ON messages
+    //           USING GIN (to_tsvector('simple', content));
+    const { data: ftsData, error: ftsError } = await supabase
       .from("messages")
-      .select(`
-        id, channel_id, author_id, reply_to_id, content, is_edited, pinned, created_at, updated_at,
-        author:profiles(id, username, display_name, avatar_url, accent_color, pronouns)
-      `)
+      .select(SEARCH_SELECT)
       .eq("channel_id", channelId)
-      .ilike("content", `%${query}%`)
+      .textSearch("content", query, { type: "websearch", config: "simple" })
       .order("created_at", { ascending: false })
       .limit(25);
+
+    // Fallback to ILIKE for short tokens (single word, no spaces) that FTS
+    // may not match without a prefix index — e.g. typing "hel" mid-word.
+    // Only kicks in when FTS returns nothing and the query has no spaces.
+    const useFallback =
+      !ftsError && (ftsData ?? []).length === 0 && !query.includes(" ");
+
+    const { data, error } = useFallback
+      ? await supabase
+          .from("messages")
+          .select(SEARCH_SELECT)
+          .eq("channel_id", channelId)
+          .ilike("content", `%${query}%`)
+          .order("created_at", { ascending: false })
+          .limit(25)
+      : { data: ftsData, error: ftsError };
+
     if (error) { console.error("searchMessages error", error); return []; }
-    return (data || []).map((m) => ({
+    return (data ?? []).map((m) => ({
       id: m.id,
       channelId: m.channel_id,
       authorId: m.author_id,
       replyToId: m.reply_to_id ?? undefined,
       content: m.content,
       isEdited: m.is_edited,
+      isAnnouncement: m.is_announcement ?? false,
       isPinned: m.pinned ?? false,
       createdAt: m.created_at,
       updatedAt: m.updated_at,

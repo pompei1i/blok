@@ -49,10 +49,14 @@
 
 _(none queued)_
 
-## Done (v0.8.x)
+## Done (v0.8.1)
 
 - [x] **Per-user voice volume** — right-click on any non-self participant in the voice channel list → context menu; slider 0–200% (step 5, default 100); applied in `NativeVoiceEngine` by scaling i16 samples before `audio_receive` — no Rust changes required.
 - [x] **Local mute** — "Замутить для себя" toggle in the same context menu; silences one participant for the local client only (skips `audio_receive` for that peer); state in voice-slice, reset on leave.
+- [x] **Member context menu (RightSidebar)** — ПКМ на участнике открывает меню: View Profile (placeholder), Add/Remove Friend, Message, Call, Mention, Invite to Server, Kick (owner или `kick_member` perm).
+- [x] **RoleManagerModal polish** — Pin Messages и Kick Members убраны из списка пермишенов; кик вынесен в ПКМ; бейдж роли теперь рядом с именем участника.
+- [x] **Roles RLS fix** — `GRANT` + `SECURITY DEFINER is_server_owner()` исправляет 403/42501 при создании/изменении ролей.
+- [x] **bait apiKey не персистится** — убран из `partialize`; всегда берётся из `VITE_BAIT_DEFAULT_KEY`.
 
 ## Done (v0.8.0)
 
