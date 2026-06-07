@@ -39,6 +39,11 @@ jobs:
         working-directory: desktop
         run: node scripts/gen-nsis-assets.mjs
 
+      - name: Inject build secrets into .env
+        working-directory: desktop
+        run: |
+          Add-Content .env "VITE_BAIT_DEFAULT_KEY=${{ secrets.VITE_BAIT_DEFAULT_KEY }}"
+
       - name: Delete existing private release (if any)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

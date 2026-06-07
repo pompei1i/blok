@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.5] — 2026-06-08
+
+### Fixed
+- **CI** — `VITE_BAIT_DEFAULT_KEY` now reliably embedded in production build by writing it to `.env` before Vite runs (env var propagation through `tauri-action` subprocess chain was unreliable).
+
+---
+
 ## [0.9.4] — 2026-06-07
 
 ### Fixed
