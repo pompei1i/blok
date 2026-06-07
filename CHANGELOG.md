@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.4] — 2026-06-07
+
+### Fixed
+- **b.ai.t** — silent failure when `VITE_BAIT_DEFAULT_KEY` is not embedded: user message now appears with a clear error instead of the UI doing nothing.
+
+---
+
 ## [0.9.3] — 2026-06-07
 
 ### Fixed

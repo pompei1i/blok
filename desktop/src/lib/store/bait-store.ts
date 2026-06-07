@@ -47,7 +47,13 @@ export const useBaitStore = create<BaitStore>()(
       sendMessage: async (text) => {
         const resolvedKey = get().apiKey || (import.meta.env.VITE_BAIT_DEFAULT_KEY as string) || "";
         const { messages } = get();
-        if (!resolvedKey || !text.trim()) return;
+        if (!text.trim()) return;
+        if (!resolvedKey) {
+          const userMsg: BaitMessage = { id: crypto.randomUUID(), role: "user", content: text.trim() };
+          const errMsg: BaitMessage = { id: crypto.randomUUID(), role: "assistant", content: "Error: API key not configured. Set VITE_BAIT_DEFAULT_KEY in your build environment." };
+          set({ messages: [...messages, userMsg, errMsg] });
+          return;
+        }
         const apiKey = resolvedKey;
 
         const userMsg: BaitMessage = {
