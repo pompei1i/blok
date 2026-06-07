@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.8] — 2026-06-08
+
+### Fixed
+- **CI** — switch `.env` injection to `bash`/`printf` (PowerShell encoding was unreliable); add verify step that fails the build if `VITE_BAIT_DEFAULT_KEY` is empty.
+
+---
+
 ## [0.9.7] — 2026-06-08
 
 ### Fixed
