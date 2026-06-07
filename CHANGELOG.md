@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3] — 2026-06-07
+
+### Fixed
+- **i18n** — added missing role permission translation keys (`renameChannels`, `renameServer`, `manageServerIcon`) across all 6 locales (EN/RU/UK/PL/DE/ES).
+
+---
+
 ## [0.9.2] — 2026-06-07
 
 ### Added
