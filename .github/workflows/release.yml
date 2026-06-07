@@ -43,7 +43,8 @@ jobs:
         working-directory: desktop
         run: |
           $utf8 = [System.Text.UTF8Encoding]::new($false)
-          [System.IO.File]::AppendAllText((Resolve-Path ".env").Path, "`nVITE_BAIT_DEFAULT_KEY=${{ secrets.VITE_BAIT_DEFAULT_KEY }}", $utf8)
+          $envPath = Join-Path (Get-Location) ".env"
+          [System.IO.File]::AppendAllText($envPath, "`nVITE_BAIT_DEFAULT_KEY=${{ secrets.VITE_BAIT_DEFAULT_KEY }}", $utf8)
 
       - name: Delete existing private release (if any)
         env:
