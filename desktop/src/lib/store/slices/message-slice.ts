@@ -126,11 +126,14 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
         };
 
         if (get().messagesLoaded.has(m.channel_id)) {
-          set((state) => ({
-            messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), fastMessage] },
-            messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
-          }));
-          void get().loadPollsForMessages([m.id], get()._currentUserId ?? "");
+          const alreadyInState = (get().messages[m.channel_id] ?? []).some((msg) => msg.id === m.id);
+          if (!alreadyInState) {
+            set((state) => ({
+              messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), fastMessage] },
+              messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
+            }));
+            void get().loadPollsForMessages([m.id], get()._currentUserId ?? "");
+          }
         }
 
         // Notification and unread use fastMessage — payload has all required fields
@@ -349,12 +352,47 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
   },
 
   addMessage: async (channelId, message) => {
+    // Optimistic: show immediately with temp ID so the sender doesn't wait on network
+    if (get().messagesLoaded.has(channelId)) {
+      set((state) => ({
+        messages: { ...state.messages, [channelId]: [...(state.messages[channelId] || []), message] },
+        messageChannelIndex: { ...state.messageChannelIndex, [message.id]: channelId },
+      }));
+    }
+
     const { data: insertedMsg, error } = await supabase
       .from("messages")
       .insert({ channel_id: channelId, author_id: message.authorId, content: message.content, reply_to_id: message.replyToId ?? null, is_announcement: message.isAnnouncement ?? false })
       .select()
       .single();
-    if (error) { console.error("Message send failed", error); return; }
+
+    if (error) {
+      console.error("Message send failed", error);
+      // Rollback optimistic message
+      set((state) => {
+        const { [message.id]: _dropped, ...restIndex } = state.messageChannelIndex;
+        return {
+          messages: { ...state.messages, [channelId]: (state.messages[channelId] || []).filter((m) => m.id !== message.id) },
+          messageChannelIndex: restIndex,
+        };
+      });
+      return;
+    }
+
+    // Swap temp ID for real DB ID
+    set((state) => {
+      const { [message.id]: _dropped, ...restIndex } = state.messageChannelIndex;
+      return {
+        messages: {
+          ...state.messages,
+          [channelId]: (state.messages[channelId] || []).map((m) =>
+            m.id === message.id ? { ...m, id: insertedMsg.id } : m
+          ),
+        },
+        messageChannelIndex: { ...restIndex, [insertedMsg.id]: channelId },
+      };
+    });
+
     if (message.attachments && message.attachments.length > 0) {
       await supabase.from("attachments").insert(
         message.attachments.map((att) => ({

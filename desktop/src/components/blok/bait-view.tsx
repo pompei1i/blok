@@ -74,7 +74,7 @@ export function BaitView() {
                   {msg.role === "user" ? (
                     <><span className="text-[var(--text-muted)] mr-1">&gt;</span>{msg.content}</>
                   ) : (
-                    msg.content
+                    <span className="whitespace-pre-wrap">{msg.content}</span>
                   )}
                 </div>
               )}

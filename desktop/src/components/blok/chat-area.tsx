@@ -33,6 +33,9 @@ import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS } from "@/lib/c
 import { can } from "@/lib/permission";
 import { useBaitStore } from "@/lib/store/bait-store";
 import { BaitView } from "./bait-view";
+import { VoiceView } from "./voice-view";
+
+const ASCII_BG = Array(80).fill(Array(52).fill("·").join("   ")).join("\n");
 
 export function ChatArea() {
   const { t } = useI18n();
@@ -58,6 +61,7 @@ export function ChatArea() {
     createPoll,
     votePoll,
     setActiveChannel,
+    activeVoiceChannelId,
   } = useServerStore();
   const { user } = useAuthStore();
 
@@ -260,6 +264,10 @@ export function ChatArea() {
     return <BaitView />;
   }
 
+  if (activeVoiceChannelId && !activeChannel) {
+    return <VoiceView />;
+  }
+
   if (!activeChannel) {
     const noServer = !activeServerId;
     return (
@@ -401,7 +409,11 @@ export function ChatArea() {
       )}
 
       {/* Messages list */}
-      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto py-4">
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto py-4 relative">
+        <pre
+          aria-hidden
+          className="absolute inset-0 overflow-hidden pointer-events-none select-none font-mono text-xs leading-5 text-white opacity-[0.07] whitespace-pre"
+        >{ASCII_BG}</pre>
         {isLoadingMore && (
           <div className="flex items-center justify-center py-2 text-xs text-[var(--text-muted)] font-mono">
             <span className="cursor-blink mr-1">$</span> loading older messages...

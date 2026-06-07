@@ -54,6 +54,7 @@ function MembersView() {
   const { presence, presenceLastSeen, friends, sendFriendRequest, removeFriend } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
+  const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [onlineOpen, setOnlineOpen] = useState(true);
   const [offlineOpen, setOfflineOpen] = useState(true);
@@ -74,8 +75,6 @@ function MembersView() {
 
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
   const serverRoles = activeServerId ? (roles[activeServerId] ?? []) : [];
-
-  const { t } = useI18n();
   const serverMembers: ServerMember[] = activeServerId ? (members[activeServerId] ?? []) : [];
   const query = search.toLowerCase().trim();
 
@@ -222,7 +221,7 @@ function MembersView() {
           <div
             ref={ctxMenuRef}
             style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
-            className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] shadow-xl py-1 text-xs"
+            className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
           >
             <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border)] truncate font-medium">
               @{username}
@@ -231,47 +230,47 @@ function MembersView() {
             {/* View Profile — placeholder */}
             <button
               disabled
-              className="w-full flex items-center gap-2 px-3 py-2 text-[var(--text-muted)] opacity-40 cursor-not-allowed"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-muted)] opacity-40 cursor-not-allowed"
             >
               <User className="w-3.5 h-3.5 flex-shrink-0" />
-              Просмотр профиля
+              {t("member.ctx.viewProfile")}
             </button>
 
             {/* Add / Remove friend */}
             {friendship ? (
               <button
                 onClick={() => { void removeFriend(friendship.id); close(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
               >
                 <UserMinus className="w-3.5 h-3.5 flex-shrink-0" />
-                Удалить из друзей
+                {t("member.ctx.removeFriend")}
               </button>
             ) : (
               <button
                 onClick={() => { if (user && m.user?.username) void sendFriendRequest(m.user.username, user.id); close(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
               >
                 <UserPlus className="w-3.5 h-3.5 flex-shrink-0" />
-                Добавить в друзья
+                {t("member.ctx.addFriend")}
               </button>
             )}
 
             {/* Message */}
             <button
               onClick={() => { if (user) void openDM(user.id, m.userId); close(); }}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
             >
               <MessageCircle className="w-3.5 h-3.5 flex-shrink-0" />
-              Написать
+              {t("member.ctx.message")}
             </button>
 
             {/* Call */}
             <button
               onClick={() => { void callUser(m.userId, username); close(); }}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
             >
               <Phone className="w-3.5 h-3.5 flex-shrink-0" />
-              Позвонить
+              {t("member.ctx.call")}
             </button>
 
             {/* Mention */}
@@ -280,10 +279,10 @@ function MembersView() {
                 window.dispatchEvent(new CustomEvent("blok:mention-user", { detail: m.user?.username ?? username }));
                 close();
               }}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
             >
               <AtSign className="w-3.5 h-3.5 flex-shrink-0" />
-              Упомянуть
+              {t("member.ctx.mention")}
             </button>
 
             {/* Invite to server */}
@@ -295,10 +294,10 @@ function MembersView() {
                   });
                   close();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
               >
                 <Link2 className="w-3.5 h-3.5 flex-shrink-0" />
-                Пригласить на сервер
+                {t("member.ctx.inviteToServer")}
               </button>
             )}
 
@@ -308,10 +307,10 @@ function MembersView() {
                 <div className="my-1 border-t border-[var(--border)]" />
                 <button
                   onClick={() => { if (activeServerId) void kickMember(m.id, activeServerId); close(); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
                 >
                   <UserX className="w-3.5 h-3.5 flex-shrink-0" />
-                  Кикнуть
+                  {t("member.ctx.kick")}
                 </button>
               </>
             )}

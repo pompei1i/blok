@@ -2,18 +2,22 @@ import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
-const TENOR_KEY = import.meta.env.VITE_TENOR_API_KEY as string | undefined;
-const TENOR_BASE = "https://api.tenor.com/v1";
+const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY as string | undefined;
+const GIPHY_BASE = "https://api.giphy.com/v1/gifs";
 
-interface TenorMedia {
-  gif?: { url: string };
-  tinygif?: { url: string };
-  nanogif?: { url: string };
+interface GiphyImage {
+  url: string;
+  width: string;
+  height: string;
 }
 
-interface TenorResult {
+interface GiphyResult {
   id: string;
-  media: TenorMedia[];
+  images: {
+    fixed_width: GiphyImage;
+    fixed_width_downsampled?: GiphyImage;
+    original: GiphyImage;
+  };
 }
 
 interface GifPickerProps {
@@ -24,14 +28,14 @@ interface GifPickerProps {
 export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
-  const [gifs, setGifs] = useState<TenorResult[]>([]);
+  const [gifs, setGifs] = useState<GiphyResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchGifs = async (q: string) => {
-    if (!TENOR_KEY) {
-      setError("Set VITE_TENOR_API_KEY in desktop/.env");
+    if (!GIPHY_KEY) {
+      setError("Set VITE_GIPHY_API_KEY in desktop/.env");
       setLoading(false);
       return;
     }
@@ -39,12 +43,12 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
     setError(null);
     try {
       const endpoint = q.trim()
-        ? `${TENOR_BASE}/search?q=${encodeURIComponent(q)}&key=${TENOR_KEY}&limit=24&media_filter=minimal`
-        : `${TENOR_BASE}/trending?key=${TENOR_KEY}&limit=24&media_filter=minimal`;
+        ? `${GIPHY_BASE}/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=24&rating=g`
+        : `${GIPHY_BASE}/trending?api_key=${GIPHY_KEY}&limit=24&rating=g`;
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
-      setGifs(data.results ?? []);
+      setGifs(data.data ?? []);
     } catch (e) {
       setError(String(e));
       setGifs([]);
@@ -96,15 +100,8 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
         ) : (
           <div className="columns-2 gap-1 space-y-1">
             {gifs.map((gif) => {
-              const formats = gif.media[0];
-              const thumb =
-                formats?.nanogif?.url ??
-                formats?.tinygif?.url ??
-                formats?.gif?.url;
-              const full =
-                formats?.gif?.url ??
-                formats?.tinygif?.url;
-              if (!thumb || !full) return null;
+              const thumb = gif.images.fixed_width_downsampled?.url ?? gif.images.fixed_width.url;
+              const full = gif.images.original.url;
               return (
                 <img
                   key={gif.id}
@@ -125,7 +122,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
       </div>
 
       <div className="px-2 py-1 border-t border-[var(--border)]">
-        <span className="text-[10px] text-[var(--text-muted)]">Powered by Tenor</span>
+        <span className="text-[10px] text-[var(--text-muted)]">Powered by GIPHY</span>
       </div>
     </div>
   );

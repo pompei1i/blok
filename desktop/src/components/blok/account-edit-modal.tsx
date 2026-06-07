@@ -109,7 +109,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  type: "success" | "error";
  text: string;
  } | null>(null);
- const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+ const [settingsMessage, setSettingsMessage] = useState(false);
  const [isApplyingSettings, setIsApplyingSettings] = useState(false);
  const { available: updateAvailable, version: updateVersion, installing: updateInstalling, installUpdate } = useUpdater();
  const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -139,7 +139,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  language,
  customCss,
  });
- setSettingsMessage(null);
+ setSettingsMessage(false);
  }, [
  isOpen,
  previewVideo,
@@ -283,7 +283,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
 
  const handleApplySettings = async () => {
  setIsApplyingSettings(true);
- setSettingsMessage(null);
+ setSettingsMessage(false);
  (
  Object.entries(draftSettings) as Array<
  [keyof SettingsDraft, SettingsDraft[keyof SettingsDraft]]
@@ -292,7 +292,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  setSetting(key, value);
  });
  await new Promise((resolve) => setTimeout(resolve, 150));
- setSettingsMessage(t("settings.applied"));
+ setSettingsMessage(true);
  setIsApplyingSettings(false);
  };
 
@@ -986,7 +986,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </span>
  <div className="flex items-center gap-3">
  {settingsMessage && (
- <span className="text-xs text-[var(--online)] font-mono">[✓] {settingsMessage}</span>
+ <span className="text-xs text-[var(--online)] font-mono">[✓] {t("settings.applied")}</span>
  )}
  <button
  type="button"

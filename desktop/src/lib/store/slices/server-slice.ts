@@ -40,6 +40,8 @@ export interface ServerSlice {
   userProfileCache: Record<string, User>;
   memberUserIndex: Record<string, { serverId: string; memberId: string }[]>;
   openTabs: string[];
+  serverAccessOrder: string[];
+  lastChannelPerServer: Record<string, string>;
   unreadCounts: Record<string, number>;
 
   initData: (userId: string) => Promise<void>;
@@ -48,6 +50,8 @@ export interface ServerSlice {
   createServer: (data: { name: string; description?: string; ownerId: string }) => Promise<void>;
   createChannel: (data: { serverId: string; name: string; type: "text" | "voice"; categoryId?: string }) => Promise<void>;
   deleteChannel: (channelId: string) => Promise<void>;
+  renameChannel: (channelId: string, name: string) => Promise<void>;
+  renameServer: (serverId: string, name: string) => Promise<void>;
   removeServer: (serverId: string) => void;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
   generateInviteCode: (serverId: string, opts?: { expiresAt?: string | null; maxUses?: number | null }) => Promise<string | null>;
@@ -61,6 +65,7 @@ export interface ServerSlice {
   deleteRole: (roleId: string, serverId: string) => Promise<void>;
   assignRole: (memberId: string, serverId: string, roleId: string | null) => Promise<void>;
   kickMember: (memberId: string, serverId: string) => Promise<void>;
+  updateServerIcon: (serverId: string, iconUrl: string | null) => Promise<void>;
   // Search
   searchUsers: (serverId: string, query: string) => User[];
   searchChannels: (serverId: string, query: string) => Channel[];
@@ -79,6 +84,8 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   userProfileCache: {},
   memberUserIndex: {},
   openTabs: [],
+  serverAccessOrder: [],
+  lastChannelPerServer: {},
   unreadCounts: {},
 
   initData: async (_userId) => {
@@ -153,19 +160,27 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         });
       });
 
-      const firstServer = servers[0] ?? null;
-      const firstServerChannels = firstServer ? (channelsMap[firstServer.id] ?? []) : [];
-      const firstTextChannel = firstServerChannels.find((c) => c.type === "text") ?? firstServerChannels[0] ?? null;
+      const validServerIds = new Set(servers.map((s) => s.id));
+      const prevTabs = get().openTabs.filter((id) => validServerIds.has(id));
+      const prevActiveId = get().activeServerId;
+      const restoredActiveId = prevActiveId && validServerIds.has(prevActiveId) ? prevActiveId : (prevTabs[0] ?? null);
+      const restoredChannels = restoredActiveId ? (channelsMap[restoredActiveId] ?? []) : [];
+      const prevLastChannel = restoredActiveId ? get().lastChannelPerServer[restoredActiveId] : null;
+      const restoredChannel = prevLastChannel
+        ? restoredChannels.find((c) => c.id === prevLastChannel)
+        : null;
+      const fallbackChannel = restoredChannels.find((c) => c.type === "text") ?? restoredChannels[0] ?? null;
+      const targetChannel = restoredChannel ?? fallbackChannel;
 
       set({
         servers, categories: categoriesMap, channels: channelsMap, channelIndex,
         members: membersMap, roles: rolesMap, userProfileCache, memberUserIndex,
-        activeServerId: firstServer?.id ?? null,
-        activeChannelId: firstTextChannel?.id ?? null,
-        openTabs: servers.map((s) => s.id),
+        openTabs: prevTabs,
+        activeServerId: restoredActiveId,
+        activeChannelId: targetChannel?.id ?? null,
       });
 
-      if (firstTextChannel) void get().loadMessages(firstTextChannel.id);
+      if (targetChannel) void get().loadMessages(targetChannel.id);
 
       set({ _currentUserId: _userId });
       get().initMessageRealtime(_userId);
@@ -248,6 +263,28 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
             };
             set((state) => ({ servers: [...state.servers, newServer], openTabs: [...state.openTabs, newServer.id] }));
           }
+        ).on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "servers" },
+          (payload) => {
+            const s = payload.new;
+            set((state) => ({
+              servers: state.servers.map((srv) =>
+                srv.id === s.id
+                  ? {
+                      ...srv,
+                      name: s.name,
+                      iconUrl: s.icon_url ?? undefined,
+                      description: s.description,
+                      inviteCode: s.invite_code,
+                      inviteExpiresAt: s.invite_expires_at ?? null,
+                      inviteMaxUses: s.invite_max_uses ?? null,
+                      inviteUsedCount: s.invite_used_count ?? 0,
+                    }
+                  : srv
+              ),
+            }));
+          }
         ).subscribe()
       );
 
@@ -291,10 +328,14 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
               type: c.type, topic: c.topic, position: c.position,
               isPrivate: c.is_private, createdAt: c.created_at,
             };
-            set((state) => ({
-              channels: { ...state.channels, [c.server_id]: [...(state.channels[c.server_id] || []), newChannel].sort((a, b) => a.position - b.position) },
-              channelIndex: { ...state.channelIndex, [newChannel.id]: newChannel },
-            }));
+            set((state) => {
+              const existing = state.channels[c.server_id] || [];
+              if (existing.some((ch) => ch.id === c.id)) return {};
+              return {
+                channels: { ...state.channels, [c.server_id]: [...existing, newChannel].sort((a, b) => a.position - b.position) },
+                channelIndex: { ...state.channelIndex, [newChannel.id]: newChannel },
+              };
+            });
           }
         ).subscribe()
       );
@@ -316,19 +357,30 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   setActiveServer: (serverId) => {
-    const channels = serverId ? get().channels[serverId] ?? [] : [];
-    const firstTextChannel = channels.find((c) => c.type === "text") ?? channels[0] ?? null;
-    set((state) => ({
+    const state = get();
+    const serverChannels = serverId ? state.channels[serverId] ?? [] : [];
+    const lastChannel = serverId ? state.lastChannelPerServer[serverId] : null;
+    const restored = lastChannel ? serverChannels.find((c) => c.id === lastChannel) : null;
+    const fallback = serverChannels.find((c) => c.type === "text") ?? serverChannels[0] ?? null;
+    const target = restored ?? fallback;
+    set((s) => ({
       activeServerId: serverId,
-      activeChannelId: firstTextChannel?.id ?? null,
-      unreadCounts: firstTextChannel ? { ...state.unreadCounts, [firstTextChannel.id]: 0 } : state.unreadCounts,
+      activeChannelId: target?.id ?? null,
+      unreadCounts: target ? { ...s.unreadCounts, [target.id]: 0 } : s.unreadCounts,
+      serverAccessOrder: serverId
+        ? [serverId, ...s.serverAccessOrder.filter((id) => id !== serverId)]
+        : s.serverAccessOrder,
     }));
-    if (firstTextChannel) void get().loadMessages(firstTextChannel.id);
+    if (target) void get().loadMessages(target.id);
   },
 
   setActiveChannel: (channelId) => {
+    const { activeServerId } = get();
     set((state) => ({
       activeChannelId: channelId,
+      lastChannelPerServer: activeServerId && channelId
+        ? { ...state.lastChannelPerServer, [activeServerId]: channelId }
+        : state.lastChannelPerServer,
       unreadCounts: channelId ? { ...state.unreadCounts, [channelId]: 0 } : state.unreadCounts,
     }));
     if (channelId) void get().loadMessages(channelId);
@@ -339,20 +391,9 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       .from("servers").insert({ name: data.name, description: data.description, owner_id: data.ownerId })
       .select().single();
     if (error) { console.error("Create server failed", error); throw error; }
-    const { data: channelResult } = await supabase
-      .from("channels").insert({ server_id: serverResult.id, name: "general", type: "text", position: 0 })
-      .select().single();
-    if (channelResult) {
-      const newChannel: Channel = {
-        id: channelResult.id, serverId: channelResult.server_id, categoryId: channelResult.category_id,
-        name: channelResult.name, type: channelResult.type, topic: channelResult.topic,
-        position: channelResult.position, isPrivate: channelResult.is_private, createdAt: channelResult.created_at,
-      };
-      set((state) => ({
-        channels: { ...state.channels, [serverResult.id]: [newChannel] },
-        channelIndex: { ...state.channelIndex, [newChannel.id]: newChannel },
-      }));
-    }
+    await supabase
+      .from("channels").insert({ server_id: serverResult.id, name: "general", type: "text", position: 0 });
+    // State update handled by the realtime INSERT subscription to avoid duplicates.
   },
 
   createChannel: async (data) => {
@@ -366,9 +407,33 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   deleteChannel: async (channelId) => {
-    const { error } = await supabase.from("channels").delete().eq("id", channelId);
+    const { error } = await supabase.rpc("delete_channel_cascade", { p_channel_id: channelId });
     if (error) { console.error("Delete channel failed", error); return; }
     set((state) => removeChannelFromState(state, channelId));
+  },
+
+  renameChannel: async (channelId, name) => {
+    const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
+    if (!trimmed) return;
+    const { error } = await supabase.rpc("rename_channel", { p_channel_id: channelId, p_name: trimmed });
+    if (error) { console.error("Rename channel failed", error); return; }
+    set((state) => {
+      const updated = { ...state.channels };
+      for (const sid of Object.keys(updated)) {
+        updated[sid] = updated[sid].map((c) => c.id === channelId ? { ...c, name: trimmed } : c);
+      }
+      return { channels: updated };
+    });
+  },
+
+  renameServer: async (serverId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { error } = await supabase.rpc("rename_server", { p_server_id: serverId, p_name: trimmed });
+    if (error) { console.error("Rename server failed", error); return; }
+    set((state) => ({
+      servers: state.servers.map((s) => s.id === serverId ? { ...s, name: trimmed } : s),
+    }));
   },
 
   removeServer: (serverId) =>
@@ -595,6 +660,17 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
           m.id === memberId ? { ...m, roleId: roleId ?? undefined } : m
         ),
       },
+    }));
+  },
+
+  updateServerIcon: async (serverId, iconUrl) => {
+    const { error } = await supabase.rpc("update_server_icon", {
+      p_server_id: serverId,
+      p_icon_url: iconUrl,
+    });
+    if (error) { console.error("updateServerIcon failed", error); throw error; }
+    set((s) => ({
+      servers: s.servers.map((srv) => srv.id === serverId ? { ...srv, iconUrl: iconUrl ?? undefined } : srv),
     }));
   },
 

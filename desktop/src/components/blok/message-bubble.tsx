@@ -171,6 +171,8 @@ export function MessageBubble({
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const showMenu = menuPos !== null;
   const [showQuickEmoji, setShowQuickEmoji] = useState(false);
+  const [quickEmojiPos, setQuickEmojiPos] = useState<{ x: number; y: number } | null>(null);
+  const quickEmojiRef = useRef<HTMLDivElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
@@ -234,6 +236,23 @@ export function MessageBubble({
       document.removeEventListener("keydown", onKey);
     };
   }, [showMenu]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!showQuickEmoji) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (quickEmojiRef.current && !quickEmojiRef.current.contains(e.target as Node)) {
+        setShowQuickEmoji(false);
+        setQuickEmojiPos(null);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setShowQuickEmoji(false); setQuickEmojiPos(null); } };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showQuickEmoji]);
 
   const handleCopy = () => {
     if (message.content) void navigator.clipboard.writeText(message.content);
@@ -564,32 +583,25 @@ export function MessageBubble({
 
       <div
         ref={menuRef}
-        className="relative flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity self-start mt-1"
+        className={cn(
+          "relative flex items-center gap-0.5 transition-opacity self-start mt-1",
+          showQuickEmoji ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+        )}
       >
         {onReact && (
           <div className="relative">
             <button
-              onClick={() => { setShowQuickEmoji((v) => !v); closeMenu(); }}
+              onClick={(e) => {
+                if (showQuickEmoji) { setShowQuickEmoji(false); setQuickEmojiPos(null); return; }
+                const r = e.currentTarget.getBoundingClientRect();
+                setQuickEmojiPos({ x: r.right, y: r.bottom + 4 });
+                setShowQuickEmoji(true);
+                closeMenu();
+              }}
               className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
             >
               <Smile className="w-4 h-4 text-[var(--text-muted)]" />
             </button>
-            {showQuickEmoji && (
-              <div className={cn(
-                "absolute right-0 flex gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl p-1 z-50",
-                "top-full mt-1",
-              )}>
-                {QUICK_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    onClick={() => { onReact(emoji); setShowQuickEmoji(false); }}
-                    className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-base transition-colors"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         )}
         <button
@@ -629,14 +641,15 @@ export function MessageBubble({
             <button
               onClick={() => {
                 const { openTab, sendMessage, apiKey } = useBaitStore.getState();
-                if (!apiKey) return;
+                const resolvedKey = apiKey || (import.meta.env.VITE_BAIT_DEFAULT_KEY as string) || "";
+                if (!resolvedKey) return;
                 openTab();
                 sendMessage(`Translate this message: "${message.content}"`);
                 closeMenu();
               }}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors text-left"
             >
-              <Languages className="w-3 h-3" /> {t("message.translateBait")}
+              <Languages className="w-3 h-3 flex-shrink-0" /> {t("message.translateBait")}
             </button>
           )}
           {onPin && (
@@ -667,6 +680,24 @@ export function MessageBubble({
               </button>
             </>
           )}
+        </div>,
+        document.body
+      )}
+      {showQuickEmoji && quickEmojiPos && createPortal(
+        <div
+          ref={quickEmojiRef}
+          style={{ position: "fixed", left: quickEmojiPos.x, top: quickEmojiPos.y, zIndex: 9999, transform: "translateX(-100%)" }}
+          className="flex gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl p-1"
+        >
+          {QUICK_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => { onReact?.(emoji); setShowQuickEmoji(false); setQuickEmojiPos(null); }}
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-base transition-colors"
+            >
+              {emoji}
+            </button>
+          ))}
         </div>,
         document.body
       )}

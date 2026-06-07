@@ -102,6 +102,23 @@ export const BAIT_TOOLS: Anthropic.Tool[] = [
     description: "Retrieve the list of members currently in the active server.",
     input_schema: { type: "object" as const, properties: {}, required: [] },
   },
+  {
+    name: "list_roles",
+    description: "List all roles available in the active server. Use this before assign_role to know valid role names and IDs.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "assign_role",
+    description: "Assign a role to a server member, or remove their role by passing null. Use list_roles first to get role IDs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        username: { type: "string", description: "Username of the member to assign the role to" },
+        role_id: { type: ["string", "null"], description: "Role ID to assign, or null to remove the current role" },
+      },
+      required: ["username", "role_id"],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -193,6 +210,39 @@ export async function executeTool(
         content: `Members (${serverMembers.length}): ${names}`,
         label: `✓ ${serverMembers.length} members`,
       };
+    }
+
+    case "list_roles": {
+      if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      const roles = useServerStore.getState().roles[ctx.serverId] ?? [];
+      if (roles.length === 0) return { content: "No roles in this server.", label: "✓ no roles" };
+      const list = roles.map((r) => `${r.name} (id: ${r.id})`).join("\n");
+      return { content: `Roles:\n${list}`, label: `✓ ${roles.length} roles` };
+    }
+
+    case "assign_role": {
+      if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      const username = input.username as string;
+      const roleId = (input.role_id as string | null) ?? null;
+      const state = useServerStore.getState();
+      const serverMembers = state.members[ctx.serverId] ?? [];
+      const member = serverMembers.find(
+        (m) => m.user?.username === username || m.user?.displayName === username,
+      );
+      if (!member) return { content: `Member "${username}" not found.`, label: "✗ member not found" };
+      if (roleId !== null) {
+        const roles = state.roles[ctx.serverId] ?? [];
+        const role = roles.find((r) => r.id === roleId);
+        if (!role) return { content: `Role ID "${roleId}" not found.`, label: "✗ role not found" };
+      }
+      await state.assignRole(member.id, ctx.serverId, roleId);
+      const label = roleId
+        ? `✓ role assigned to ${username}`
+        : `✓ role removed from ${username}`;
+      const content = roleId
+        ? `Role assigned to ${username}.`
+        : `Role removed from ${username}.`;
+      return { content, label };
     }
 
     default:

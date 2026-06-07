@@ -6,6 +6,7 @@ import {
   MicOff,
   VolumeX,
   Monitor,
+  Video,
   UserPlus,
   Trash2,
   X,
@@ -44,6 +45,11 @@ export function GroupSidebar() {
     locallyMuted,
     setUserVolume,
     setLocalMute,
+    isCameraOn,
+    cameraUsers,
+    updateServerIcon,
+    renameChannel,
+    renameServer,
   } = useServerStore();
   const { user } = useAuthStore();
   const [expandedSections, setExpandedSections] = useState({
@@ -70,12 +76,41 @@ export function GroupSidebar() {
     : null;
   const roleCtx = { userId: user?.id, server: activeServer ?? null, role: myRole };
 
-  const canManage = can("manage_server", roleCtx);
+  const canManage       = can("manage_server",      roleCtx);
+  const canRenameChannel= can("rename_channel",     roleCtx);
+  const canRenameServer = can("rename_server",      roleCtx);
+  const canManageIcon   = can("manage_server_icon", roleCtx);
 
   const [showInviteUser, setShowInviteUser] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeServerId) return;
+    e.target.value = "";
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 256;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      void updateServerIcon(activeServerId, canvas.toDataURL("image/jpeg", 0.85));
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.src = objectUrl;
+  };
+
   const [joiningChannel, setJoiningChannel] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [confirmDeleteChannelId, setConfirmDeleteChannelId] = useState<string | null>(null);
+  const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null);
+  const [renamingServer, setRenamingServer] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const serverRenameInputRef = useRef<HTMLInputElement>(null);
 
   type CtxMenu = { userId: string; name: string; x: number; y: number };
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
@@ -92,22 +127,55 @@ export function GroupSidebar() {
     return () => document.removeEventListener("mousedown", close);
   }, [ctxMenu]);
 
+  useEffect(() => {
+    if (renamingChannelId) renameInputRef.current?.focus();
+  }, [renamingChannelId]);
+
+  useEffect(() => {
+    if (renamingServer) serverRenameInputRef.current?.focus();
+  }, [renamingServer]);
+
+  const commitRename = async () => {
+    if (renamingChannelId && renameValue.trim()) {
+      await renameChannel(renamingChannelId, renameValue);
+    }
+    setRenamingChannelId(null);
+    setRenameValue("");
+  };
+
+  const commitServerRename = async () => {
+    if (activeServerId && renameValue.trim()) {
+      await renameServer(activeServerId, renameValue);
+    }
+    setRenamingServer(false);
+    setRenameValue("");
+  };
+
   const handleVoiceChannelClick = async (channelId: string) => {
     if (!user || joiningChannel) return;
     setVoiceError(null);
     if (activeVoiceChannelId === channelId) {
-      await leaveVoiceChannel();
-      playSound("leave");
+      // Navigate to VoiceView (clear text channel selection)
+      setActiveChannel(null);
     } else {
       setJoiningChannel(channelId);
       try {
         const error = await joinVoiceChannel(channelId, user);
         if (error) setVoiceError(error);
-        else playSound("join");
+        else {
+          playSound("join");
+          setActiveChannel(null);
+        }
       } finally {
         setJoiningChannel(null);
       }
     }
+  };
+
+  const handleLeaveVoice = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await leaveVoiceChannel();
+    playSound("leave");
   };
 
   if (!activeServer) {
@@ -128,14 +196,32 @@ export function GroupSidebar() {
     <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col flex-shrink-0">
       <div className="p-3 border-b border-[var(--border)]">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-sm text-[var(--text-primary)] truncate">
-            <span className="text-[var(--text-muted)] font-normal mr-1">$</span>{activeServer.name}
-          </h2>
+          {renamingServer ? (
+            <input
+              ref={serverRenameInputRef}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); void commitServerRename(); }
+                if (e.key === "Escape") { setRenamingServer(false); setRenameValue(""); }
+              }}
+              onBlur={() => void commitServerRename()}
+              className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-[var(--text-primary)] outline-none border-b border-[var(--accent-red)] mr-2"
+            />
+          ) : (
+            <h2
+              className={cn("font-semibold text-sm text-[var(--text-primary)] truncate", canRenameServer && "cursor-text")}
+              onDoubleClick={canRenameServer ? () => { setRenameValue(activeServer.name); setRenamingServer(true); } : undefined}
+              title={canRenameServer ? "Double-click to rename" : undefined}
+            >
+              <span className="text-[var(--text-muted)] font-normal mr-1">$</span>{activeServer.name}
+            </h2>
+          )}
           <div className="flex items-center gap-1">
             {canManage && (
               <button
                 onClick={() => setShowInviteUser(true)}
-                title="Добавить участника"
+                title={t("invite.addMember")}
                 className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
               >
                 <UserPlus className="w-4 h-4 text-[var(--text-muted)]" />
@@ -158,6 +244,46 @@ export function GroupSidebar() {
             {activeServer.description}
           </p>
         )}
+
+        {/* Server avatar */}
+        <div className="mt-2 border border-[var(--border)]">
+          <div className="px-2 py-0.5 bg-[var(--bg-elevated)] border-b border-[var(--border)] flex items-center justify-between">
+            <span className="text-[10px] font-mono text-[var(--text-muted)]"><span className="opacity-50">$ </span>icon</span>
+            {activeServer.iconUrl && canManageIcon && (
+              <button
+                onClick={() => void updateServerIcon(activeServerId!, null)}
+                className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
+              >
+                [rm]
+              </button>
+            )}
+          </div>
+          <div className="p-2">
+            <div
+              className={cn(
+                "relative w-full aspect-square bg-[var(--bg-base)] border border-[var(--border)] overflow-hidden",
+                canManageIcon && "cursor-pointer group/avatar",
+              )}
+              onClick={canManageIcon ? () => avatarInputRef.current?.click() : undefined}
+            >
+              {activeServer.iconUrl ? (
+                <img src={activeServer.iconUrl} className="w-full h-full object-cover" alt="" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center font-mono text-base text-[var(--text-muted)] select-none">
+                  {activeServer.name.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              {canManageIcon && (
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-[10px] font-mono text-white">[edit]</span>
+                </div>
+              )}
+            </div>
+            {canManageIcon && (
+              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+            )}
+          </div>
+        </div>
       </div>
 
       {voiceError && (
@@ -220,9 +346,29 @@ export function GroupSidebar() {
                         <X className="w-3 h-3" />
                       </button>
                     </div>
+                  ) : renamingChannelId === channel.id ? (
+                    <div className="flex items-center gap-1.5 w-full px-2 py-1.5 border border-[var(--accent-red)]/60 bg-[var(--bg-elevated)]">
+                      <span className="text-[var(--text-muted)] flex-shrink-0 font-mono">#</span>
+                      <input
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); void commitRename(); }
+                          if (e.key === "Escape") { setRenamingChannelId(null); setRenameValue(""); }
+                        }}
+                        onBlur={() => void commitRename()}
+                        className="flex-1 min-w-0 bg-transparent text-sm text-[var(--text-primary)] outline-none font-mono"
+                      />
+                    </div>
                   ) : (
                     <button
                       onClick={() => setActiveChannel(channel.id)}
+                      onDoubleClick={canRenameChannel ? (e) => {
+                        e.preventDefault();
+                        setRenamingChannelId(channel.id);
+                        setRenameValue(channel.name);
+                      } : undefined}
                       className={cn(
                         "flex items-center gap-1.5 w-full px-2 py-1.5 text-sm transition-all duration-150 text-left border",
                         activeChannelId === channel.id
@@ -292,8 +438,29 @@ export function GroupSidebar() {
 
                 return (
                   <div key={channel.id}>
+                    {renamingChannelId === channel.id ? (
+                      <div className="flex items-center gap-1.5 w-full px-2 py-1.5 border border-[var(--online)]/60 bg-[var(--bg-elevated)]">
+                        <span className="flex-shrink-0 font-mono text-xs text-[var(--text-muted)]">♪</span>
+                        <input
+                          ref={renameInputRef}
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); void commitRename(); }
+                            if (e.key === "Escape") { setRenamingChannelId(null); setRenameValue(""); }
+                          }}
+                          onBlur={() => void commitRename()}
+                          className="flex-1 min-w-0 bg-transparent text-sm text-[var(--text-primary)] outline-none font-mono"
+                        />
+                      </div>
+                    ) : (
                     <button
-                      onClick={() => handleVoiceChannelClick(channel.id)}
+                      onClick={() => void handleVoiceChannelClick(channel.id)}
+                      onDoubleClick={canRenameChannel ? (e) => {
+                        e.preventDefault();
+                        setRenamingChannelId(channel.id);
+                        setRenameValue(channel.name);
+                      } : undefined}
                       disabled={joiningChannel === channel.id}
                       className={cn(
                         "flex items-center gap-2 w-full px-2 py-1.5 text-sm transition-all duration-150 border",
@@ -311,9 +478,17 @@ export function GroupSidebar() {
                         <span className="text-[10px] text-[var(--text-muted)] animate-pulse">…</span>
                       )}
                       {isInChannel && !joiningChannel && (
-                        <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
+                        <span
+                          role="button"
+                          onClick={(e) => void handleLeaveVoice(e)}
+                          title="Leave voice"
+                          className="p-0.5 hover:text-[var(--destructive)] transition-colors"
+                        >
+                          <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
+                        </span>
                       )}
                     </button>
+                    )}
 
                     {participants.length > 0 && (
                       <div className="ml-6 mt-1 space-y-1">
@@ -359,6 +534,9 @@ export function GroupSidebar() {
                                   >
                                     <Monitor className="w-3 h-3 text-[var(--online)]" />
                                   </button>
+                                )}
+                                {(participant.userId === user?.id ? isCameraOn : !!cameraUsers[participant.userId]) && (
+                                  <Video className="w-3 h-3 text-[var(--online)]" />
                                 )}
                                 {(participant.isMuted || participant.isDeafened) && (
                                   <MicOff className="w-3 h-3 text-[var(--destructive)]" />
@@ -415,7 +593,7 @@ export function GroupSidebar() {
           {/* Volume slider */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[var(--text-muted)]">Громкость</span>
+              <span className="text-[11px] text-[var(--text-muted)]">{t("voice.ctx.volume")}</span>
               <span className="text-[11px] font-mono text-[var(--text-primary)]">
                 {userVolumes[ctxMenu.userId] ?? 100}%
               </span>
@@ -448,7 +626,7 @@ export function GroupSidebar() {
             )}
           >
             <VolumeX className="w-3.5 h-3.5 flex-shrink-0" />
-            {locallyMuted[ctxMenu.userId] ? "Снять мут" : "Замутить для себя"}
+            {locallyMuted[ctxMenu.userId] ? t("voice.ctx.unmute") : t("voice.ctx.mute")}
           </button>
         </div>,
         document.body,

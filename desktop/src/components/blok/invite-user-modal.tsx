@@ -15,7 +15,6 @@ type Tab = "username" | "code";
 type ExpiryOption = "1d" | "7d" | "never";
 type UsesOption = "1" | "5" | "10" | "unlimited";
 
-const EXPIRY_LABELS: Record<ExpiryOption, string> = { "1d": "1 день", "7d": "7 дней", never: "∞" };
 const USES_LABELS: Record<UsesOption, string> = { "1": "1", "5": "5", "10": "10", unlimited: "∞" };
 
 function expiresAtFromOption(opt: ExpiryOption): string | null {
@@ -32,6 +31,11 @@ function maxUsesFromOption(opt: UsesOption): number | null {
 export function InviteUserModal({ isOpen, onClose, serverId, serverName }: InviteUserModalProps) {
  const { inviteUser, generateInviteCode, servers } = useServerStore();
  const { t } = useI18n();
+ const expiryLabels: Record<ExpiryOption, string> = {
+   "1d": t("invite.expiry.oneDay"),
+   "7d": t("invite.expiry.sevenDays"),
+   never: "∞",
+ };
  const [tab, setTab] = useState<Tab>("username");
  const [username, setUsername] = useState("");
  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -56,7 +60,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  setMessage(error);
  } else {
  setStatus("success");
- setMessage(`@${username.trim()} добавлен на сервер`);
+ setMessage(t("invite.addedToServer").replace("{username}", username.trim()));
  setUsername("");
  }
  };
@@ -96,16 +100,18 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
 
  const expiryLabel = (() => {
  if (!inviteCode) return null;
- if (isExpired) return "истёк";
+ if (isExpired) return t("invite.codeExpired");
  if (!server?.inviteExpiresAt) return null;
  const diff = new Date(server.inviteExpiresAt).getTime() - Date.now();
  const days = Math.ceil(diff / 86_400_000);
- return `истекает через ${days} д.`;
+ return t("invite.expiresInDays").replace("{days}", String(days));
  })();
 
  const usesLabel =
  server?.inviteMaxUses != null
- ? `${server.inviteUsedCount ?? 0} / ${server.inviteMaxUses} использований`
+ ? t("invite.usesCount")
+     .replace("{used}", String(server.inviteUsedCount ?? 0))
+     .replace("{max}", String(server.inviteMaxUses))
  : null;
 
  return (
@@ -115,7 +121,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  <div className="flex items-center gap-2">
  <UserPlus className="w-4 h-4 text-[var(--accent-red)]" />
  <span className="font-semibold text-sm text-[var(--text-primary)]">
- Добавить участника
+ {t("invite.addMember")}
  </span>
  </div>
  <button
@@ -174,7 +180,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  if (status !== "idle") { setStatus("idle"); setMessage(""); }
  }}
  onKeyDown={handleKeyDown}
- placeholder="введи username..."
+ placeholder={t("addFriend.enterUsername")}
  className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
  />
  </div>
@@ -200,7 +206,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  onClick={handleClose}
  className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
  >
- Отмена
+ {t("roles.cancel")}
  </button>
  <button
  onClick={handleInvite}
@@ -212,7 +218,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  : "bg-[var(--bg-elevated)] text-[var(--text-muted)] cursor-not-allowed"
  )}
  >
- {status === "loading" ? "Добавление..." : "Добавить"}
+ {status === "loading" ? t("invite.adding") : t("invite.addUser")}
  </button>
  </div>
  </>
@@ -268,14 +274,14 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  )}
  </div>
  ) : (
- <p className="text-xs text-[var(--text-muted)] px-1">Код отсутствует.</p>
+ <p className="text-xs text-[var(--text-muted)] px-1">{t("invite.noCode")}</p>
  )}
  </div>
 
  {/* TTL selector */}
  <div className="space-y-1.5">
  <label className="flex items-center gap-1 text-xs text-[var(--text-muted)] uppercase tracking-wider">
- <Clock className="w-3 h-3" /> Срок действия
+ <Clock className="w-3 h-3" /> {t("invite.expiry")}
  </label>
  <div className="flex gap-1.5">
  {(["1d", "7d", "never"] as ExpiryOption[]).map((opt) => (
@@ -289,7 +295,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  : "border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
  )}
  >
- {EXPIRY_LABELS[opt]}
+ {expiryLabels[opt]}
  </button>
  ))}
  </div>
@@ -298,7 +304,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  {/* Max uses selector */}
  <div className="space-y-1.5">
  <label className="flex items-center gap-1 text-xs text-[var(--text-muted)] uppercase tracking-wider">
- <Users className="w-3 h-3" /> Макс. использований
+ <Users className="w-3 h-3" /> {t("invite.maxUses")}
  </label>
  <div className="flex gap-1.5">
  {(["1", "5", "10", "unlimited"] as UsesOption[]).map((opt) => (
@@ -331,7 +337,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  onClick={handleClose}
  className="w-full px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
  >
- Закрыть
+ {t("invite.close")}
  </button>
  </>
  )}

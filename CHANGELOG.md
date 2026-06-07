@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.2] — 2026-06-07
+
+### Added
+- **Landing page** — new `landing-page.tsx` component: intro, feature highlights, CTA.
+- **Voice view** — new `voice-view.tsx` component for voice channel UI.
+- **Database migrations** — channel delete cascade + server icon support, renamed permission fields for clarity.
+
+### Fixed
+- Permission inheritance and rendering in various components.
+- GIF picker, invite modal, role manager modal updates.
+- Store slices refinement (message, server slices).
+
+### Changed
+- **Bait tools** — updated tools configuration for v0.9.2.
+- **Full component refresh** — `App.tsx`, `message-bubble.tsx`, `chat-area.tsx`, `video-call-overlay.tsx`, `top-bar.tsx`, `group-sidebar.tsx`, `right-sidebar.tsx`, `account-edit-modal.tsx`.
+- **Localization** — all 6 locales updated (EN/RU/UK/PL/DE/ES) with new UI strings.
+
+---
+
+## [0.9.1] — 2026-06-06
+
+### Added
+- **Full i18n pass** — 83 new translation keys across all 6 locales (EN/RU/UK/PL/DE/ES): message context menu (Reply, Pin/Unpin, Translate with b.ai.t), message UI strings (attachment, deletedOriginal, announcement, editHint), search tabs/hints/time formatting/placeholders, full `RoleManagerModal` (PERM_LABELS via `TranslationKey`), camera/mic/audio device labels, settings theme/CSS labels. `bait.description` translated in all non-EN locales. `search.noResults` made generic.
+
+### Fixed
+- **Architecture refinements** — `_currentUserId` moved from module-level into Zustand `ServerSlice`; `joinByInviteCode` optimized to targeted 4-query fetch; `MessageRow` interface added for type safety; `userVolumes`/`locallyMuted` state preservation; atomic `toggleMute`/`toggleDeafen`/`toggleScreenShare`; `deleteMessage` optimistic rollback; `removeChannelFromState` DRY helper.
+
+---
+
 ## [0.9.0] — 2026-06-05
 
 ### Added

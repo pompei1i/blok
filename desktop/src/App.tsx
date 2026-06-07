@@ -8,7 +8,6 @@ import { getActiveNativeVoiceEngine } from "./lib/native-voice-engine";
 import { requestNotificationPermission } from "./lib/notifications";
 import { AuthScreen } from "./components/blok/auth-screen";
 import { AppLayout } from "./components/blok/app-layout";
-import { LandingPage } from "./components/blok/landing-page";
 import { useUiSettingsStore } from "./lib/store/ui-settings-store";
 import { UpdateBanner } from "./components/blok/update-banner";
 
@@ -17,7 +16,7 @@ function App() {
   const { uiScale, compactMode, themeMode, customCss, pushToTalk, inputVolume } = useUiSettingsStore();
   const { isMuted, toggleMute } = useServerStore();
   const [audioError, setAudioError] = useState<string | null>(null);
-  const [showAuth, setShowAuth] = useState(false);
+
 
   useEffect(() => {
     void init();
@@ -118,8 +117,7 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    if (showAuth) return <AuthScreen />;
-    return <LandingPage onSignIn={() => setShowAuth(true)} />;
+    return <AuthScreen />;
   }
 
   return (

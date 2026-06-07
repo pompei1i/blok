@@ -49,6 +49,21 @@
 
 _(none queued)_
 
+## Done (v0.9.2)
+
+- [x] **Landing page** — new `landing-page.tsx` component with intro, feature highlights, CTA.
+- [x] **Voice view** — new `voice-view.tsx` component for dedicated voice channel UI.
+- [x] **Database migrations** — channel delete cascade support + server icon support; permission field names renamed for clarity (`PERM_*` constants updated).
+- [x] **Component refresh** — full pass on App.tsx, chat-area, message-bubble, video-call-overlay, top-bar, group-sidebar, right-sidebar, account-edit-modal, role-manager-modal, gif-picker, invite-user-modal.
+- [x] **Store refinement** — message-slice and server-slice optimizations; bait-tools v0.9.2 config.
+- [x] **Localization complete** — all 6 locales synced with new UI strings.
+
+## Done (v0.9.1)
+
+- [x] **Arch fixes** — `_currentUserId` moved from module-level `_shared.ts` into Zustand `ServerSlice` (fixes HMR stale state, test isolation, logout race); `joinByInviteCode` no longer calls full `initData()` — targeted 4-query fetch instead (no UI flicker, realtime stays alive); `mapMessageRow(any)` → typed `MessageRow` interface; `userVolumes`/`locallyMuted` preserved on `leaveVoiceChannel`; `toggleMute`/`toggleDeafen`/`toggleScreenShare` use atomic single `set()`; `deleteMessage` has optimistic rollback; `removeChannelFromState` DRY helper.
+- [x] **Full i18n pass** — 83 new translation keys across all 6 locales (EN/RU/UK/PL/DE/ES): message context menu (Reply, Pin/Unpin, Translate with b.ai.t), message UI strings (attachment, deletedOriginal, announcement, editHint), search tabs/hints/time formatting/placeholders, full `RoleManagerModal` (PERM_LABELS via `TranslationKey`), camera/mic/audio device labels, settings theme/CSS labels. `bait.description` translated in all non-EN locales. `search.noResults` made generic.
+- [x] Tests: 327 JS.
+
 ## Done (v0.9.0)
 
 - [x] **Arch fixes** — `_currentUserId` moved from module-level `_shared.ts` into Zustand `ServerSlice` (fixes HMR stale state, test isolation, logout race); `joinByInviteCode` no longer calls full `initData()` — targeted 4-query fetch instead (no UI flicker, realtime stays alive); `mapMessageRow(any)` → typed `MessageRow` interface; `userVolumes`/`locallyMuted` preserved on `leaveVoiceChannel`; `toggleMute`/`toggleDeafen`/`toggleScreenShare` use atomic single `set()`; `deleteMessage` has optimistic rollback; `removeChannelFromState` DRY helper.

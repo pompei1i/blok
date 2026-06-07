@@ -18,11 +18,14 @@ interface RoleManagerModalProps {
 type Tab = "roles" | "members";
 
 const PERM_LABELS: { flag: number; labelKey: TranslationKey }[] = [
-  { flag: Perm.INVITE_MEMBER,  labelKey: "roles.perm.inviteMembers" },
-  { flag: Perm.CREATE_CHANNEL, labelKey: "roles.perm.createChannels" },
-  { flag: Perm.DELETE_CHANNEL, labelKey: "roles.perm.deleteChannels" },
-  { flag: Perm.MANAGE_SERVER,  labelKey: "roles.perm.manageServer" },
-  { flag: Perm.MANAGE_ROLES,   labelKey: "roles.perm.manageRoles" },
+  { flag: Perm.INVITE_MEMBER,      labelKey: "roles.perm.inviteMembers" },
+  { flag: Perm.CREATE_CHANNEL,     labelKey: "roles.perm.createChannels" },
+  { flag: Perm.DELETE_CHANNEL,     labelKey: "roles.perm.deleteChannels" },
+  { flag: Perm.RENAME_CHANNEL,     labelKey: "roles.perm.renameChannels" },
+  { flag: Perm.RENAME_SERVER,      labelKey: "roles.perm.renameServer" },
+  { flag: Perm.MANAGE_SERVER_ICON, labelKey: "roles.perm.manageServerIcon" },
+  { flag: Perm.MANAGE_SERVER,      labelKey: "roles.perm.manageServer" },
+  { flag: Perm.MANAGE_ROLES,       labelKey: "roles.perm.manageRoles" },
 ];
 
 const PRESET_COLORS = [
