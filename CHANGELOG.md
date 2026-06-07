@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.6] — 2026-06-08
+
+### Fixed
+- **CI** — write `VITE_BAIT_DEFAULT_KEY` to `.env` using UTF-8 without BOM (`AppendAllText`); previous `Add-Content` wrote UTF-16 which dotenv silently ignored.
+
+---
+
 ## [0.9.5] — 2026-06-08
 
 ### Fixed
