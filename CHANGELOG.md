@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.7] — 2026-06-08
+
+### Fixed
+- **CI** — `Join-Path` instead of `Resolve-Path` when writing `.env`; `Resolve-Path` throws if the file doesn't exist (`.env` is gitignored).
+
+---
+
 ## [0.9.6] — 2026-06-08
 
 ### Fixed
