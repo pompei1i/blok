@@ -49,6 +49,12 @@
 
 _(none queued)_
 
+## Done (v0.9.0)
+
+- [x] **Arch fixes** — `_currentUserId` moved from module-level `_shared.ts` into Zustand `ServerSlice` (fixes HMR stale state, test isolation, logout race); `joinByInviteCode` no longer calls full `initData()` — targeted 4-query fetch instead (no UI flicker, realtime stays alive); `mapMessageRow(any)` → typed `MessageRow` interface; `userVolumes`/`locallyMuted` preserved on `leaveVoiceChannel`; `toggleMute`/`toggleDeafen`/`toggleScreenShare` use atomic single `set()`; `deleteMessage` has optimistic rollback; `removeChannelFromState` DRY helper.
+- [x] **Full i18n pass** — 83 new translation keys across all 6 locales (EN/RU/UK/PL/DE/ES): message context menu (Reply, Pin/Unpin, Translate with b.ai.t), message UI strings (attachment, deletedOriginal, announcement, editHint), search tabs/hints/time formatting/placeholders, full `RoleManagerModal` (PERM_LABELS via `TranslationKey`), camera/mic/audio device labels, settings theme/CSS labels. `bait.description` translated in all non-EN locales. `search.noResults` made generic.
+- Tests: 327 JS.
+
 ## Done (v0.8.1)
 
 - [x] **Per-user voice volume** — right-click on any non-self participant in the voice channel list → context menu; slider 0–200% (step 5, default 100); applied in `NativeVoiceEngine` by scaling i16 samples before `audio_receive` — no Rust changes required.

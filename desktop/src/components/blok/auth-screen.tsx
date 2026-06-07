@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, Terminal, ChevronRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuthStore } from "../../lib/store/auth-store";
-import { cn } from "../../lib/utils";
 import { useI18n } from "@/lib/i18n";
 
 type AuthMode = "login" | "register";
@@ -23,8 +22,8 @@ export function AuthScreen() {
       });
     };
   }, []);
-  const [showPassword, setShowPassword] = useState(false);
 
+  const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,11 +71,9 @@ export function AuthScreen() {
 
       <div className="flex-1 flex items-center justify-center p-4 relative z-10">
         <div className="w-full max-w-md">
+          {/* Logo */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 mb-4 border-2 border-[var(--border)] rounded-lg bg-[var(--bg-surface)]">
-              <Terminal className="w-8 h-8 text-[var(--text-primary)]" />
-            </div>
-            <h1 className="text-4xl font-bold text-[var(--text-primary)] tracking-tight mb-2">
+            <h1 className="text-4xl font-bold text-[var(--text-primary)] tracking-widest mb-2">
               BLOK
             </h1>
             <p className="text-[var(--text-muted)] text-sm font-mono">
@@ -85,19 +82,21 @@ export function AuthScreen() {
             </p>
           </div>
 
-          <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg overflow-hidden">
+          {/* Card */}
+          <div className="bg-[var(--bg-surface)] border border-[var(--border)]">
+            {/* Terminal title bar */}
             <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-elevated)]">
               <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-[var(--destructive)]" />
-                <div className="w-3 h-3 rounded-full bg-[var(--afk)]" />
-                <div className="w-3 h-3 rounded-full bg-[var(--online)]" />
+                <div className="w-3 h-3 bg-[var(--destructive)]" />
+                <div className="w-3 h-3 bg-[var(--afk)]" />
+                <div className="w-3 h-3 bg-[var(--online)]" />
               </div>
               <span className="text-xs text-[var(--text-muted)] font-mono ml-2">
                 blok@auth:~$ {mode === "login" ? "./login.sh" : "./register.sh"}
               </span>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-5">
               <div className="text-sm text-[var(--text-muted)] font-mono border-l-2 border-[var(--border)] pl-3 mb-6">
                 <span className="text-[var(--text-primary)]">$</span>{" "}
                 {mode === "login"
@@ -106,12 +105,13 @@ export function AuthScreen() {
               </div>
 
               {mode === "register" && (
-                <div className="space-y-2">
-                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium">
+                <div className="space-y-1">
+                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
+                    <span className="text-[var(--text-muted)]">&gt;</span>
                     {t("auth.username")}
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--text-muted)] text-sm pointer-events-none">
                       @
                     </span>
                     <input
@@ -119,15 +119,16 @@ export function AuthScreen() {
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       placeholder="your_username"
-                      className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 pl-8 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors font-mono text-sm"
+                      className="input-terminal pl-4"
                       required
                     />
                   </div>
                 </div>
               )}
 
-              <div className="space-y-2">
-                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium">
+              <div className="space-y-1">
+                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
+                  <span className="text-[var(--text-muted)]">&gt;</span>
                   {t("auth.email")}
                 </label>
                 <input
@@ -135,13 +136,14 @@ export function AuthScreen() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors font-mono text-sm"
+                  className="input-terminal"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium">
+              <div className="space-y-1">
+                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
+                  <span className="text-[var(--text-muted)]">&gt;</span>
                   {t("auth.password")}
                 </label>
                 <div className="relative">
@@ -150,26 +152,23 @@ export function AuthScreen() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 pr-10 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors font-mono text-sm"
+                    className="input-terminal pr-16"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors text-xs font-mono"
                   >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
+                    {showPassword ? "[hide]" : "[show]"}
                   </button>
                 </div>
               </div>
 
               {mode === "register" && (
-                <div className="space-y-2">
-                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium">
+                <div className="space-y-1">
+                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
+                    <span className="text-[var(--text-muted)]">&gt;</span>
                     {t("auth.confirmPassword")}
                   </label>
                   <input
@@ -177,51 +176,37 @@ export function AuthScreen() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors font-mono text-sm"
+                    className="input-terminal"
                     required
                   />
                 </div>
               )}
 
               {displayError && (
-                <div className="p-3 bg-[var(--destructive)]/10 border border-[var(--destructive)]/30 rounded-lg">
-                  <p className="text-sm text-[var(--destructive)] font-mono">
-                    <span className="opacity-60">error:</span> {displayError}
-                  </p>
-                </div>
+                <p className="prefix-error text-sm text-[var(--destructive)] font-mono">
+                  {displayError}
+                </p>
               )}
 
               <button
                 type="submit"
                 disabled={isLoading}
-                className={cn(
-                  "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all",
-                  "bg-[var(--text-primary)] text-[var(--bg-base)] hover:opacity-90",
-                  "disabled:opacity-50 disabled:cursor-not-allowed",
-                )}
+                className="btn-terminal prefix-dollar w-full py-3 font-semibold uppercase tracking-widest border-white/60 mt-2"
               >
                 {isLoading ? (
-                  <>
+                  <span className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>
-                      {mode === "login" ? t("auth.authenticating") : t("auth.creatingAccount")}
-                    </span>
-                  </>
+                    {mode === "login" ? t("auth.authenticating") : t("auth.creatingAccount")}
+                  </span>
                 ) : (
-                  <>
-                    <span>{mode === "login" ? t("auth.login") : t("auth.register")}</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </>
+                  mode === "login" ? t("auth.login") : t("auth.register")
                 )}
               </button>
 
               {mode === "login" && (
-                <div className="text-center p-3 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border)]">
-                  <p className="text-xs text-[var(--text-muted)] font-mono">
-                    <span className="text-[var(--online)]">tip:</span> use demo@blok.app /
-                    demo123
-                  </p>
-                </div>
+                <p className="text-xs text-[var(--text-muted)] font-mono border-l border-[var(--border)] pl-3">
+                  <span className="text-[var(--online)]">tip:</span> use demo@blok.app / demo123
+                </p>
               )}
             </form>
 
@@ -247,4 +232,3 @@ export function AuthScreen() {
     </div>
   );
 }
-

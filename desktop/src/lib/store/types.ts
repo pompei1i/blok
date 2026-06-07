@@ -72,22 +72,24 @@ export interface Poll {
   totalVotes: number;
 }
 
-export interface Message {
+interface BaseMessage {
   id: string;
-  channelId: string;
   authorId: string;
   replyToId?: string;
   content: string;
   isEdited: boolean;
-  isPinned?: boolean;
-  isAnnouncement?: boolean;
   createdAt: string;
   updatedAt: string;
-  poll?: Poll;
-  // Included in joined queries
   author?: User;
   attachments?: Attachment[];
+}
+
+export interface Message extends BaseMessage {
+  channelId: string;
+  isPinned?: boolean;
+  isAnnouncement?: boolean;
   reactions?: Reaction[];
+  poll?: Poll;
 }
 
 export interface DMChannel {
@@ -104,17 +106,8 @@ export interface DMParticipant {
   user?: User;
 }
 
-export interface DMMessage {
-  id: string;
+export interface DMMessage extends BaseMessage {
   dmChannelId: string;
-  authorId: string;
-  replyToId?: string;
-  content: string;
-  isEdited: boolean;
-  createdAt: string;
-  updatedAt: string;
-  author?: User;
-  attachments?: Attachment[];
 }
 
 // Front-end only state for desktop floating windows

@@ -4,7 +4,7 @@ import { mapProfile } from "../../utils";
 import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../../native-voice-engine";
 import type { User, VoiceParticipant } from "../types";
 import type { ServerStore } from "../server-store.shape";
-import { voicePresenceCh, _currentUserId } from "./_shared";
+import { voicePresenceCh } from "./_shared";
 
 export interface VoiceSlice {
   activeVoiceChannelId: string | null;
@@ -113,7 +113,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         }));
       },
       onScreenShareStart: (userId, stream) => {
-        if (userId === _currentUserId) return;
+        if (userId === get()._currentUserId) return;
         set((state) => {
           const next = { ...state.screenSharers, [userId]: stream };
           // Auto-select if nobody is being watched yet
@@ -135,14 +135,14 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         });
       },
       onVideoStart: (userId, stream) => {
-        if (userId === _currentUserId) {
+        if (userId === get()._currentUserId) {
           set({ localCameraStream: stream });
         } else {
           set((state) => ({ cameraUsers: { ...state.cameraUsers, [userId]: stream } }));
         }
       },
       onVideoStop: (userId) => {
-        if (userId === _currentUserId) {
+        if (userId === get()._currentUserId) {
           set({ localCameraStream: null });
         } else {
           set((state) => {
@@ -175,8 +175,9 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
   },
 
   leaveVoiceChannel: async () => {
-    if (_currentUserId) {
-      voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: null, isMuted: false, isDeafened: false, isScreenSharing: false });
+    const currentUserId = get()._currentUserId;
+    if (currentUserId) {
+      voicePresenceCh?.track({ userId: currentUserId, voiceChannelId: null, isMuted: false, isDeafened: false, isScreenSharing: false });
     }
     const engine = getActiveNativeVoiceEngine();
     if (engine) { setActiveNativeVoiceEngine(null); await engine.leave(); }
@@ -192,45 +193,44 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         isCameraOn: false,
         cameraUsers: {},
         localCameraStream: null,
-        userVolumes: {},
-        locallyMuted: {},
+        // userVolumes and locallyMuted intentionally preserved across voice sessions
       };
     });
   },
 
   toggleMute: () => {
     const newMuted = !get().isMuted;
-    set({ isMuted: newMuted });
+    const { activeVoiceChannelId, isDeafened, isScreenSharing, _currentUserId } = get();
     getActiveNativeVoiceEngine()?.setMuted(newMuted);
-    const { activeVoiceChannelId, isDeafened, isScreenSharing } = get();
+    set((state) => ({
+      isMuted: newMuted,
+      voiceParticipants: activeVoiceChannelId ? {
+        ...state.voiceParticipants,
+        [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
+          p.userId === _currentUserId ? { ...p, isMuted: newMuted } : p
+        ),
+      } : state.voiceParticipants,
+    }));
     if (activeVoiceChannelId && _currentUserId) {
       voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted: newMuted, isDeafened, isScreenSharing });
-      set((state) => ({
-        voiceParticipants: {
-          ...state.voiceParticipants,
-          [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
-            p.userId === _currentUserId ? { ...p, isMuted: newMuted } : p
-          ),
-        },
-      }));
     }
   },
 
   toggleDeafen: () => {
     const newDeafened = !get().isDeafened;
-    set({ isDeafened: newDeafened });
+    const { activeVoiceChannelId, isMuted, isScreenSharing, _currentUserId } = get();
     getActiveNativeVoiceEngine()?.setDeafened(newDeafened);
-    const { activeVoiceChannelId, isMuted, isScreenSharing } = get();
+    set((state) => ({
+      isDeafened: newDeafened,
+      voiceParticipants: activeVoiceChannelId ? {
+        ...state.voiceParticipants,
+        [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
+          p.userId === _currentUserId ? { ...p, isDeafened: newDeafened } : p
+        ),
+      } : state.voiceParticipants,
+    }));
     if (activeVoiceChannelId && _currentUserId) {
       voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened: newDeafened, isScreenSharing });
-      set((state) => ({
-        voiceParticipants: {
-          ...state.voiceParticipants,
-          [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
-            p.userId === _currentUserId ? { ...p, isDeafened: newDeafened } : p
-          ),
-        },
-      }));
     }
   },
 
@@ -256,13 +256,13 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
   toggleScreenShare: async (sourceId?: string) => {
     const engine = getActiveNativeVoiceEngine();
     if (!engine) return;
-    const { isScreenSharing, activeVoiceChannelId, isMuted, isDeafened } = get();
+    const { isScreenSharing, activeVoiceChannelId, isMuted, isDeafened, _currentUserId } = get();
     if (isScreenSharing) {
       await engine.stopScreenShare();
-      set({ isScreenSharing: false });
       if (activeVoiceChannelId && _currentUserId) {
         voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: false });
         set((state) => ({
+          isScreenSharing: false,
           voiceParticipants: {
             ...state.voiceParticipants,
             [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
@@ -270,14 +270,16 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
             ),
           },
         }));
+      } else {
+        set({ isScreenSharing: false });
       }
     } else {
       try {
         await engine.startScreenShare(sourceId);
-        set({ isScreenSharing: true });
         if (activeVoiceChannelId && _currentUserId) {
           voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: true });
           set((state) => ({
+            isScreenSharing: true,
             voiceParticipants: {
               ...state.voiceParticipants,
               [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
@@ -285,6 +287,8 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
               ),
             },
           }));
+        } else {
+          set({ isScreenSharing: true });
         }
       } catch { /* user cancelled */ }
     }

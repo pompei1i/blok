@@ -3,6 +3,7 @@ import { Search, X, Clock, Hash, Volume2 } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import type { Message, User, Channel } from "@/lib/store/types";
 
 type SearchTab = "messages" | "users" | "channels";
@@ -31,22 +32,6 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-const TABS: { id: SearchTab; label: string }[] = [
-  { id: "messages", label: "Messages" },
-  { id: "users",    label: "Users" },
-  { id: "channels", label: "Channels" },
-];
-
 export function SearchModal({
   serverId,
   channelId,
@@ -56,6 +41,24 @@ export function SearchModal({
   onSelectChannel,
 }: SearchModalProps) {
   const { searchMessages, searchUsers, searchChannels } = useServerStore();
+  const { t } = useI18n();
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 60_000) return t("search.timeJustNow");
+    if (diff < 3_600_000) return t("search.timeMinutesAgo").replace("{n}", String(Math.floor(diff / 60_000)));
+    if (diff < 86_400_000) return t("search.timeHoursAgo").replace("{n}", String(Math.floor(diff / 3_600_000)));
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
+  const TABS: { id: SearchTab; label: string }[] = [
+    { id: "messages", label: t("search.tab.messages") },
+    { id: "users",    label: t("search.tab.users") },
+    { id: "channels", label: t("search.tab.channels") },
+  ];
+
   const [tab, setTab] = useState<SearchTab>("messages");
   const [query, setQuery] = useState("");
   const [msgResults, setMsgResults] = useState<Message[]>([]);
@@ -109,9 +112,9 @@ export function SearchModal({
   };
 
   const placeholder =
-    tab === "messages" ? `Search in #${channelName}` :
-    tab === "users"    ? "Search members…" :
-                        "Search channels…";
+    tab === "messages" ? t("search.placeholderInChannel").replace("#{channel}", channelName) :
+    tab === "users"    ? t("search.placeholderMembers") :
+                         t("search.placeholderChannels");
 
   return (
     <div
@@ -168,10 +171,10 @@ export function SearchModal({
           {query.length < 2 ? (
             <div className="flex items-center gap-2 px-4 py-6 text-xs text-[var(--text-muted)] justify-center">
               <Clock className="w-3.5 h-3.5" />
-              Type at least 2 characters
+              {t("search.minChars")}
             </div>
           ) : currentResults.length === 0 && !isLoading ? (
-            <div className="px-4 py-6 text-xs text-[var(--text-muted)] text-center">No results</div>
+            <div className="px-4 py-6 text-xs text-[var(--text-muted)] text-center">{t("search.noResults")}</div>
           ) : tab === "messages" ? (
             msgResults.map((msg, i) => (
               <button
@@ -243,9 +246,9 @@ export function SearchModal({
 
         {currentResults.length > 0 && (
           <div className="px-4 py-2 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)] flex items-center gap-3">
-            <span>↑↓ navigate</span>
-            {tab !== "users" && <span>↵ {tab === "messages" ? "jump" : "open"}</span>}
-            <span>Esc close</span>
+            <span>{t("search.navHint")}</span>
+            {tab !== "users" && <span>{tab === "messages" ? t("search.jumpHint") : t("search.openHint")}</span>}
+            <span>{t("search.escHint")}</span>
           </div>
         )}
       </div>

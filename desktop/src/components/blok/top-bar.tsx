@@ -48,16 +48,16 @@ export function TopBar() {
         {isBaitTabOpen && (
           <div
             className={cn(
-              "flex items-center gap-1 px-1 py-1 rounded-full text-xs font-medium transition-all duration-120",
+              "relative flex items-center gap-1 px-1 h-10 text-xs font-medium transition-all duration-120 border-b-2",
               isBaitActive
-                ? "bg-[var(--bg-elevated)] border border-[var(--border)]"
-                : "text-[var(--text-muted)]",
+                ? "border-b-[var(--accent-red)] text-[var(--text-primary)]"
+                : "border-b-transparent text-[var(--text-muted)]",
             )}
           >
             <button
               onClick={() => { activateBait(); }}
               className={cn(
-                "flex items-center gap-2 px-2 py-0.5 rounded-full hover:bg-[var(--bg-hover)]",
+                "flex items-center gap-2 px-2 py-0.5 hover:bg-[var(--bg-hover)]",
                 isBaitActive ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]",
               )}
             >
@@ -66,7 +66,7 @@ export function TopBar() {
             </button>
             <button
               onClick={closeBaitTab}
-              className="hover:text-[var(--text-primary)] p-1 rounded"
+              className="hover:text-[var(--text-primary)] p-1"
               aria-label={t("topBar.closeBait")}
             >
               <X className="w-3 h-3" />
@@ -77,37 +77,35 @@ export function TopBar() {
           const serverUnread = (channels[server.id] || []).reduce(
             (sum, ch) => sum + (unreadCounts[ch.id] ?? 0), 0
           );
+          const isActive = activeServerId === server.id;
           return (
           <div
             key={server.id}
             className={cn(
-              "flex items-center gap-1 px-1 py-1 rounded-full text-xs font-medium transition-all duration-120",
-              activeServerId === server.id
-                ? "bg-[var(--bg-elevated)] border border-[var(--border)]"
-                : "text-[var(--text-muted)]",
+              "relative flex items-center gap-1 px-1 h-10 text-xs font-medium transition-all duration-120 border-b-2",
+              isActive
+                ? "border-b-[var(--accent-red)] text-[var(--text-primary)]"
+                : "border-b-transparent text-[var(--text-muted)]",
             )}
           >
             <button
               onClick={() => { setActiveServer(server.id); deactivateBait(); }}
               className={cn(
-                "flex items-center gap-2 px-2 py-0.5 rounded-full",
-                "hover:bg-[var(--bg-hover)]",
-                activeServerId === server.id
-                  ? "text-[var(--text-primary)]"
-                  : "text-[var(--text-muted)]",
+                "flex items-center gap-2 px-2 py-0.5 hover:bg-[var(--bg-hover)]",
+                isActive ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]",
               )}
             >
               <span className="text-[var(--text-muted)]">@</span>
               <span className="max-w-[100px] truncate">{server.name}</span>
-              {serverUnread > 0 && activeServerId !== server.id && (
-                <span className="min-w-[16px] h-4 flex items-center justify-center bg-[var(--accent-red)] rounded-full text-[10px] text-white font-bold px-1">
+              {serverUnread > 0 && !isActive && (
+                <span className="min-w-[16px] h-4 flex items-center justify-center bg-[var(--accent-red)] text-[10px] text-white font-bold px-1">
                   {serverUnread > 99 ? "99+" : serverUnread}
                 </span>
               )}
             </button>
             <button
               onClick={() => closeTab(server.id)}
-              className="hover:text-[var(--text-primary)] p-1 rounded"
+              className="hover:text-[var(--text-primary)] p-1"
               aria-label={`Close ${server.name}`}
             >
               <X className="w-3 h-3" />
@@ -138,24 +136,24 @@ export function TopBar() {
       <div className="relative ml-2 flex items-center gap-2">
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--accent-red)] text-white hover:opacity-90 font-medium transition-opacity"
+          className="flex items-center gap-1 px-2 py-1 text-xs border border-[var(--accent-red)] text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white font-medium transition-all"
         >
           <Plus className="w-3 h-3" /> {t("topBar.createServer")}
         </button>
         <button
           onClick={() => { setShowJoinModal(true); setJoinCode(""); setJoinStatus("idle"); setJoinError(""); }}
-          className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+          className="flex items-center gap-1 px-2 py-1 text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)] transition-colors"
         >
           <Hash className="w-3 h-3" /> {t("invite.joinByCode")}
         </button>
         <button
           onClick={() => setShowAllOpen((v) => !v)}
-          className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          className="px-2 py-1 text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)] transition-colors"
         >
           {t("topBar.opened")} ({openServers.length})
         </button>
         {showAllOpen && (
-          <div className="absolute right-0 top-full mt-2 w-72 max-h-72 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl z-30 p-2">
+          <div className="absolute right-0 top-full mt-2 w-72 max-h-72 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border)] shadow-2xl z-30 p-2">
             {openServers.length === 0 ? (
               <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{t("topBar.noOpenedGroups")}</div>
             ) : (
@@ -167,7 +165,7 @@ export function TopBar() {
                       setShowAllOpen(false);
                     }}
                     className={cn(
-                      "flex-1 text-left px-3 py-2 rounded-lg text-xs transition-colors",
+                      "flex-1 text-left px-3 py-2 text-xs transition-colors",
                       activeServerId === server.id
                         ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
                         : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]",
@@ -177,7 +175,7 @@ export function TopBar() {
                   </button>
                   <button
                     onClick={() => closeTab(server.id)}
-                    className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    className="p-1 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -198,15 +196,12 @@ export function TopBar() {
       {showCreateModal && <CreateServerModal onClose={() => setShowCreateModal(false)} />}
 
       {showJoinModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[340px] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-              <div className="flex items-center gap-2">
-                <Hash className="w-4 h-4 text-[var(--accent-red)]" />
-                <span className="font-semibold text-sm text-[var(--text-primary)]">{t("invite.joinByCode")}</span>
-              </div>
-              <button onClick={() => setShowJoinModal(false)} className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors">
-                <X className="w-4 h-4 text-[var(--text-muted)]" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <div className="w-[340px] bg-[var(--bg-surface)] border border-[var(--border)] shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-elevated)]">
+              <span className="text-xs text-[var(--text-muted)] font-mono">~/blok $ {t("invite.joinByCode")}</span>
+              <button onClick={() => setShowJoinModal(false)} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-mono transition-colors">
+                [esc]
               </button>
             </div>
             <div className="px-4 py-4 space-y-4">
@@ -217,25 +212,26 @@ export function TopBar() {
                 onChange={(e) => { setJoinCode(e.target.value); if (joinStatus !== "idle") { setJoinStatus("idle"); setJoinError(""); } }}
                 onKeyDown={(e) => { if (e.key === "Enter") void handleJoin(); if (e.key === "Escape") setShowJoinModal(false); }}
                 placeholder={t("invite.enterCode")}
-                className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)]"
+                className="input-terminal text-sm"
               />
               {joinError && (
-                <p className="text-xs text-[var(--destructive)] font-mono">{joinError}</p>
+                <p className="prefix-error text-xs text-[var(--destructive)] font-mono">{joinError}</p>
               )}
               <div className="flex gap-2">
-                <button onClick={() => setShowJoinModal(false)} className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors">
+                <button onClick={() => setShowJoinModal(false)} className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border)]">
                   {t("topBar.cancel")}
                 </button>
                 <button
                   onClick={() => void handleJoin()}
                   disabled={!joinCode.trim() || joinStatus === "loading"}
                   className={cn(
-                    "flex-1 px-3 py-2 text-sm rounded-lg transition-colors font-medium",
+                    "flex-1 px-3 py-2 text-sm transition-colors font-medium text-center",
                     joinCode.trim() && joinStatus !== "loading"
-                      ? "bg-[var(--accent-red)] hover:opacity-90 text-white"
-                      : "bg-[var(--bg-elevated)] text-[var(--text-muted)] cursor-not-allowed"
+                      ? "border border-[var(--accent-red)] text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white"
+                      : "border border-[var(--border)] text-[var(--text-muted)] cursor-not-allowed opacity-50"
                   )}
                 >
+                  <span className="opacity-50">$ </span>
                   {joinStatus === "loading" ? t("invite.joining") : t("invite.join")}
                 </button>
               </div>

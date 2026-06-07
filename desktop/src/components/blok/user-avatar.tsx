@@ -29,7 +29,7 @@ export function UserAvatar({
   return (
     <div
       className={cn(
-        "relative flex items-center justify-center rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
+        "relative flex items-center justify-center rounded-full bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
         sizeClasses[size],
         showRing && "ring-2 ring-[var(--accent-red)]",
         isSpeaking && "speaking-glow ring-2 ring-[var(--online)]",
@@ -40,7 +40,7 @@ export function UserAvatar({
         <img
           src={user.avatarUrl}
           alt={user.username}
-          className="w-full h-full object-cover rounded-lg"
+          className="w-full h-full object-cover rounded-full"
         />
       ) : (
         <span>{initial}</span>

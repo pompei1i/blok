@@ -35,7 +35,7 @@
   --destructive-foreground: #ffffff;
   --input: #1a1a1a;
   --ring: #666666;
-  --radius: 0.5rem;
+  --radius: 0;
 
   --sidebar: #0f0f0f;
   --sidebar-foreground: #e0e0e0;
@@ -148,8 +148,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: max(0px, calc(var(--radius) - 4px));
+  --radius-md: max(0px, calc(var(--radius) - 2px));
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
@@ -170,6 +170,18 @@
     @apply bg-[var(--bg-base)] text-[var(--text-primary)];
     font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
   }
+  select {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+  }
+  option {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+  }
+  option:checked,
+  option:hover {
+    background-color: var(--bg-hover);
+  }
 }
 
 @keyframes blink {
@@ -183,91 +195,115 @@
   }
 }
 
-.cursor-blink {
-  animation: blink 1s step-end infinite;
-}
+/* ─── Keyframe declarations (stay outside layers — referenced by name) ─── */
 
 @keyframes bg-scrolling {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 50px 50px;
-  }
-}
-
-.terminal-grid {
-  background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAIAAACRXR/mAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAABnSURBVHja7M5RDYAwDEXRDgmvEocnlrQS2SwUFST9uEfBGWs9c97nbGtDcquqiKhOImLs/UpuzVzWEi1atGjRokWLFi1atGjRokWLFi1atGjRokWLFi1af7Ukz8xWp8z8AAAA//8DAJ4LoEAAlL1nAAAAAElFTkSuQmCC")
-    repeat;
-  animation: bg-scrolling 0.92s infinite linear;
-  filter: invert(1);
-  opacity: 0.43;
+  0%   { background-position: 0 0; }
+  100% { background-position: 50px 50px; }
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-.animate-slide-in {
-  animation: slideIn 0.5s ease-out forwards;
-}
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-base);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-
-.presence-online {
-  box-shadow: 0 0 6px var(--online);
-}
-
-.presence-afk {
-  box-shadow: 0 0 6px var(--afk);
-}
-
-.speaking-glow {
-  box-shadow: 0 0 10px var(--online), 0 0 20px var(--online);
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes highlight-flash {
   0%   { background-color: color-mix(in srgb, var(--accent-red) 20%, transparent); }
   100% { background-color: transparent; }
 }
-.highlight-flash {
-  animation: highlight-flash 1.5s ease-out forwards;
-  border-radius: 4px;
+
+/* ─── Scrollbar (pseudo-elements, stay outside layers) ─────────────────── */
+
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ─── Component layer — Tailwind utilities (@layer utilities) CAN override ─ */
+/*     This is required for Tailwind v4: unlayered CSS wins over @layer       */
+/*     utilities, so custom classes must live in @layer components or lower.  */
+
+@layer components {
+  .cursor-blink {
+    animation: blink 1s step-end infinite;
+  }
+
+  .terminal-grid {
+    background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAIAAACRXR/mAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAABnSURBVHja7M5RDYAwDEXRDgmvEocnlrQS2SwUFST9uEfBGWs9c97nbGtDcquqiKhOImLs/UpuzVzWEi1atGjRokWLFi1atGjRokWLFi1atGjRokWLFi1af7Ukz8xWp8z8AAAA//8DAJ4LoEAAlL1nAAAAAElFTkSuQmCC")
+      repeat;
+    animation: bg-scrolling 0.92s infinite linear;
+    filter: invert(1);
+    opacity: 0.43;
+  }
+
+  .animate-fade-in  { animation: fadeIn  0.5s ease-out forwards; }
+  .animate-slide-in { animation: slideIn 0.5s ease-out forwards; }
+
+  .presence-online { box-shadow: 0 0 6px var(--online); }
+  .presence-afk    { box-shadow: 0 0 6px var(--afk); }
+  .speaking-glow   { box-shadow: 0 0 10px var(--online), 0 0 20px var(--online); }
+
+  .highlight-flash { animation: highlight-flash 1.5s ease-out forwards; }
+
+  /* ─── Terminal design system ─────────────────────────────────────────── */
+
+  .btn-terminal {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 1px;
+    transition: all 0.2s ease;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-terminal:hover:not(:disabled) {
+    border-color: white;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .btn-terminal:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .prefix-dollar::before { content: '$ '; color: var(--text-muted); font-weight: 300; }
+  .prefix-gt::before     { content: '> '; color: var(--text-muted); font-weight: 300; }
+  .prefix-check::before  { content: '[✓] '; color: var(--text-muted); font-weight: 300; }
+  .prefix-error::before  { content: '[!] '; color: var(--destructive); }
+
+  .terminal-card {
+    border: 1px dashed var(--border);
+    transition: all 0.2s ease;
+  }
+  .terminal-card:hover {
+    border-style: solid;
+    border-color: white;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .input-terminal {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 300;
+    padding: 0.25rem 0;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s ease;
+  }
+  .input-terminal::placeholder { color: #444; }
+  .input-terminal:focus { border-bottom-color: white; }
 }
 

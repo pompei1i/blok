@@ -2,7 +2,6 @@ import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import type { Poll, PollOption } from "../types";
 import type { ServerStore } from "../server-store.shape";
-import { _currentUserId } from "./_shared";
 
 export interface PollSlice {
   polls: Record<string, Poll>;
@@ -185,7 +184,7 @@ export const createPollSlice: StateCreator<ServerStore, [], [], PollSlice> = (se
             );
             if (!poll) return state;
             // Skip if it's the current user's own vote (already applied optimistically)
-            if (v.user_id === _currentUserId) return state;
+            if (v.user_id === get()._currentUserId) return state;
             const updatedOptions = poll.options.map((opt) =>
               opt.id === v.poll_option_id
                 ? {

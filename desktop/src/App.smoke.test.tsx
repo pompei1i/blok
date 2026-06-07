@@ -15,11 +15,11 @@ describe("App smoke", () => {
     expect(() => render(<App />)).not.toThrow();
   });
 
-  it("shows auth screen after init when no session exists", async () => {
+  it("shows landing page after init when no session exists", async () => {
     render(<App />);
-    // supabase.auth.getUser() mock returns null → not authenticated → AuthScreen
-    const heading = await screen.findByText("BLOK");
-    expect(heading).toBeTruthy();
+    // supabase.auth.getUser() mock returns null → not authenticated → LandingPage
+    const signInBtn = await screen.findByText(/sign in \/ register/i);
+    expect(signInBtn).toBeTruthy();
   });
 
   it("renders into a DOM node (basic DOM sanity)", () => {

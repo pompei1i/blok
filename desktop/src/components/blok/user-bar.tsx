@@ -56,7 +56,7 @@ export function UserBar() {
     <>
       <div className="w-56 bg-[var(--bg-surface)] border-t border-r border-[var(--border)] flex flex-col justify-center px-3 gap-2 py-3 mt-auto shrink-0">
         {activeVoiceChannelId && activeVoiceChannel && (
-          <div className="flex items-center gap-2 px-2 py-1 bg-[var(--online)]/20 rounded-lg border border-[var(--online)]/30">
+          <div className="flex items-center gap-2 px-2 py-1 bg-[var(--online)]/20 border border-[var(--online)]/30">
             <div className="w-2 h-2 rounded-full bg-[var(--online)] animate-pulse" />
             <span className="text-xs text-[var(--online)]">
               {activeVoiceChannel.name}
@@ -66,7 +66,7 @@ export function UserBar() {
                 await leaveVoiceChannel();
                 playSound("leave");
               }}
-              className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
+              className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
               title={t("userBar.leaveVoice")}
             >
               <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
@@ -100,7 +100,7 @@ export function UserBar() {
           <button
             onClick={toggleMute}
             className={cn(
-              "p-2 rounded-lg transition-colors",
+              "p-2 transition-colors",
               isMuted || isDeafened
                 ? "bg-[var(--destructive)] text-white"
                 : isSpeaking
@@ -114,7 +114,7 @@ export function UserBar() {
           <button
             onClick={toggleDeafen}
             className={cn(
-              "p-2 rounded-lg transition-colors",
+              "p-2 transition-colors",
               isDeafened
                 ? "bg-[var(--destructive)] text-white"
                 : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
@@ -132,7 +132,7 @@ export function UserBar() {
               <button
                 onClick={() => isScreenSharing ? void toggleScreenShare() : setShowScreenPicker((v) => !v)}
                 className={cn(
-                  "p-2 rounded-lg transition-colors",
+                  "p-2 transition-colors",
                   isScreenSharing
                     ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
                     : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
@@ -156,7 +156,7 @@ export function UserBar() {
             <button
               onClick={() => void toggleCamera()}
               className={cn(
-                "p-2 rounded-lg transition-colors",
+                "p-2 transition-colors",
                 isCameraOn
                   ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
                   : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
@@ -168,7 +168,7 @@ export function UserBar() {
           )}
           <button
             onClick={() => setShowSettings(true)}
-            className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+            className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
             title={t("userBar.settings")}
           >
             <Settings className="w-4 h-4" />

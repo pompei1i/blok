@@ -312,7 +312,7 @@ export function ChatArea() {
       {/* Drag-and-drop overlay */}
       {isDragging && (
         <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center bg-[var(--bg-base)]/80 backdrop-blur-sm">
-          <div className="border-2 border-dashed border-[var(--accent-red)] rounded-xl px-12 py-8 text-center">
+          <div className="border-2 border-dashed border-[var(--accent-red)] px-12 py-8 text-center">
             <p className="text-[var(--accent-red)] font-mono text-sm">
               <span className="opacity-60">$ </span>drop to attach
             </p>
@@ -328,7 +328,7 @@ export function ChatArea() {
         <span className="ml-2 text-sm text-[var(--text-muted)]">{t("chat.channelTopic")}</span>
         <button
           onClick={() => setIsSearchOpen(true)}
-          className="ml-auto p-1.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          className="ml-auto p-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           title={`${t("search.title").replace("{channel}", activeChannel.name)} (Ctrl+F)`}
         >
           <Search className="w-4 h-4" />
@@ -422,16 +422,17 @@ export function ChatArea() {
             <span className="cursor-blink mr-2">$</span> loading...
           </div>
         ) : channelMessages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <div className="w-16 h-16 rounded-full bg-[var(--bg-elevated)] flex items-center justify-center mb-4 border border-[var(--border)]">
-              <Hash className="w-8 h-8 text-[var(--text-muted)]" />
+          <div className="flex flex-col items-start justify-end h-full px-6 pb-6 font-mono">
+            <div className="border-l-2 border-[var(--border)] pl-4 space-y-1">
+              <p className="text-xs text-[var(--text-muted)]">~/blok/#{activeChannel.name}</p>
+              <p className="text-sm text-[var(--text-primary)] font-semibold tracking-wider uppercase">
+                <span className="text-[var(--text-muted)] font-normal">$ </span>
+                {t("chat.welcomeToChannel").replace("{channel}", activeChannel.name)}
+              </p>
+              <p className="text-xs text-[var(--text-muted)]">
+                {t("chat.beginningOfChannel").replace("{channel}", activeChannel.name)}
+              </p>
             </div>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mb-1">
-              {t("chat.welcomeToChannel").replace("{channel}", activeChannel.name)}
-            </h3>
-            <p className="text-sm text-[var(--text-muted)]">
-              {t("chat.beginningOfChannel").replace("{channel}", activeChannel.name)}
-            </p>
           </div>
         ) : (
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
@@ -539,7 +540,7 @@ export function ChatArea() {
           </span>
           <button
             onClick={() => chat.setReplyTo(null)}
-            className="ml-auto p-0.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
+            className="ml-auto p-0.5 hover:bg-[var(--bg-hover)] transition-colors"
           >
             <X className="w-3.5 h-3.5 text-[var(--text-muted)]" />
           </button>
@@ -553,13 +554,13 @@ export function ChatArea() {
             {chat.attachments.map((file, index) => (
               <div
                 key={index}
-                className="flex items-center gap-2 px-2 py-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border)]"
+                className="flex items-center gap-2 px-2 py-1 bg-[var(--bg-elevated)] border border-[var(--border)]"
               >
                 <Paperclip className="w-3 h-3 text-[var(--text-muted)]" />
                 <span className="text-xs text-[var(--text-primary)] max-w-32 truncate">{file.name}</span>
                 <button
                   onClick={() => chat.removeAttachment(index)}
-                  className="p-0.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
+                  className="p-0.5 hover:bg-[var(--bg-hover)] transition-colors"
                 >
                   <X className="w-3 h-3 text-[var(--text-muted)]" />
                 </button>
@@ -613,7 +614,7 @@ export function ChatArea() {
           </div>
         )}
 
-        <div className="flex items-center gap-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border)] px-3 py-2 relative">
+        <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-2 relative">
           {chat.mentionQuery !== null && (
             <AtMentionDropdown
               query={chat.mentionQuery}
@@ -631,7 +632,7 @@ export function ChatArea() {
                 if (next) chat.setShowAttachmentPicker(true);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
+                "p-1 hover:bg-[var(--bg-hover)] transition-colors",
                 chat.showAttachmentPicker && "bg-[var(--bg-hover)]",
               )}
             >
@@ -649,7 +650,7 @@ export function ChatArea() {
           <button
             onClick={() => setShowPollCreator((v) => !v)}
             className={cn(
-              "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
+              "p-1 hover:bg-[var(--bg-hover)] transition-colors",
               showPollCreator && "bg-[var(--bg-hover)] text-[var(--accent-red)]",
             )}
             title={t("poll.title")}
@@ -700,7 +701,7 @@ export function ChatArea() {
                 if (next) chat.setShowGifPicker(true);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors text-[var(--text-muted)] text-[10px] font-bold leading-none",
+                "p-1 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] text-[10px] font-bold leading-none",
                 chat.showGifPicker && "bg-[var(--bg-hover)]",
               )}
             >
@@ -723,7 +724,7 @@ export function ChatArea() {
                 if (next) chat.setShowMentionPicker(true);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
+                "p-1 hover:bg-[var(--bg-hover)] transition-colors",
                 chat.showMentionPicker && "bg-[var(--bg-hover)]",
               )}
             >
@@ -746,7 +747,7 @@ export function ChatArea() {
                 if (next) chat.setShowEmojiPicker(true);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors",
+                "p-1 hover:bg-[var(--bg-hover)] transition-colors",
                 chat.showEmojiPicker && "bg-[var(--bg-hover)]",
               )}
             >
@@ -765,7 +766,7 @@ export function ChatArea() {
             onClick={() => chat.setIsAnnouncement(!chat.isAnnouncement)}
             title={chat.isAnnouncement ? "Sending as announcement (click to cancel)" : "Send as announcement"}
             className={cn(
-              "p-1 rounded transition-colors flex-shrink-0",
+              "p-1 transition-colors flex-shrink-0",
               chat.isAnnouncement
                 ? "text-[var(--accent-red)] bg-[var(--bg-hover)]"
                 : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)]",
@@ -779,7 +780,7 @@ export function ChatArea() {
             onClick={() => void chat.handleSendMessage()}
             disabled={!chat.canSend || chat.isUploading}
             className={cn(
-              "p-1.5 rounded transition-colors flex-shrink-0",
+              "p-1.5 transition-colors flex-shrink-0",
               chat.canSend && !chat.isUploading
                 ? "bg-[var(--accent-red)] hover:opacity-90 text-white"
                 : "bg-[var(--bg-hover)] text-[var(--text-muted)]",

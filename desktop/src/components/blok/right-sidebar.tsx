@@ -24,7 +24,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
     <button
       onClick={onClick}
       className={cn(
-        "relative flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors rounded-t-md",
+        "relative flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors",
         active
           ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]"
           : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]/50",
@@ -34,7 +34,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
       {label}
       {count !== undefined && (
         <span className={cn(
-          "px-1 py-0.5 rounded text-[9px] leading-none",
+          "px-1 py-0.5 text-[9px] leading-none",
           active ? "bg-[var(--accent-red)]/20 text-[var(--accent-red)]" : "bg-[var(--bg-hover)] text-[var(--text-muted)]",
         )}>
           {count}
@@ -128,7 +128,7 @@ function MembersView() {
         }}
         disabled={isMe}
         className={cn(
-          "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-left transition-all",
+          "flex items-center gap-2 w-full px-2 py-1.5 text-left transition-all",
           !isMe && "hover:bg-[var(--bg-hover)] group cursor-pointer",
           isMe && "cursor-default",
         )}
@@ -166,7 +166,7 @@ function MembersView() {
             placeholder={t("members.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors"
+            className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] pl-7 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors"
           />
         </div>
       </div>
@@ -222,7 +222,7 @@ function MembersView() {
           <div
             ref={ctxMenuRef}
             style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
-            className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1 text-xs"
+            className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] shadow-xl py-1 text-xs"
           >
             <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border)] truncate font-medium">
               @{username}
@@ -365,7 +365,7 @@ function FriendsView() {
             placeholder={t("friends.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors"
+            className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] pl-7 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-muted)] transition-colors"
           />
         </div>
       </div>
@@ -374,7 +374,7 @@ function FriendsView() {
         <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium">
           {t("friends.friends")} — {friends.length}
         </span>
-        <button onClick={() => setShowAddFriend(true)} className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors" title="Add friend">
+        <button onClick={() => setShowAddFriend(true)} className="p-1 hover:bg-[var(--bg-hover)] transition-colors" title="Add friend">
           <UserPlus className="w-3.5 h-3.5 text-[var(--text-muted)]" />
         </button>
       </div>
@@ -383,7 +383,7 @@ function FriendsView() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
         {loadError && (
-          <div className="p-2 rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--destructive)] text-xs">{loadError}</div>
+          <div className="p-2 border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--destructive)] text-xs">{loadError}</div>
         )}
 
         {outgoingRequests.length > 0 && (
@@ -395,14 +395,14 @@ function FriendsView() {
             {outgoingOpen && (
               <div className="space-y-1">
                 {outgoingRequests.map((req) => (
-                  <div key={req.id} className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)]">
+                  <div key={req.id} className="p-2 bg-[var(--bg-elevated)] border border-[var(--border)]">
                     <div className="flex items-center gap-2">
                       <UserAvatar user={req.targetUser} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.targetUser?.username ?? "unknown"}</p>
                         <p className="text-xs text-[var(--text-muted)] truncate">{t("friends.pending")}</p>
                       </div>
-                      <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
+                      <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
                         <X className="w-3 h-3" />
                       </button>
                     </div>
@@ -422,7 +422,7 @@ function FriendsView() {
             {incomingOpen && (
               <div className="space-y-1">
                 {pendingRequests.map((req) => (
-                  <div key={req.id} className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)]">
+                  <div key={req.id} className="p-2 bg-[var(--bg-elevated)] border border-[var(--border)]">
                     <div className="flex items-center gap-2">
                       <UserAvatar user={req.requesterUser} size="sm" />
                       <div className="flex-1 min-w-0">
@@ -431,10 +431,10 @@ function FriendsView() {
                       </div>
                     </div>
                     <div className="mt-1.5 flex gap-1">
-                      <button onClick={() => acceptRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--online)]/20 text-[var(--online)] hover:bg-[var(--online)]/30 transition-colors">
+                      <button onClick={() => acceptRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs bg-[var(--online)]/20 text-[var(--online)] hover:bg-[var(--online)]/30 transition-colors">
                         <Check className="w-3 h-3" /> {t("friends.accept")}
                       </button>
-                      <button onClick={() => declineRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--destructive)]/20 text-[var(--destructive)] hover:bg-[var(--destructive)]/30 transition-colors">
+                      <button onClick={() => declineRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs bg-[var(--destructive)]/20 text-[var(--destructive)] hover:bg-[var(--destructive)]/30 transition-colors">
                         <X className="w-3 h-3" /> {t("friends.decline")}
                       </button>
                     </div>
@@ -450,7 +450,7 @@ function FriendsView() {
             <button
               key={f.id}
               onClick={() => user && openDM(user.id, f.friendId)}
-              className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-left transition-all hover:bg-[var(--bg-hover)] group"
+              className="flex items-center gap-2 w-full px-2 py-1.5 text-left transition-all hover:bg-[var(--bg-hover)] group"
             >
               <div className="relative flex-shrink-0">
                 <UserAvatar user={f.friendUser} size="sm" />
@@ -512,7 +512,7 @@ export function RightSidebar() {
         )}
       >
         <div className={cn(
-          "flex items-center justify-center w-8 h-8 rounded-md shrink-0 transition-colors",
+          "flex items-center justify-center w-8 h-8 shrink-0 transition-colors",
           isBaitActive ? "bg-[var(--accent-red)]/10" : "bg-[var(--bg-elevated)]",
         )}>
           <FishHookIcon className={cn("w-4 h-4", isBaitActive ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]")} />

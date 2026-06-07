@@ -1,4 +1,3 @@
-import { Zap, History, Hash, Volume2 } from "lucide-react";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useServerStore } from "@/lib/store/server-store";
 import { useBaitStore } from "@/lib/store/bait-store";
@@ -37,20 +36,16 @@ export function BaitSidebar() {
         {activeServer && (
           <div>
             <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
-              {t("bait.context")}
+              <span className="mr-1 text-[var(--text-muted)] opacity-60">$</span>{t("bait.context")}
             </p>
-            <div className="bg-[var(--bg-elevated)] rounded-lg px-3 py-2 space-y-1.5">
-              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                <span className="font-mono">@</span>
+            <div className="border border-dashed border-[var(--border)] px-3 py-2 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-mono">
+                <span>@</span>
                 <span className="text-[var(--text-primary)] truncate">{activeServer.name}</span>
               </div>
               {activeChannel && (
-                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                  {activeChannel.type === "voice" ? (
-                    <Volume2 className="w-3 h-3 shrink-0" />
-                  ) : (
-                    <Hash className="w-3 h-3 shrink-0" />
-                  )}
+                <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-mono">
+                  <span>{activeChannel.type === "voice" ? "♪" : "#"}</span>
                   <span className="truncate">{activeChannel.name}</span>
                 </div>
               )}
@@ -59,15 +54,15 @@ export function BaitSidebar() {
         )}
 
         <div>
-          <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium flex items-center gap-1">
-            <Zap className="w-3 h-3" /> {t("bait.quickCommands")}
+          <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
+            <span className="mr-1 text-[var(--text-muted)] opacity-60">$</span>{t("bait.quickCommands")}
           </p>
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {QUICK_COMMANDS.map(({ key, prompt }) => (
               <button
                 key={key}
                 onClick={() => sendMessage(prompt)}
-                className="w-full text-left px-2 py-1.5 rounded-md text-xs font-mono text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] cursor-pointer"
+                className="w-full text-left px-2 py-1.5 text-xs font-mono text-[var(--text-muted)] transition-all duration-150 border border-dashed border-[var(--border)] hover:border-solid hover:border-white/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
               >
                 <span className="text-[var(--accent-red)] mr-1">$</span>{t(key)}
               </button>
@@ -76,10 +71,10 @@ export function BaitSidebar() {
         </div>
 
         <div>
-          <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium flex items-center gap-1">
-            <History className="w-3 h-3" /> {t("bait.history")}
+          <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
+            <span className="mr-1 text-[var(--text-muted)] opacity-60">$</span>{t("bait.history")}
           </p>
-          <div className="px-2 py-3 text-center">
+          <div className="px-2 py-2">
             <p className="text-[10px] text-[var(--text-muted)] font-mono">
               {messages.length > 0 ? `${messages.length} messages` : t("bait.noHistory")}
             </p>

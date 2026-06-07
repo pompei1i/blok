@@ -288,13 +288,13 @@ export function MessageBubble({
                       )}
                       {!replyToMessage.content && (
                         <span className={cn("ml-1 italic opacity-60", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>
-                          attachment
+                          {t("message.attachment")}
                         </span>
                       )}
                     </>
                   ) : (
                     <span className={cn("italic opacity-50", isOwn ? "text-white/60" : "text-[var(--text-muted)]")}>
-                      original deleted message :(
+                      {t("message.deletedOriginal")}
                     </span>
                   )}
                 </span>
@@ -433,10 +433,10 @@ export function MessageBubble({
                       {replyToMessage.content.length > REPLY_PREVIEW_MAX_CHARS ? "…" : ""}
                     </span>
                   )}
-                  {!replyToMessage.content && <span className="ml-1 opacity-50 italic">attachment</span>}
+                  {!replyToMessage.content && <span className="ml-1 opacity-50 italic">{t("message.attachment")}</span>}
                 </>
               ) : (
-                <span className="opacity-50 italic">original deleted message :(</span>
+                <span className="opacity-50 italic">{t("message.deletedOriginal")}</span>
               )}
             </span>
           </button>
@@ -448,7 +448,7 @@ export function MessageBubble({
             </span>
             {"isAnnouncement" in message && message.isAnnouncement && (
               <span className="flex items-center gap-0.5 text-[10px] font-mono font-semibold text-[var(--accent-red)] uppercase tracking-wide leading-none">
-                <Megaphone className="w-3 h-3" /> announcement
+                <Megaphone className="w-3 h-3" /> {t("message.announcement")}
               </span>
             )}
             {user?.pronouns && (
@@ -475,7 +475,7 @@ export function MessageBubble({
               className="w-full bg-[var(--bg-base)] border border-[var(--accent-red)] rounded px-2 py-1 text-sm text-[var(--text-primary)] resize-none focus:outline-none"
             />
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-              <span>Enter to save · Esc to cancel</span>
+              <span>{t("message.editHint")}</span>
               <button onClick={commitEdit} className="ml-auto p-0.5 hover:text-[var(--online)] transition-colors">
                 <Check className="w-3.5 h-3.5" />
               </button>
@@ -616,7 +616,7 @@ export function MessageBubble({
               onClick={() => { onReply(message as Message | DMMessage); closeMenu(); }}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
             >
-              <CornerUpLeft className="w-3 h-3" /> Reply
+              <CornerUpLeft className="w-3 h-3" /> {t("message.reply")}
             </button>
           )}
           <button
@@ -636,7 +636,7 @@ export function MessageBubble({
               }}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
             >
-              <Languages className="w-3 h-3" /> Translate with b.ai.t
+              <Languages className="w-3 h-3" /> {t("message.translateBait")}
             </button>
           )}
           {onPin && (
@@ -645,7 +645,7 @@ export function MessageBubble({
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
             >
               <Pin className="w-3 h-3" />
-              {"isPinned" in message && message.isPinned ? "Unpin" : "Pin"}
+              {"isPinned" in message && message.isPinned ? t("message.unpin") : t("message.pin")}
             </button>
           )}
           {isOwn && onEdit && (

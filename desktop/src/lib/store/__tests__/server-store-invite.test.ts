@@ -134,21 +134,25 @@ describe("joinByInviteCode", () => {
     expect(result).toBe("Failed to join server");
   });
 
-  it("returns null and calls initData on successful join", async () => {
+  it("returns null and appends the new server to state on successful join", async () => {
     const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
       invite_expires_at: null, invite_max_uses: null, invite_used_count: 0 };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); // insert success
-    resolveWith(null); // used_count update
-
-    const mockInitData = vi.fn().mockResolvedValue(undefined);
-    useServerStore.setState({ initData: mockInitData } as Parameters<typeof useServerStore.setState>[0]);
+    resolveWith(null);  // insert member
+    resolveWith(null);  // update used_count
+    resolveWith([]);    // channels fetch (Promise.all)
+    resolveWith([]);    // categories fetch
+    resolveWith([]);    // members fetch
+    resolveWith([]);    // roles fetch
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 
     expect(result).toBeNull();
-    expect(mockInitData).toHaveBeenCalledWith("u1");
+    const state = useServerStore.getState();
+    expect(state.servers.some((s) => s.id === "s1")).toBe(true);
+    expect(state.openTabs).toContain("s1");
+    expect(state.activeServerId).toBe("s1");
   });
 
   it("trims whitespace from the invite code before querying", async () => {
@@ -185,9 +189,7 @@ describe("joinByInviteCode — expiry", () => {
     };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); // insert
-    resolveWith(null); // used_count increment update
-    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 
@@ -201,9 +203,7 @@ describe("joinByInviteCode — expiry", () => {
     };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); // insert
-    resolveWith(null); // used_count update
-    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 
@@ -244,9 +244,7 @@ describe("joinByInviteCode — usage limit", () => {
     };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); // insert
-    resolveWith(null); // used_count update
-    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 
@@ -260,9 +258,7 @@ describe("joinByInviteCode — usage limit", () => {
     };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); // insert
-    resolveWith(null); // used_count update
-    useServerStore.setState({ initData: vi.fn().mockResolvedValue(undefined) } as Parameters<typeof useServerStore.setState>[0]);
+    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 

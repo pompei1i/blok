@@ -6,6 +6,8 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { Perm } from "@/lib/permission";
 import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
+import type { TranslationKey } from "@/lib/i18n";
 import type { Role } from "@/lib/store/types";
 
 interface RoleManagerModalProps {
@@ -15,12 +17,12 @@ interface RoleManagerModalProps {
 
 type Tab = "roles" | "members";
 
-const PERM_LABELS: { flag: number; label: string }[] = [
-  { flag: Perm.INVITE_MEMBER,  label: "Invite Members" },
-  { flag: Perm.CREATE_CHANNEL, label: "Create Channels" },
-  { flag: Perm.DELETE_CHANNEL, label: "Delete Channels" },
-  { flag: Perm.MANAGE_SERVER,  label: "Manage Server" },
-  { flag: Perm.MANAGE_ROLES,   label: "Manage Roles" },
+const PERM_LABELS: { flag: number; labelKey: TranslationKey }[] = [
+  { flag: Perm.INVITE_MEMBER,  labelKey: "roles.perm.inviteMembers" },
+  { flag: Perm.CREATE_CHANNEL, labelKey: "roles.perm.createChannels" },
+  { flag: Perm.DELETE_CHANNEL, labelKey: "roles.perm.deleteChannels" },
+  { flag: Perm.MANAGE_SERVER,  labelKey: "roles.perm.manageServer" },
+  { flag: Perm.MANAGE_ROLES,   labelKey: "roles.perm.manageRoles" },
 ];
 
 const PRESET_COLORS = [
@@ -31,6 +33,7 @@ const PRESET_COLORS = [
 export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
   const { roles, members, createRole, updateRole, deleteRole, assignRole, kickMember } = useServerStore();
   const { user } = useAuthStore();
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("roles");
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -112,7 +115,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-[var(--accent-red)]" />
-            <span className="text-sm font-semibold text-[var(--text-primary)]">Roles & Permissions</span>
+            <span className="text-sm font-semibold text-[var(--text-primary)]">{t("roles.title")}</span>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">
             <X className="w-4 h-4" />
@@ -121,19 +124,19 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
 
         {/* Tabs */}
         <div className="flex border-b border-[var(--border)] flex-shrink-0">
-          {(["roles", "members"] as Tab[]).map((t) => (
+          {(["roles", "members"] as Tab[]).map((tabId) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabId}
+              onClick={() => setTab(tabId)}
               className={cn(
-                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium capitalize transition-colors border-b-2",
-                tab === t
+                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2",
+                tab === tabId
                   ? "border-[var(--accent-red)] text-[var(--accent-red)]"
                   : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               )}
             >
-              {t === "roles" ? <Shield className="w-3 h-3" /> : <Users className="w-3 h-3" />}
-              {t}
+              {tabId === "roles" ? <Shield className="w-3 h-3" /> : <Users className="w-3 h-3" />}
+              {t(tabId === "roles" ? "roles.tab.roles" : "roles.tab.members")}
             </button>
           ))}
         </div>
@@ -176,7 +179,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                       value={newRoleName}
                       onChange={(e) => setNewRoleName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") void handleCreateRole(); if (e.key === "Escape") setCreating(false); }}
-                      placeholder="Role name"
+                      placeholder={t("roles.roleNamePlaceholder")}
                       className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent-red)]"
                     />
                     <div className="flex gap-1">
@@ -185,13 +188,13 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                         disabled={saving || !newRoleName.trim()}
                         className="flex-1 py-1 text-[10px] bg-[var(--accent-red)] text-white rounded disabled:opacity-50"
                       >
-                        {saving ? "…" : "Create"}
+                        {saving ? "…" : t("roles.create")}
                       </button>
                       <button
                         onClick={() => setCreating(false)}
                         className="flex-1 py-1 text-[10px] bg-[var(--bg-surface)] text-[var(--text-muted)] rounded hover:text-[var(--text-primary)]"
                       >
-                        Cancel
+                        {t("roles.cancel")}
                       </button>
                     </div>
                   </div>
@@ -201,7 +204,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                     className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded transition-colors"
                   >
                     <Plus className="w-3 h-3" />
-                    New Role
+                    {t("roles.newRole")}
                   </button>
                 )}
               </div>
@@ -211,13 +214,13 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
             <div className="flex-1 overflow-y-auto p-5">
               {!selectedRole ? (
                 <div className="flex items-center justify-center h-full text-xs text-[var(--text-muted)]">
-                  Select a role to edit
+                  {t("roles.selectRole")}
                 </div>
               ) : (
                 <div className="space-y-5">
                   <div>
                     <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
-                      Role Name
+                      {t("roles.roleName")}
                     </label>
                     <input
                       value={editName}
@@ -228,7 +231,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
 
                   <div>
                     <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
-                      Color
+                      {t("roles.color")}
                     </label>
                     <div className="flex items-center gap-2 flex-wrap">
                       {PRESET_COLORS.map((c) => (
@@ -254,10 +257,10 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
 
                   <div>
                     <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
-                      Permissions
+                      {t("roles.permissions")}
                     </label>
                     <div className="space-y-1.5">
-                      {PERM_LABELS.map(({ flag, label }) => {
+                      {PERM_LABELS.map(({ flag, labelKey }) => {
                         const has = !!(editPerms & flag);
                         return (
                           <label key={flag} className="flex items-center gap-2.5 cursor-pointer group">
@@ -275,7 +278,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                               {has && <span className="text-white text-[10px] leading-none">✓</span>}
                             </button>
                             <span className="text-xs text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">
-                              {label}
+                              {t(labelKey)}
                             </span>
                           </label>
                         );
@@ -288,7 +291,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                     disabled={saving || !isDirty}
                     className="px-4 py-2 text-xs bg-[var(--accent-red)] text-white rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {saving ? "Saving…" : "Save Changes"}
+                    {saving ? t("roles.saving") : t("roles.saveChanges")}
                   </button>
                 </div>
               )}
@@ -299,7 +302,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
         {tab === "members" && (
           <div className="flex-1 overflow-y-auto p-4">
             {serverMembers.length === 0 ? (
-              <div className="text-xs text-[var(--text-muted)] text-center py-8">No members</div>
+              <div className="text-xs text-[var(--text-muted)] text-center py-8">{t("roles.noMembers")}</div>
             ) : (
               <div className="space-y-1">
                 {serverMembers.map((member) => {
@@ -341,7 +344,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                         disabled={isCurrentUser}
                         className="text-[10px] bg-[var(--bg-surface)] border border-[var(--border)] rounded px-1.5 py-1 text-[var(--text-muted)] outline-none focus:border-[var(--accent-red)] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <option value="">No role</option>
+                        <option value="">{t("roles.noRole")}</option>
                         {serverRoles.map((r) => (
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
@@ -372,7 +375,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
             className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors"
           >
             <UserX className="w-3.5 h-3.5 flex-shrink-0" />
-            Kick
+            {t("roles.kick")}
           </button>
         </div>,
         document.body,

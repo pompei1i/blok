@@ -6,7 +6,33 @@ import { playNotificationBeep } from "../../sounds";
 import { sendDesktopNotification } from "../../notifications";
 import type { Message, Reaction } from "../types";
 import type { ServerStore } from "../server-store.shape";
-import { _currentUserId, trackDataChannel } from "./_shared";
+import { trackDataChannel } from "./_shared";
+
+interface MessageAuthorRow {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  accent_color: string | null;
+  pronouns: string | null;
+}
+
+interface MessageRow {
+  id: string;
+  channel_id: string;
+  author_id: string;
+  reply_to_id: string | null;
+  content: string;
+  is_edited: boolean;
+  is_announcement: boolean | null;
+  pinned: boolean | null;
+  created_at: string;
+  updated_at: string;
+  // Supabase join inference returns array for FK relations; runtime value is single object or null
+  author?: MessageAuthorRow | MessageAuthorRow[] | null;
+  attachments?: Array<{ id: string; message_id: string; url: string; filename: string; media_type: string | null; size_bytes: number | null; created_at: string }>;
+  message_reactions?: Array<{ id: string; message_id: string; user_id: string; emoji: string; created_at: string }>;
+}
 
 export interface MessageSlice {
   messages: Record<string, Message[]>;
@@ -30,7 +56,8 @@ export interface MessageSlice {
   searchMessages: (channelId: string, query: string) => Promise<Message[]>;
 }
 
-function mapMessageRow(m: any): Message {
+function mapMessageRow(m: MessageRow): Message {
+  const authorRaw = Array.isArray(m.author) ? m.author[0] : m.author;
   return {
     id: m.id,
     channelId: m.channel_id,
@@ -42,15 +69,15 @@ function mapMessageRow(m: any): Message {
     isAnnouncement: m.is_announcement ?? false,
     createdAt: m.created_at,
     updatedAt: m.updated_at,
-    author: m.author ? mapProfile(m.author) : undefined,
+    author: authorRaw ? mapProfile(authorRaw) : undefined,
     attachments: Array.isArray(m.attachments)
-      ? m.attachments.map((a: any) => ({
+      ? m.attachments.map((a) => ({
           id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
-          mediaType: a.media_type, sizeBytes: a.size_bytes, createdAt: a.created_at,
+          mediaType: a.media_type ?? undefined, sizeBytes: a.size_bytes ?? undefined, createdAt: a.created_at,
         }))
       : [],
     reactions: Array.isArray(m.message_reactions)
-      ? m.message_reactions.map((r: any) => ({
+      ? m.message_reactions.map((r) => ({
           id: r.id, messageId: r.message_id, userId: r.user_id,
           emoji: r.emoji, createdAt: r.created_at,
         }))
@@ -103,7 +130,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
             messages: { ...state.messages, [m.channel_id]: [...(state.messages[m.channel_id] || []), fastMessage] },
             messageChannelIndex: { ...state.messageChannelIndex, [m.id]: m.channel_id },
           }));
-          void get().loadPollsForMessages([m.id], _currentUserId ?? "");
+          void get().loadPollsForMessages([m.id], get()._currentUserId ?? "");
         }
 
         // Notification and unread use fastMessage — payload has all required fields
@@ -113,7 +140,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
           const { activeChannelId } = get();
           const isAnnouncement = fastMessage.isAnnouncement;
           const isOtherChannel = m.channel_id !== activeChannelId;
-          const isOtherUser = m.author_id !== _currentUserId;
+          const isOtherUser = m.author_id !== get()._currentUserId;
           if (isOtherUser && (isOtherChannel || isAnnouncement)) {
             if (isOtherChannel) {
               set((state) => ({ unreadCounts: { ...state.unreadCounts, [m.channel_id]: (state.unreadCounts[m.channel_id] ?? 0) + 1 } }));
@@ -135,7 +162,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
           .single();
 
         if (fullRow) {
-          const fullMessage = mapMessageRow(fullRow);
+          const fullMessage = mapMessageRow(fullRow as unknown as MessageRow);
           if (!cachedAuthor && fullMessage.author) {
             set((state) => ({ userProfileCache: { ...state.userProfileCache, [m.author_id]: fullMessage.author! } }));
           }
@@ -232,11 +259,11 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       return;
     }
 
-    const messages: Message[] = (data || []).reverse().map(mapMessageRow);
+    const messages: Message[] = ((data || []) as unknown as MessageRow[]).reverse().map(mapMessageRow);
     const isAtStart = (data || []).length < MESSAGE_PAGE_SIZE;
     const messageIds = messages.map((m) => m.id);
 
-    void get().loadPollsForMessages(messageIds, _currentUserId ?? "");
+    void get().loadPollsForMessages(messageIds, get()._currentUserId ?? "");
 
     set((state) => {
       const loading = new Set(state.messagesLoading);
@@ -299,8 +326,8 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       return;
     }
 
-    const older: Message[] = (data || []).reverse().map(mapMessageRow);
-    void get().loadPollsForMessages(older.map((m) => m.id), _currentUserId ?? "");
+    const older: Message[] = ((data || []) as unknown as MessageRow[]).reverse().map(mapMessageRow);
+    void get().loadPollsForMessages(older.map((m) => m.id), get()._currentUserId ?? "");
 
     set((state) => {
       const loading = new Set(state.messagesLoading);
@@ -359,6 +386,8 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
   },
 
   deleteMessage: async (messageId, channelId) => {
+    const snapshotMessages = get().messages[channelId];
+    const snapshotIndex = { ...get().messageChannelIndex };
     set((state) => {
       const { [messageId]: _dropped, ...restIndex } = state.messageChannelIndex;
       return {
@@ -366,9 +395,14 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
         messageChannelIndex: restIndex,
       };
     });
-    const { error } = await supabase.from("messages").delete()
-      .eq("id", messageId).eq("author_id", _currentUserId ?? "");
-    if (error) console.error("Failed to delete message", error);
+    const { error } = await supabase.from("messages").delete().eq("id", messageId);
+    if (error) {
+      console.error("Failed to delete message", error);
+      set((state) => ({
+        messages: { ...state.messages, [channelId]: snapshotMessages ?? state.messages[channelId] },
+        messageChannelIndex: snapshotIndex,
+      }));
+    }
   },
 
   pinMessage: async (messageId, channelId) => {
@@ -466,7 +500,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       isPinned: m.pinned ?? false,
       createdAt: m.created_at,
       updatedAt: m.updated_at,
-      author: m.author ? mapProfile(m.author as any) : undefined,
+      author: m.author ? mapProfile(m.author) : undefined,
     }));
   },
 });
