@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.9] — 2026-06-08
+
+### Fixed
+- **b.ai.t** — `VITE_BAIT_DEFAULT_KEY` secret name corrected in GitHub; API key now properly embedded in production build.
+
+---
+
 ## [0.9.8] — 2026-06-08
 
 ### Fixed
