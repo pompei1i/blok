@@ -3,7 +3,6 @@
 ## [0.9.2] — 2026-06-07
 
 ### Added
-- **Landing page** — new `landing-page.tsx` component: intro, feature highlights, CTA.
 - **Voice view** — new `voice-view.tsx` component for voice channel UI.
 - **Database migrations** — channel delete cascade + server icon support, renamed permission fields for clarity.
 
