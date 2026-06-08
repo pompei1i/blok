@@ -79,8 +79,6 @@ export class NativeVoiceEngine {
   private _subscribeReject: ((err: Error) => void) | null = null;
   private subscribePromise: Promise<void>;
 
-  private _lastSpeaking = false;
-
   // Screen share — sender side
   private _screenCaptureTimer: ReturnType<typeof setTimeout> | null = null;
   private _captureInFlight = false;
@@ -151,10 +149,6 @@ export class NativeVoiceEngine {
 
     this.unlistenSpeaking = await listen<boolean>("audio-speaking", (event) => {
       this.updateSpeaking(this.userId, event.payload);
-      if (event.payload !== this._lastSpeaking) {
-        this._lastSpeaking = event.payload;
-        this.broadcast({ type: "speaking", from: this.userId, speaking: event.payload }).catch(() => {});
-      }
     });
 
     this.realtimeCh = supabase
@@ -451,7 +445,7 @@ export class NativeVoiceEngine {
     for (const ch of this._shareeChannels.values()) {
       // Skip frame if the DC send buffer is backed up (previous frame not yet drained).
       // 256 KB threshold gives one frame of headroom before dropping.
-      if (ch.readyState !== "open" || ch.bufferedAmount > 256_000) continue;
+      if (ch.readyState !== "open" || ch.bufferedAmount > 1_000_000) continue;
       try { ch.send(payload.buffer); } catch { /* ignore */ }
     }
   }
@@ -463,7 +457,7 @@ export class NativeVoiceEngine {
     const dv = new DataView(data);
     const fw = Math.min(dv.getUint32(0, false), 3840);
     const fh = Math.min(dv.getUint32(4, false), 2160);
-    if (data.byteLength - 8 > 400_000) return;
+    if (data.byteLength - 8 > 4_000_000) return;
     const { canvas, stream } = entry;
     if (canvas.width !== fw) canvas.width = fw;
     if (canvas.height !== fh) canvas.height = fh;
@@ -664,7 +658,7 @@ export class NativeVoiceEngine {
         break;
       }
       case "speaking":
-        this.updateSpeaking(msg.from, msg.speaking);
+        // Ignored: remote speaking state is driven by audio_receive return value (in sync with playback).
         break;
       case "screenshare_start": {
         this._clearRemoteCanvas(msg.from);

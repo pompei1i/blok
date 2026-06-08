@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.12] — 2026-06-08
+
+### Fixed
+- **Screen share black screen** — receiver-side frame size guard increased from 400 KB to 4 MB; 1080p high-quality JPEGs were silently dropped.
+- **Voice speaking indicator delay** — removed redundant `speaking` broadcast; remote indicator now driven by `audio_receive` return value, in sync with actual playback.
+
+---
+
 ## [0.9.11] — 2026-06-08
 
 ### Added
