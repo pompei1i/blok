@@ -12,6 +12,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { AddFriendModal } from "./add-friend-modal";
+import { UserProfileModal } from "./user-profile-modal";
 import { cn } from "@/lib/utils";
 import type { ServerMember } from "@/lib/store/types";
 
@@ -62,6 +63,7 @@ function MembersView() {
   type MemberCtxMenu = { member: ServerMember; x: number; y: number };
   const [ctxMenu, setCtxMenu] = useState<MemberCtxMenu | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
+  const [profileMember, setProfileMember] = useState<ServerMember | null>(null);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -227,10 +229,9 @@ function MembersView() {
               @{username}
             </div>
 
-            {/* View Profile — placeholder */}
             <button
-              disabled
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-muted)] opacity-40 cursor-not-allowed"
+              onClick={() => { setProfileMember(m); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
             >
               <User className="w-3.5 h-3.5 flex-shrink-0" />
               {t("member.ctx.viewProfile")}
@@ -317,6 +318,14 @@ function MembersView() {
           </div>
         );
       })(), document.body)}
+
+      {profileMember?.user && (
+        <UserProfileModal
+          user={profileMember.user}
+          status={getStatus(profileMember.userId)}
+          onClose={() => setProfileMember(null)}
+        />
+      )}
     </div>
   );
 }

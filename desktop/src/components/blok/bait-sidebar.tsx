@@ -16,7 +16,8 @@ const QUICK_COMMANDS: { key: TranslationKey; prompt: string }[] = [
 export function BaitSidebar() {
   const { t } = useI18n();
   const { activeServerId, activeChannelId, servers, channels } = useServerStore();
-  const { sendMessage, messages } = useBaitStore();
+  const { sendMessage, messagesByServer } = useBaitStore();
+  const messages = messagesByServer[activeServerId ?? "_global"] ?? [];
 
   const activeServer = servers.find((s) => s.id === activeServerId);
   const activeChannel = activeServerId

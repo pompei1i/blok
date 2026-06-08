@@ -16,7 +16,7 @@ interface BaitStore {
   isTabOpen: boolean;
   isActive: boolean;
   apiKey: string;
-  messages: BaitMessage[];
+  messagesByServer: Record<string, BaitMessage[]>;
   isLoading: boolean;
 
   openTab: () => void;
@@ -28,13 +28,37 @@ interface BaitStore {
   sendMessage: (text: string) => Promise<void>;
 }
 
+// Sliding-window rate limiter — not persisted, resets on app restart
+let requestLog: number[] = [];
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+
+function serverKey(): string {
+  return useServerStore.getState().activeServerId ?? "_global";
+}
+
+async function callWithRetry(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+): Promise<Anthropic.Message> {
+  try {
+    return await client.messages.create(params);
+  } catch (err) {
+    if (err instanceof Anthropic.APIError && err.status === 529) {
+      await new Promise((r) => setTimeout(r, 2000));
+      return await client.messages.create(params);
+    }
+    throw err;
+  }
+}
+
 export const useBaitStore = create<BaitStore>()(
   persist(
     (set, get) => ({
       isTabOpen: false,
       isActive: false,
       apiKey: "",
-      messages: [],
+      messagesByServer: {},
       isLoading: false,
 
       openTab: () => set({ isTabOpen: true, isActive: true }),
@@ -42,31 +66,54 @@ export const useBaitStore = create<BaitStore>()(
       activate: () => set({ isActive: true }),
       deactivate: () => set({ isActive: false }),
       setApiKey: (key) => set({ apiKey: key }),
-      clearHistory: () => set({ messages: [] }),
+
+      clearHistory: () => {
+        const key = serverKey();
+        set((s) => ({ messagesByServer: { ...s.messagesByServer, [key]: [] } }));
+      },
 
       sendMessage: async (text) => {
         const resolvedKey = get().apiKey || (import.meta.env.VITE_BAIT_DEFAULT_KEY as string) || "";
-        const { messages } = get();
         if (!text.trim()) return;
+
+        const key = serverKey();
+        const msgs = get().messagesByServer[key] ?? [];
+
+        const addMsgs = (...newMsgs: BaitMessage[]) =>
+          set((s) => ({
+            messagesByServer: {
+              ...s.messagesByServer,
+              [key]: [...(s.messagesByServer[key] ?? []), ...newMsgs],
+            },
+          }));
+
         if (!resolvedKey) {
-          const userMsg: BaitMessage = { id: crypto.randomUUID(), role: "user", content: text.trim() };
-          const errMsg: BaitMessage = { id: crypto.randomUUID(), role: "assistant", content: "Error: API key not configured. Set VITE_BAIT_DEFAULT_KEY in your build environment." };
-          set({ messages: [...messages, userMsg, errMsg] });
+          addMsgs(
+            { id: crypto.randomUUID(), role: "user", content: text.trim() },
+            { id: crypto.randomUUID(), role: "assistant", content: "Error: API key not configured. Set VITE_BAIT_DEFAULT_KEY in your build environment." },
+          );
           return;
         }
-        const apiKey = resolvedKey;
 
-        const userMsg: BaitMessage = {
-          id: crypto.randomUUID(),
-          role: "user",
-          content: text.trim(),
-        };
-        set({ messages: [...messages, userMsg], isLoading: true });
+        // Rate limiting
+        const now = Date.now();
+        requestLog = requestLog.filter((t) => now - t < RATE_WINDOW_MS);
+        if (requestLog.length >= RATE_LIMIT) {
+          addMsgs(
+            { id: crypto.randomUUID(), role: "user", content: text.trim() },
+            { id: crypto.randomUUID(), role: "assistant", content: "Error: Rate limit — max 10 requests per minute. Please wait." },
+          );
+          return;
+        }
+        requestLog.push(now);
+
+        const userMsg: BaitMessage = { id: crypto.randomUUID(), role: "user", content: text.trim() };
+        addMsgs(userMsg);
+        set({ isLoading: true });
 
         const { activeServerId, activeChannelId, servers, channels, messages: channelMessages } = useServerStore.getState();
         const userId = useAuthStore.getState().user?.id ?? "";
 
-        // Build context from current server/channel and last 20 messages
         const activeServer = servers.find((s) => s.id === activeServerId);
         const activeChannel = activeServerId && activeChannelId
           ? (channels[activeServerId] ?? []).find((c) => c.id === activeChannelId)
@@ -80,7 +127,7 @@ export const useBaitStore = create<BaitStore>()(
           ? `\n\nActive server: "${activeServer.name}"${activeChannel ? `. Active channel: #${activeChannel.name} (${activeChannel.type})` : ""}.`
           : "";
 
-        const systemPrompt =
+        const systemText =
           "You are b.ai.t — Blok's built-in AI assistant. " +
           "Blok is a team chat app (like Discord). " +
           "Use the provided tools to perform actions in the app. " +
@@ -90,28 +137,29 @@ export const useBaitStore = create<BaitStore>()(
           serverContext +
           channelContext;
 
-        const history: Anthropic.MessageParam[] = [...messages, userMsg].map((m) => ({
+        const history: Anthropic.MessageParam[] = [...msgs, userMsg].map((m) => ({
           role: m.role,
           content: m.content,
         }));
 
         try {
-          const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+          const client = new Anthropic({ apiKey: resolvedKey, dangerouslyAllowBrowser: true });
 
-          let response = await client.messages.create({
+          const baseParams: Anthropic.MessageCreateParamsNonStreaming = {
             model: "claude-haiku-4-5-20251001",
             max_tokens: 1024,
-            system: systemPrompt,
+            system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
             tools: BAIT_TOOLS,
             messages: history,
-          });
+          };
+
+          let response = await callWithRetry(client, baseParams);
 
           const toolResults: string[] = [];
 
-          // Handle tool_use loop
           while (response.stop_reason === "tool_use") {
             const toolUseBlocks = response.content.filter(
-              (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+              (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
             );
 
             const toolResultMessages: Anthropic.ToolResultBlockParam[] = [];
@@ -133,13 +181,7 @@ export const useBaitStore = create<BaitStore>()(
             history.push({ role: "assistant", content: response.content });
             history.push({ role: "user", content: toolResultMessages });
 
-            response = await client.messages.create({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 1024,
-              system: systemPrompt,
-              tools: BAIT_TOOLS,
-              messages: history,
-            });
+            response = await callWithRetry(client, { ...baseParams, messages: history });
           }
 
           const assistantText = response.content
@@ -147,27 +189,26 @@ export const useBaitStore = create<BaitStore>()(
             .map((b) => b.text)
             .join("\n");
 
-          const assistantMsg: BaitMessage = {
+          addMsgs({
             id: crypto.randomUUID(),
             role: "assistant",
             content: assistantText,
             toolResults: toolResults.length > 0 ? toolResults : undefined,
-          };
-
-          set((s) => ({ messages: [...s.messages, assistantMsg], isLoading: false }));
+          });
+          set({ isLoading: false });
         } catch (err) {
-          const errMsg: BaitMessage = {
+          addMsgs({
             id: crypto.randomUUID(),
             role: "assistant",
             content: err instanceof Error ? `Error: ${err.message}` : "Unknown error",
-          };
-          set((s) => ({ messages: [...s.messages, errMsg], isLoading: false }));
+          });
+          set({ isLoading: false });
         }
       },
     }),
     {
       name: "bait-store",
-      partialize: (s) => ({ messages: s.messages }),
-    }
-  )
+      partialize: (s) => ({ messagesByServer: s.messagesByServer }),
+    },
+  ),
 );

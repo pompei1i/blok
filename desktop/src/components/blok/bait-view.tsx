@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useI18n } from "@/lib/i18n";
 import { useBaitStore } from "@/lib/store/bait-store";
+import { useServerStore } from "@/lib/store/server-store";
 import { cn } from "@/lib/utils";
 
 export function BaitView() {
   const { t } = useI18n();
-  const { messages, isLoading, sendMessage, clearHistory } = useBaitStore();
+  const { messagesByServer, isLoading, sendMessage, clearHistory } = useBaitStore();
+  const { activeServerId } = useServerStore();
+  const messages = messagesByServer[activeServerId ?? "_global"] ?? [];
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.10] — 2026-06-08
+
+### Added
+- **View Profile** — right-click any member → View Profile opens a modal with avatar, display name, pronouns, status message, bio, and member-since date.
+- **b.ai.t per-server history** — conversation history is now scoped per server; switching servers starts a fresh context.
+- **b.ai.t rate limiting** — max 10 requests/min with a clear error message when exceeded.
+- **b.ai.t prompt caching** — system prompt uses `cache_control: ephemeral`, reducing API cost ~10×.
+- **b.ai.t retry on 529** — automatic single retry after 2 s on Anthropic overload responses.
+
+---
+
 ## [0.9.9] — 2026-06-08
 
 ### Fixed
