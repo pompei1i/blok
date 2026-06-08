@@ -99,7 +99,7 @@ jobs:
         uses: signpath/github-action-submit-signing-request@v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
           project-slug: blok
           signing-policy-slug: release-signing
           github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
