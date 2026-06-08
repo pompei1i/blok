@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.13] — 2026-06-08
+
+### Added
+- **UI sounds** — mute/unmute mic (ascending/descending tones), screen share on/off, camera on/off (sweep sounds), phone ringtone for incoming/outgoing DM calls (looping, stops on accept/decline/cancel). All synthesized via Web Audio API.
+
+---
+
 ## [0.9.12] — 2026-06-08
 
 ### Fixed

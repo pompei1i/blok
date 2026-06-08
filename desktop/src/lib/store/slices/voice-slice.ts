@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
+import { playMuteSound, playUnmuteSound, playCaptureStartSound, playCaptureStopSound } from "../../sounds";
 import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../../native-voice-engine";
 import type { User, VoiceParticipant } from "../types";
 import type { ServerStore } from "../server-store.shape";
@@ -200,6 +201,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
 
   toggleMute: () => {
     const newMuted = !get().isMuted;
+    if (newMuted) playMuteSound(); else playUnmuteSound();
     const { activeVoiceChannelId, isDeafened, isScreenSharing, _currentUserId } = get();
     getActiveNativeVoiceEngine()?.setMuted(newMuted);
     set((state) => ({
@@ -243,10 +245,12 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
     if (!engine) return;
     const { isCameraOn } = get();
     if (isCameraOn) {
+      playCaptureStopSound();
       await engine.stopCamera();
       set({ isCameraOn: false, localCameraStream: null });
     } else {
       try {
+        playCaptureStartSound();
         await engine.startCamera();
         set({ isCameraOn: true });
       } catch { /* user cancelled or no camera */ }
@@ -258,6 +262,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
     if (!engine) return;
     const { isScreenSharing, activeVoiceChannelId, isMuted, isDeafened, _currentUserId } = get();
     if (isScreenSharing) {
+      playCaptureStopSound();
       await engine.stopScreenShare();
       if (activeVoiceChannelId && _currentUserId) {
         voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: false });
@@ -275,6 +280,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
       }
     } else {
       try {
+        playCaptureStartSound();
         await engine.startScreenShare(sourceId);
         if (activeVoiceChannelId && _currentUserId) {
           voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: true });

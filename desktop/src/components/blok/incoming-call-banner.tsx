@@ -1,13 +1,23 @@
+import { useEffect } from "react";
 import { Phone, PhoneOff, PhoneCall } from "lucide-react";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
 import { UserAvatar } from "./user-avatar";
 import { useI18n } from "@/lib/i18n";
+import { playRingtone, stopRingtone } from "@/lib/sounds";
 
 export function IncomingCallBanner() {
  const { t } = useI18n();
  const { incomingCall, outgoingCall, acceptCall, declineCall, cancelCall } = useDMStore();
  const { friends } = useFriendsStore();
+
+ useEffect(() => {
+   if (incomingCall || outgoingCall) {
+     playRingtone();
+     return () => stopRingtone();
+   }
+   stopRingtone();
+ }, [incomingCall, outgoingCall]);
 
  const findUser = (userId: string) => {
  const rel = friends.find((f) => f.targetId === userId || f.requesterId === userId);
