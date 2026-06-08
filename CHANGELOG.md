@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.11] — 2026-06-08
+
+### Added
+- **Authenticode code signing** — Windows installer is now signed via SignPath.io; builds Tauri updater `.sig` from the signed binary.
+
+---
+
 ## [0.9.10] — 2026-06-08
 
 ### Added

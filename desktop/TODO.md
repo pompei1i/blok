@@ -4,16 +4,17 @@
 
 ### Phase 0.5 — polish & reliability (text assistant)
 
-- [ ] **Prompt caching** — add `cache_control: { type: "ephemeral" }` to the system prompt block so repeated requests reuse the cached system prompt + tools (cuts cost ~10× on cache hits). See Anthropic prompt caching docs.
-- [ ] **Streaming responses** — switch to `client.messages.stream()` and emit tokens to `bait-store` as they arrive; show partial text in BaitView in real time instead of waiting for the full response.
-- [ ] **Model routing** — Haiku 4.5 for tool-only requests (poll, create channel, timer); Sonnet 4.6 for analysis/summarization/translation. Detect intent before the first API call.
-- [ ] **Rate limiting** — max 10 requests/minute per session; show "slow down" message instead of erroring; queue or drop excess calls.
-- [ ] **Smart language detection for translate** — auto-detect message language; only offer "Translate with b.ai.t" context menu item when language ≠ current app locale. If they match → "Already in your language".
-- [ ] **Tool: `delete_message(messageId)`** — let bait delete a message by ID (with confirmation in the response).
-- [ ] **Tool: `search_messages(query, channelId?)`** — bait can look up messages by keyword and quote them in its reply.
-- [ ] **Tool: `set_channel_topic(topic)`** — set the topic of the active channel.
-- [ ] **Error resilience** — retry once on Anthropic 529 (overload); surface clear error text for 401 (bad key) and 429 (rate limit) separately.
-- [ ] **Per-server history** — persist separate conversation history per `serverId` so switching servers doesn't mix contexts.
+- [x] **Prompt caching** — `cache_control: { type: "ephemeral" }` on system prompt. _(v0.9.10)_
+- [x] **Rate limiting** — max 10 req/min; user-visible error message. _(v0.9.10)_
+- [x] **Per-server history** — `messagesByServer` keyed by serverId. _(v0.9.10)_
+- [x] **Error resilience** — retry on 529 after 2 s. _(v0.9.10)_
+- [ ] **Streaming responses** — `client.messages.stream()`; tokens arrive in real time.
+- [ ] **Model routing** — Haiku 4.5 for tool-only calls; Sonnet 4.6 for analysis/summarize/translate.
+- [ ] **Smart language detection** — hide "Translate with b.ai.t" if message language = app locale.
+- [ ] **Tool: `delete_message(messageId)`** — bait deletes a message by ID (with confirm in reply).
+- [ ] **Tool: `search_messages(query, channelId?)`** — bait looks up messages and quotes them.
+- [ ] **Tool: `set_channel_topic(topic)`** — set topic of the active channel.
+- [ ] **Error codes** — distinct messages for 401 (bad key) vs 429 (quota exceeded).
 
 ---
 
