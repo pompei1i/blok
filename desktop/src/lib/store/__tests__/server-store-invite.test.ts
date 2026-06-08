@@ -114,7 +114,7 @@ describe("joinByInviteCode", () => {
     const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01" };
     q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({
-      members: { s1: [{ id: "m1", serverId: "s1", userId: "u1", joinedAt: "2024-01-01" }] },
+      members: { s1: [{ id: "m1", serverId: "s1", userId: "u1", joinedAt: "2024-01-01", xp: 0 }] },
     });
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");

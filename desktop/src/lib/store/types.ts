@@ -19,6 +19,7 @@ export interface UserPresence {
   userId: string;
   status: PresenceStatus;
   lastSeen: string;
+  activity?: string;
 }
 
 export type RelationshipStatus = "pending" | "accepted" | "blocked";
@@ -158,6 +159,7 @@ export interface ServerMember {
   roleId?: string;
   nickname?: string;
   joinedAt: string;
+  xp: number;
   user?: User;
 }
 

@@ -318,7 +318,7 @@ describe("realtime: profiles UPDATE", () => {
       userProfileCache: {},
       memberUserIndex: { "u-1": [{ serverId: "s-1", memberId: "mem-1" }] },
       members: {
-        "s-1": [{ id: "mem-1", serverId: "s-1", userId: "u-1", joinedAt: "", user: makeUser("u-1", "old") }],
+        "s-1": [{ id: "mem-1", serverId: "s-1", userId: "u-1", joinedAt: "", xp: 0, user: makeUser("u-1", "old") }],
       },
       voiceParticipants: {},
     });

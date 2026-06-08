@@ -14,9 +14,12 @@ import { PresenceDot } from "./presence-dot";
 import { AddFriendModal } from "./add-friend-modal";
 import { UserProfileModal } from "./user-profile-modal";
 import { cn } from "@/lib/utils";
+import { xpToLevel, levelColor } from "@/lib/levels";
+import { useQuestsStore } from "@/lib/store/quests-store";
+import { DAILY_QUESTS } from "@/lib/quests";
 import type { ServerMember } from "@/lib/store/types";
 
-type Tab = "members" | "friends";
+type Tab = "members" | "friends" | "quests";
 
 // ─── Tab button ───────────────────────────────────────────────────────────────
 
@@ -52,7 +55,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
 
 function MembersView() {
   const { activeServerId, members, channels, voiceParticipants, servers, roles, kickMember, generateInviteCode } = useServerStore();
-  const { presence, presenceLastSeen, friends, sendFriendRequest, removeFriend } = useFriendsStore();
+  const { presence, presenceLastSeen, activity, friends, sendFriendRequest, removeFriend } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
   const { t } = useI18n();
@@ -139,12 +142,23 @@ function MembersView() {
           <PresenceDot status={status} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-[var(--text-primary)] truncate">
-            @{name}
-            {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-50">{t("members.you")}</span>}
-          </p>
+          <div className="flex items-center gap-1">
+            <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+              @{name}
+              {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-50">{t("members.you")}</span>}
+            </p>
+            <span
+              className="text-[9px] font-bold flex-shrink-0 px-1 rounded"
+              style={{ color: levelColor(xpToLevel(m.xp)), border: `1px solid ${levelColor(xpToLevel(m.xp))}44` }}
+            >
+              {xpToLevel(m.xp)}
+            </span>
+          </div>
           {m.user?.pronouns && (
             <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{m.user.pronouns}</p>
+          )}
+          {activity[m.userId] && (
+            <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
           )}
           {inVoice.has(m.userId) && (
             <p className="text-[10px] text-[var(--online)]">{t("members.inVoice")}</p>
@@ -323,6 +337,7 @@ function MembersView() {
         <UserProfileModal
           user={profileMember.user}
           status={getStatus(profileMember.userId)}
+          xp={profileMember.xp}
           onClose={() => setProfileMember(null)}
         />
       )}
@@ -334,20 +349,39 @@ function MembersView() {
 
 function FriendsView() {
   const { user } = useAuthStore();
-  const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, acceptRequest, declineRequest, cancelRequest, loadError } = useFriendsStore();
-  const { openDM } = useDMStore();
+  const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, activity, acceptRequest, declineRequest, cancelRequest, removeFriend, loadError } = useFriendsStore();
+  const { openDM, callUser } = useDMStore();
+  const { activeServerId, generateInviteCode } = useServerStore();
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [outgoingOpen, setOutgoingOpen] = useState(true);
   const [incomingOpen, setIncomingOpen] = useState(true);
+  const [onlineOpen, setOnlineOpen] = useState(true);
+  const [offlineOpen, setOfflineOpen] = useState(true);
+
+  type FriendMeta = { id: string; friendId: string; friendUser: import("@/lib/store/types").User | undefined };
+  type FriendCtxMenu = { friend: FriendMeta; x: number; y: number };
+  const [ctxMenu, setCtxMenu] = useState<FriendCtxMenu | null>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
+  const [profileFriend, setProfileFriend] = useState<FriendMeta | null>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node))
+        setCtxMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [ctxMenu]);
 
   const query = search.toLowerCase().trim();
 
-  const friendsWithMeta = friends.map((f) => {
+  const friendsWithMeta: FriendMeta[] = friends.map((f) => {
     if (!user) return null;
     const isRequester = f.requesterId === user.id;
-    return { ...f, friendId: isRequester ? f.targetId : f.requesterId, friendUser: isRequester ? f.targetUser : f.requesterUser };
+    return { id: f.id, friendId: isRequester ? f.targetId : f.requesterId, friendUser: isRequester ? f.targetUser : f.requesterUser };
   }).filter((f): f is NonNullable<typeof f> => !!f);
 
   const filtered = friendsWithMeta.filter((f) =>
@@ -356,12 +390,42 @@ function FriendsView() {
     f.friendUser?.displayName?.toLowerCase().includes(query),
   );
 
-  const sorted = [...filtered].sort((a, b) => {
-    const order = { online: 0, afk: 1, dnd: 2, offline: 3 } as const;
-    const sA = effectiveStatus(presence[a.friendId], presenceLastSeen[a.friendId]);
-    const sB = effectiveStatus(presence[b.friendId], presenceLastSeen[b.friendId]);
-    return order[sA] - order[sB];
+  const onlineFriends = filtered.filter((f) => {
+    const s = effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId]);
+    return s === "online" || s === "afk" || s === "dnd";
   });
+  const offlineFriends = filtered.filter((f) =>
+    effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId]) === "offline",
+  );
+
+  const FriendRow = ({ f }: { f: FriendMeta }) => (
+    <button
+      key={f.id}
+      onClick={() => user && openDM(user.id, f.friendId)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const menuH = 140;
+        const y = e.clientY + menuH > window.innerHeight ? e.clientY - menuH : e.clientY;
+        setCtxMenu({ friend: f, x: Math.min(e.clientX, window.innerWidth - 200), y });
+      }}
+      className="flex items-center gap-2 w-full px-2 py-1.5 text-left transition-all hover:bg-[var(--bg-hover)] group"
+    >
+      <div className="relative flex-shrink-0">
+        <UserAvatar user={f.friendUser} size="sm" />
+        <PresenceDot status={effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId])} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{f.friendUser?.username ?? "unknown"}</p>
+        {activity[f.friendId] && (
+          <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[f.friendId]}</p>
+        )}
+        {!activity[f.friendId] && f.friendUser?.pronouns && (
+          <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{f.friendUser.pronouns}</p>
+        )}
+      </div>
+      <MessageCircle className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
+    </button>
+  );
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -389,31 +453,30 @@ function FriendsView() {
 
       <AddFriendModal isOpen={showAddFriend} onClose={() => setShowAddFriend(false)} />
 
-      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
         {loadError && (
-          <div className="p-2 border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--destructive)] text-xs">{loadError}</div>
+          <div className="p-2 mb-1 border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--destructive)] text-xs">{loadError}</div>
         )}
 
+        {/* Outgoing requests */}
         {outgoingRequests.length > 0 && (
-          <div>
-            <button onClick={() => setOutgoingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+          <div className="mt-1">
+            <button onClick={() => setOutgoingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !outgoingOpen && "-rotate-90")} />
               Outgoing — {outgoingRequests.length}
             </button>
             {outgoingOpen && (
-              <div className="space-y-1">
+              <div className="space-y-0.5 mt-0.5">
                 {outgoingRequests.map((req) => (
-                  <div key={req.id} className="p-2 bg-[var(--bg-elevated)] border border-[var(--border)]">
-                    <div className="flex items-center gap-2">
-                      <UserAvatar user={req.targetUser} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.targetUser?.username ?? "unknown"}</p>
-                        <p className="text-xs text-[var(--text-muted)] truncate">{t("friends.pending")}</p>
-                      </div>
-                      <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
-                        <X className="w-3 h-3" />
-                      </button>
+                  <div key={req.id} className="flex items-center gap-2 px-2 py-1.5">
+                    <UserAvatar user={req.targetUser} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.targetUser?.username ?? "unknown"}</p>
+                      <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{t("friends.pending")}</p>
                     </div>
+                    <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -421,21 +484,22 @@ function FriendsView() {
           </div>
         )}
 
+        {/* Incoming requests */}
         {pendingRequests.length > 0 && (
-          <div>
-            <button onClick={() => setIncomingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+          <div className="mt-1">
+            <button onClick={() => setIncomingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !incomingOpen && "-rotate-90")} />
               <span className="text-[var(--online)]">Incoming — {pendingRequests.length}</span>
             </button>
             {incomingOpen && (
-              <div className="space-y-1">
+              <div className="space-y-0.5 mt-0.5">
                 {pendingRequests.map((req) => (
-                  <div key={req.id} className="p-2 bg-[var(--bg-elevated)] border border-[var(--border)]">
+                  <div key={req.id} className="px-2 py-1.5">
                     <div className="flex items-center gap-2">
                       <UserAvatar user={req.requesterUser} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.requesterUser?.username ?? "unknown"}</p>
-                        <p className="text-xs text-[var(--text-muted)] truncate">{t("friends.wantsToAdd")}</p>
+                        <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{t("friends.wantsToAdd")}</p>
                       </div>
                     </div>
                     <div className="mt-1.5 flex gap-1">
@@ -453,30 +517,183 @@ function FriendsView() {
           </div>
         )}
 
-        <div className="space-y-0.5">
-          {sorted.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => user && openDM(user.id, f.friendId)}
-              className="flex items-center gap-2 w-full px-2 py-1.5 text-left transition-all hover:bg-[var(--bg-hover)] group"
-            >
-              <div className="relative flex-shrink-0">
-                <UserAvatar user={f.friendUser} size="sm" />
-                <PresenceDot status={effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId])} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{f.friendUser?.username ?? "unknown"}</p>
-                {f.friendUser?.pronouns && (
-                  <p className="text-xs text-[var(--text-muted)] truncate opacity-60">{f.friendUser.pronouns}</p>
-                )}
-              </div>
-              <MessageCircle className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
+        {/* Online friends */}
+        {onlineFriends.length > 0 && (
+          <div className="mt-1">
+            <button onClick={() => setOnlineOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+              <ChevronDown className={cn("w-3 h-3 transition-transform", !onlineOpen && "-rotate-90")} />
+              Online — {onlineFriends.length}
             </button>
-          ))}
-          {sorted.length === 0 && !query && <p className="py-6 text-center text-xs text-[var(--text-muted)]">{t("friends.noFriends")}</p>}
-          {sorted.length === 0 && query && <p className="py-4 text-center text-xs text-[var(--text-muted)]">{t("friends.noResults")}</p>}
-        </div>
+            {onlineOpen && (
+              <div className="space-y-0.5 mt-0.5">
+                {onlineFriends.map((f) => <FriendRow key={f.id} f={f} />)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Offline friends */}
+        {offlineFriends.length > 0 && (
+          <div className="mt-1">
+            <button onClick={() => setOfflineOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+              <ChevronDown className={cn("w-3 h-3 transition-transform", !offlineOpen && "-rotate-90")} />
+              Offline — {offlineFriends.length}
+            </button>
+            {offlineOpen && (
+              <div className="space-y-0.5 mt-0.5">
+                {offlineFriends.map((f) => <FriendRow key={f.id} f={f} />)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {filtered.length === 0 && !query && <p className="py-6 text-center text-xs text-[var(--text-muted)]">{t("friends.noFriends")}</p>}
+        {filtered.length === 0 && query && <p className="py-4 text-center text-xs text-[var(--text-muted)]">{t("friends.noResults")}</p>}
       </div>
+
+      {/* Context menu */}
+      {ctxMenu && createPortal((() => {
+        const { friend: f } = ctxMenu;
+        const close = () => setCtxMenu(null);
+        return (
+          <div
+            ref={ctxMenuRef}
+            className="fixed z-50 w-48 bg-[var(--bg-elevated)] border border-[var(--border)] shadow-xl py-1"
+            style={{ top: ctxMenu.y, left: ctxMenu.x }}
+          >
+            <div className="px-3 py-1.5 border-b border-[var(--border)] mb-1">
+              <p className="text-xs font-semibold text-[var(--text-muted)] truncate">@{f.friendUser?.username ?? "unknown"}</p>
+            </div>
+            <button
+              onClick={() => { setProfileFriend(f); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+            >
+              <User className="w-3.5 h-3.5 flex-shrink-0" />
+              {t("member.ctx.viewProfile")}
+            </button>
+            <button
+              onClick={() => { if (user) void openDM(user.id, f.friendId); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+            >
+              <MessageCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              {t("member.ctx.message")}
+            </button>
+            <button
+              onClick={() => { void callUser(f.friendId, f.friendUser?.username ?? ""); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+              {t("member.ctx.call")}
+            </button>
+            {activeServerId && (
+              <button
+                onClick={() => {
+                  void generateInviteCode(activeServerId).then((code) => {
+                    if (code) navigator.clipboard.writeText(code).catch(() => {});
+                  });
+                  close();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
+              >
+                <Link2 className="w-3.5 h-3.5 flex-shrink-0" />
+                {t("member.ctx.inviteToServer")}
+              </button>
+            )}
+            <div className="my-1 border-t border-[var(--border)]" />
+            <button
+              onClick={() => { void removeFriend(f.id); close(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+            >
+              <UserMinus className="w-3.5 h-3.5 flex-shrink-0" />
+              {t("member.ctx.removeFriend")}
+            </button>
+          </div>
+        );
+      })(), document.body)}
+
+      {/* Profile modal */}
+      {profileFriend?.friendUser && (
+        <UserProfileModal
+          user={profileFriend.friendUser}
+          status={effectiveStatus(presence[profileFriend.friendId], presenceLastSeen[profileFriend.friendId])}
+          onClose={() => setProfileFriend(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Quests view ──────────────────────────────────────────────────────────────
+
+function QuestsView() {
+  const { user } = useAuthStore();
+  const { activeServerId } = useServerStore();
+  const { progress, loading, loadQuests, claimQuest } = useQuestsStore();
+
+  useEffect(() => {
+    if (user && activeServerId) void loadQuests(user.id, activeServerId);
+  }, [user, activeServerId, loadQuests]);
+
+  const today = new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 px-3 py-3 gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
+          <span className="text-[var(--accent-red)]">$</span> daily quests
+        </span>
+        <span className="text-[10px] text-[var(--text-muted)]">{today}</span>
+      </div>
+
+      {loading && (
+        <p className="text-xs text-[var(--text-muted)] text-center py-4">Loading...</p>
+      )}
+
+      {!loading && DAILY_QUESTS.map((quest) => {
+        const p = progress.find((p) => p.questId === quest.id);
+        const count = p?.count ?? 0;
+        const claimed = p?.claimed ?? false;
+        const done = count >= quest.target;
+        const percent = Math.min(100, Math.round((count / quest.target) * 100));
+
+        return (
+          <div key={quest.id} className={cn(
+            "border border-[var(--border)] p-3 flex flex-col gap-2",
+            done && !claimed && "border-[var(--accent-red)]/40 bg-[var(--accent-red)]/5",
+            claimed && "opacity-50",
+          )}>
+            <div className="flex items-center gap-2">
+              <span className="text-base leading-none">{quest.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-[var(--text-primary)]">{quest.label}</p>
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  {count}/{quest.target} · +{quest.xp} XP
+                </p>
+              </div>
+              {claimed && <span className="text-[10px] text-[var(--text-muted)]">✓</span>}
+            </div>
+
+            <div className="w-full h-1 rounded-full bg-[var(--bg-elevated)] overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${percent}%`,
+                  background: claimed ? "var(--text-muted)" : done ? "var(--accent-red)" : "var(--online)",
+                }}
+              />
+            </div>
+
+            {done && !claimed && (
+              <button
+                onClick={() => void claimQuest(quest.id, quest.xp)}
+                className="w-full py-1 text-xs font-bold text-white bg-[var(--accent-red)] hover:bg-[var(--accent-red)]/80 transition-colors"
+              >
+                Claim +{quest.xp} XP
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -503,6 +720,7 @@ export function RightSidebar() {
             <>
               <TabBtn label={t("sidebar.members")} count={memberCount} active={activeTab === "members"} onClick={() => setTab("members")} />
               <TabBtn label={t("friends.friends")} count={friendCount} active={activeTab === "friends"} onClick={() => setTab("friends")} />
+              <TabBtn label="quests" active={activeTab === "quests"} onClick={() => setTab("quests")} />
             </>
           ) : (
             <TabBtn label={t("friends.friends")} count={friendCount} active />
@@ -510,7 +728,9 @@ export function RightSidebar() {
         </div>
       </div>
 
-      {activeTab === "members" ? <MembersView /> : <FriendsView />}
+      {activeTab === "members" && <MembersView />}
+      {activeTab === "friends" && <FriendsView />}
+      {activeTab === "quests" && <QuestsView />}
 
       <button
         onClick={() => isBaitTabOpen ? activateBait() : openBaitTab()}

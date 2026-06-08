@@ -16,10 +16,13 @@ import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { AccountEditModal } from "./account-edit-modal";
 import { ScreenSharePicker } from "./screen-share-picker";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { playSound } from "@/lib/sounds";
 import { useI18n } from "@/lib/i18n";
+import { levelProgress, levelColor } from "@/lib/levels";
+import { useFriendsStore } from "@/lib/store/friends-store";
+import { ActivityPicker } from "./activity-picker";
 
 export function UserBar() {
   const { t } = useI18n();
@@ -44,8 +47,17 @@ export function UserBar() {
     ? (voiceParticipants[activeVoiceChannelId] ?? []).find((p) => p.userId === user?.id)
     : null;
   const isSpeaking = localParticipant?.isSpeaking ?? false;
+
+  const serverMembers = useServerStore((s) => activeServerId ? (s.members[activeServerId] ?? []) : []);
+  const myXp = serverMembers.find((m) => m.userId === user?.id)?.xp;
+  const lvProgress = myXp !== undefined ? levelProgress(myXp) : null;
+  const lvColor = lvProgress ? levelColor(lvProgress.level) : null;
   const [showSettings, setShowSettings] = useState(false);
   const [showScreenPicker, setShowScreenPicker] = useState(false);
+  const [showActivityPicker, setShowActivityPicker] = useState(false);
+  const activityBtnRef = useRef<HTMLButtonElement>(null);
+  const { activity, setActivity } = useFriendsStore();
+  const myActivity = user ? (activity[user.id] ?? null) : null;
 
   const serverChannels = activeServerId ? channels[activeServerId] || [] : [];
   const activeVoiceChannel = serverChannels.find(
@@ -90,9 +102,43 @@ export function UserBar() {
             <p className="text-sm font-medium text-[var(--text-primary)] truncate">
               @{user?.username}
             </p>
-            <p className="text-xs text-[var(--text-muted)] truncate">
-              {user?.statusMessage || t("userBar.online")}
-            </p>
+            {lvProgress && lvColor ? (
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold" style={{ color: lvColor }}>
+                    Lv.{lvProgress.level}{lvProgress.maxed ? " MAX" : ""}
+                  </span>
+                  {!lvProgress.maxed && (
+                    <span className="text-[9px] text-[var(--text-muted)]">
+                      {lvProgress.current}/{lvProgress.needed}
+                    </span>
+                  )}
+                </div>
+                {!lvProgress.maxed && (
+                  <div className="w-full h-0.5 rounded-full bg-[var(--bg-elevated)] overflow-hidden mt-0.5">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${lvProgress.percent}%`, background: lvColor }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--text-muted)] truncate">
+                {user?.statusMessage || t("userBar.online")}
+              </p>
+            )}
+            <button
+              ref={activityBtnRef}
+              onClick={() => setShowActivityPicker((v) => !v)}
+              className="mt-0.5 text-[10px] text-left truncate w-full transition-colors"
+              style={{ color: myActivity ? "var(--text-muted)" : undefined }}
+            >
+              {myActivity
+                ? <span className="opacity-80">{myActivity}</span>
+                : <span className="text-[var(--text-muted)] opacity-40 hover:opacity-70">+ set activity</span>
+              }
+            </button>
           </div>
         </div>
 
@@ -180,6 +226,15 @@ export function UserBar() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+
+      {showActivityPicker && activityBtnRef.current && user && (
+        <ActivityPicker
+          current={myActivity}
+          anchorRect={activityBtnRef.current.getBoundingClientRect()}
+          onSelect={(a) => void setActivity(user.id, a)}
+          onClose={() => setShowActivityPicker(false)}
+        />
+      )}
     </>
   );
 }

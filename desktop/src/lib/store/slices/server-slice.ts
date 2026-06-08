@@ -143,7 +143,8 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         if (user) userProfileCache[m.user_id] = user;
         const entry: ServerMember = {
           id: m.id, serverId: m.server_id, userId: m.user_id,
-          roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at, user,
+          roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at,
+          xp: m.xp ?? 0, user,
         };
         membersMap[m.server_id].push(entry);
         if (!memberUserIndex[m.user_id]) memberUserIndex[m.user_id] = [];
@@ -454,7 +455,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     if (error) return "Failed to add user";
     const newMember: ServerMember = {
       id: crypto.randomUUID(), serverId, userId: profile.id,
-      joinedAt: new Date().toISOString(), user: mapProfile(profile),
+      joinedAt: new Date().toISOString(), xp: 0, user: mapProfile(profile),
     };
     set((state) => ({
       members: { ...state.members, [serverId]: [...(state.members[serverId] || []), newMember] },
@@ -549,7 +550,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       if (user) newProfileCache[m.user_id] = user;
       if (!addedMemberIndex[m.user_id]) addedMemberIndex[m.user_id] = [];
       addedMemberIndex[m.user_id].push({ serverId: server.id, memberId: m.id });
-      return { id: m.id, serverId: m.server_id, userId: m.user_id, roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at, user };
+      return { id: m.id, serverId: m.server_id, userId: m.user_id, roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at, xp: m.xp ?? 0, user };
     });
 
     const newRoles: Role[] = (rolesRes.data || []).map((r) => ({

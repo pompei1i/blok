@@ -7,11 +7,12 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { cn } from "@/lib/utils";
+import { xpToLevel, levelColor } from "@/lib/levels";
 import type { ServerMember } from "@/lib/store/types";
 
 export function MembersSidebar() {
   const { activeServerId, members, voiceParticipants } = useServerStore();
-  const { presence, presenceLastSeen } = useFriendsStore();
+  const { presence, presenceLastSeen, activity } = useFriendsStore();
   const { openDM } = useDMStore();
   const { user } = useAuthStore();
   const [search, setSearch] = useState("");
@@ -52,6 +53,9 @@ export function MembersSidebar() {
     const inCall = inVoice.has(m.userId);
     const displayName = m.nickname ?? m.user?.displayName ?? m.user?.username ?? m.userId.slice(0, 8);
 
+    const level = xpToLevel(m.xp);
+    const color = levelColor(level);
+
     return (
       <button
         key={m.userId}
@@ -72,11 +76,22 @@ export function MembersSidebar() {
           />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-[var(--text-primary)] truncate">
-            @{displayName}
-            {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-60">you</span>}
-          </p>
-          {m.user?.pronouns && (
+          <div className="flex items-center gap-1">
+            <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+              @{displayName}
+              {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-60">you</span>}
+            </p>
+            <span
+              className="text-[9px] font-bold flex-shrink-0 px-1 rounded"
+              style={{ color, border: `1px solid ${color}44` }}
+            >
+              {level}
+            </span>
+          </div>
+          {activity[m.userId] && (
+            <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
+          )}
+          {!activity[m.userId] && m.user?.pronouns && (
             <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">
               {m.user.pronouns}
             </p>

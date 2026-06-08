@@ -25,12 +25,14 @@ interface FriendsState {
   outgoingRequests: UserRelationship[];
   presence: Record<string, PresenceStatus>;
   presenceLastSeen: Record<string, string>;
+  activity: Record<string, string>;
   currentUserId: string | null;
   loadError: string | null;
 
   initFriendsData: (userId: string) => Promise<void>;
   removeFriend: (relationshipId: string) => Promise<void>;
   updatePresence: (userId: string, status: PresenceStatus) => Promise<void>;
+  setActivity: (userId: string, activity: string | null) => Promise<void>;
   acceptRequest: (relationshipId: string) => Promise<void>;
   declineRequest: (relationshipId: string) => Promise<void>;
   sendFriendRequest: (username: string, currentUserId: string) => Promise<{ success: boolean; message: string }>;
@@ -44,6 +46,7 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
   outgoingRequests: [],
   presence: {},
   presenceLastSeen: {},
+  activity: {},
   currentUserId: null,
   loadError: null,
 
@@ -148,12 +151,14 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
       const uniqueOutgoing = dedupeByCounterparty(outgoing, "outgoing");
 
       // 2. Fetch presence (all users for simplicity in MVP)
-      const { data: presenceData } = await supabase.from("user_presence").select("user_id, status, online_at");
+      const { data: presenceData } = await supabase.from("user_presence").select("user_id, status, online_at, activity");
       const presenceMap: Record<string, PresenceStatus> = {};
       const presenceLastSeenMap: Record<string, string> = {};
+      const activityMap: Record<string, string> = {};
       (presenceData || []).forEach((p: any) => {
         presenceMap[p.user_id] = p.status;
         if (p.online_at) presenceLastSeenMap[p.user_id] = p.online_at;
+        if (p.activity) activityMap[p.user_id] = p.activity;
       });
 
       set({
@@ -162,6 +167,7 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
         outgoingRequests: uniqueOutgoing,
         presence: presenceMap,
         presenceLastSeen: presenceLastSeenMap,
+        activity: activityMap,
       });
 
       // 3. Realtime setup — unsubscribe previous channel on re-init (e.g. re-login)
@@ -181,6 +187,9 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
               set((state) => ({
                 presence: { ...state.presence, [p.user_id]: p.status },
                 ...(p.online_at ? { presenceLastSeen: { ...state.presenceLastSeen, [p.user_id]: p.online_at } } : {}),
+                activity: p.activity != null
+                  ? { ...state.activity, [p.user_id]: p.activity }
+                  : (() => { const a = { ...state.activity }; delete a[p.user_id]; return a; })(),
               }));
             }
           },
@@ -246,6 +255,15 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
         friends: state.friends.filter(f => f.id !== relationshipId)
       }));
     }
+  },
+
+  setActivity: async (userId, activity) => {
+    set((state) => {
+      const a = { ...state.activity };
+      if (activity) a[userId] = activity; else delete a[userId];
+      return { activity: a };
+    });
+    await supabase.from("user_presence").upsert({ user_id: userId, activity: activity ?? null });
   },
 
   updatePresence: async (userId, status) => {

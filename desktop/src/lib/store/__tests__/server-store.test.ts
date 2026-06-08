@@ -31,6 +31,7 @@ function makeMember(userId: string, serverId: string): ServerMember {
     serverId,
     userId,
     joinedAt: "2024-01-01",
+    xp: 0,
   };
 }
 
