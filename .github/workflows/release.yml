@@ -9,8 +9,6 @@ jobs:
   release:
     permissions:
       contents: write
-      id-token: write
-      actions: read
     runs-on: windows-latest
 
     steps:
@@ -82,52 +80,11 @@ jobs:
           prerelease: false
           updaterJsonPreferNsis: true
 
-      - name: Download unsigned installer
+      - name: Download artifacts from private release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          New-Item -ItemType Directory -Force unsigned | Out-Null
-          gh release download "${{ github.ref_name }}" --pattern "blok_*-setup.exe" --dir unsigned --clobber
-
-      - name: Upload unsigned installer for signing
-        id: upload-unsigned
-        uses: actions/upload-artifact@v4
-        with:
-          name: blok-unsigned
-          path: unsigned/
-
-      - name: Sign with SignPath
-        uses: signpath/github-action-submit-signing-request@v1
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: blok
-          signing-policy-slug: release-signing
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed/
-
-      - name: Re-create Tauri updater signature for signed binary
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          $exeName = (Get-Item "unsigned/blok_*-setup.exe").Name
-          Copy-Item "signed/$exeName" . -Force
-          $keyPath = Join-Path $env:RUNNER_TEMP "tauri.key"
-          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllText($keyPath, $env:TAURI_SIGNING_PRIVATE_KEY, $utf8NoBom)
-          Set-Location desktop
-          npx tauri signer sign -f $keyPath -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "../$exeName"
-          Set-Location ..
-          Remove-Item -Force $keyPath
-          Write-Host "Signed: $exeName + $exeName.sig"
-
-      - name: Download latest.json
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "${{ github.ref_name }}" --pattern "latest.json" --clobber
+          gh release download "${{ github.ref_name }}" --pattern "blok_*-setup.exe" --pattern "blok_*-setup.exe.sig" --pattern "latest.json" --clobber
 
       - name: Rewrite latest.json URLs for public repo
         run: |
