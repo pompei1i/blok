@@ -3,6 +3,8 @@ import type { User } from "./types";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
 
+let _profileSelfChannel: ReturnType<typeof supabase.channel> | null = null;
+
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
@@ -111,7 +113,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       initialized: true,
     });
 
-    supabase
+    if (_profileSelfChannel) await supabase.removeChannel(_profileSelfChannel);
+    _profileSelfChannel = supabase
       .channel(`profile-self-${user.id}`)
       .on(
         "postgres_changes",
@@ -145,10 +148,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       };
     }
 
-    // Small delay to let the DB trigger fire and commit
-    await new Promise((r) => setTimeout(r, 500));
-
+    // The profile row is created by a DB trigger on signup; poll briefly instead
+    // of a fixed sleep so the common case (row already exists) resolves instantly.
     let profile = await fetchProfile(data.user.id);
+    for (let attempt = 0; !profile && attempt < 3; attempt++) {
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+      profile = await fetchProfile(data.user.id);
+    }
 
     // Safety net: if trigger didn't create the profile, create it now
     if (!profile) {
@@ -260,6 +266,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await useServerStore.getState().leaveVoiceChannel();
     const { clearDataChannels } = await import("./slices/_shared");
     await clearDataChannels();
+    if (_profileSelfChannel) {
+      await supabase.removeChannel(_profileSelfChannel);
+      _profileSelfChannel = null;
+    }
     await supabase.auth.signOut();
     set({ user: null, isAuthenticated: false, error: null });
   },

@@ -123,6 +123,12 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         });
       },
       onScreenShareStop: (userId) => {
+        // Self: sharing can end outside the toggle path (browser "Stop sharing",
+        // track ended). Keep isScreenSharing in sync so the UI button resets.
+        if (userId === get()._currentUserId) {
+          if (get().isScreenSharing) set({ isScreenSharing: false });
+          return;
+        }
         set((state) => {
           if (!state.screenSharers[userId]) return state;
           const next = { ...state.screenSharers };

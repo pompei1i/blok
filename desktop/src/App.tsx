@@ -82,15 +82,20 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  // Push-to-talk: Space = unmute while held, mute on release
+  // Push-to-talk: Space = unmute while held, mute on release.
+  // Ignored while typing in any input/textarea/contentEditable — otherwise
+  // every space typed in chat would toggle the microphone.
   useEffect(() => {
     if (!pushToTalk) return;
+    const isTypingTarget = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
     const onDown = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || e.repeat) return;
+      if (e.code !== "Space" || e.repeat || isTypingTarget(e.target)) return;
       if (isMuted) toggleMute();
     };
     const onUp = (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
+      if (e.code !== "Space" || isTypingTarget(e.target)) return;
       if (!isMuted) toggleMute();
     };
     window.addEventListener("keydown", onDown);

@@ -184,11 +184,12 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       if (targetChannel) void get().loadMessages(targetChannel.id);
 
       set({ _currentUserId: _userId });
+      // Clean up channels from any previous initData call BEFORE creating new
+      // subscriptions — calling this after initMessageRealtime/initPollRealtime
+      // would tear down the channels they just registered via trackDataChannel.
+      await clearDataChannels();
       get().initMessageRealtime(_userId);
       get().initPollRealtime(_userId);
-      // Clean up channels from any previous initData call to prevent duplicate
-      // event handlers from leaking across re-inits.
-      await clearDataChannels();
       if (voicePresenceCh) await supabase.removeChannel(voicePresenceCh);
       const ch = supabase.channel("voice-presence", { config: { presence: { key: _userId } } });
       setVoicePresenceCh(ch);
@@ -451,11 +452,18 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     if (!profile) return "User not found";
     const members = get().members[serverId] || [];
     if (members.some((m) => m.userId === profile.id)) return "Already a member";
-    const { error } = await supabase.from("server_members").insert({ server_id: serverId, user_id: profile.id });
-    if (error) return "Failed to add user";
+    // Use the DB-generated row so the local member id matches the database —
+    // a synthetic id would break assignRole/kickMember (they filter by member.id).
+    const { data: insertedRow, error } = await supabase
+      .from("server_members")
+      .insert({ server_id: serverId, user_id: profile.id })
+      .select()
+      .single();
+    if (error || !insertedRow) return "Failed to add user";
     const newMember: ServerMember = {
-      id: crypto.randomUUID(), serverId, userId: profile.id,
-      joinedAt: new Date().toISOString(), xp: 0, user: mapProfile(profile),
+      id: insertedRow.id, serverId, userId: profile.id,
+      roleId: insertedRow.role_id ?? undefined,
+      joinedAt: insertedRow.joined_at, xp: insertedRow.xp ?? 0, user: mapProfile(profile),
     };
     set((state) => ({
       members: { ...state.members, [serverId]: [...(state.members[serverId] || []), newMember] },

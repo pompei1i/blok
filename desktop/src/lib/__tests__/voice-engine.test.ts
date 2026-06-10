@@ -296,7 +296,18 @@ describe("NativeVoiceEngine screen-share binary frame format", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("skips a channel when bufferedAmount exceeds 256 KB", () => {
+  it("skips a channel when bufferedAmount exceeds 1 MB", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    const sent: ArrayBuffer[] = [];
+    (engine as any)._shareeChannels.set("viewer", {
+      readyState: "open", bufferedAmount: 1_000_001,
+      send: (b: ArrayBuffer) => sent.push(b),
+    });
+    (engine as any)._sendFrameViaDC(100, 100, btoa("x"));
+    expect(sent).toHaveLength(0);
+  });
+
+  it("still sends when bufferedAmount is below the 1 MB threshold", () => {
     const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
     const sent: ArrayBuffer[] = [];
     (engine as any)._shareeChannels.set("viewer", {
@@ -304,7 +315,55 @@ describe("NativeVoiceEngine screen-share binary frame format", () => {
       send: (b: ArrayBuffer) => sent.push(b),
     });
     (engine as any)._sendFrameViaDC(100, 100, btoa("x"));
-    expect(sent).toHaveLength(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("caches the latest frame even when no channels are open (late-joiner fix)", () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    expect((engine as any)._lastScreenFrame).toBeNull();
+    const testJpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xD9]);
+    (engine as any)._sendFrameViaDC(640, 480, btoa(String.fromCharCode(...testJpeg)));
+    const cached = (engine as any)._lastScreenFrame as ArrayBuffer;
+    expect(cached).toBeInstanceOf(ArrayBuffer);
+    const dv = new DataView(cached);
+    expect(dv.getUint32(0, false)).toBe(640);
+    expect(dv.getUint32(4, false)).toBe(480);
+  });
+
+  it("pushes the cached frame to a viewer's channel as soon as it opens", () => {
+    const sharer = new NativeVoiceEngine("ch1", "sharer", makeCallbacks());
+    // Prime a cached frame (e.g. captured before this viewer connected).
+    (sharer as any)._sendFrameViaDC(800, 600, btoa("x"));
+
+    const sent: ArrayBuffer[] = [];
+    const channel: any = {
+      readyState: "connecting",
+      binaryType: "",
+      bufferedAmount: 0,
+      onopen: null as null | (() => void),
+      onclose: null,
+      send: (b: ArrayBuffer) => sent.push(b),
+    };
+    const pc: any = { ondatachannel: null as null | ((e: { channel: any }) => void) };
+    // Simulate _handleShareeOffer wiring the data channel.
+    pc.ondatachannel = ({ channel: ch }: { channel: any }) => {
+      ch.binaryType = "arraybuffer";
+      (sharer as any)._shareeChannels.set("viewer", ch);
+      ch.onclose = () => (sharer as any)._shareeChannels.delete("viewer");
+      const sendInitial = () => {
+        if (ch.readyState === "open" && (sharer as any)._lastScreenFrame) {
+          ch.send((sharer as any)._lastScreenFrame);
+        }
+      };
+      if (ch.readyState === "open") sendInitial();
+      else ch.onopen = sendInitial;
+    };
+    pc.ondatachannel({ channel });
+    expect(sent).toHaveLength(0); // not open yet
+    channel.readyState = "open";
+    channel.onopen!();
+    expect(sent).toHaveLength(1);
+    expect(new DataView(sent[0]).getUint32(0, false)).toBe(800);
   });
 
   // ── _onScreenFrame ───────────────────────────────────────────────────────────

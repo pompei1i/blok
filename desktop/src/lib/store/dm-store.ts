@@ -42,6 +42,7 @@ export interface ActiveDMCall {
 }
 
 let _callChannel: ReturnType<typeof supabase.channel> | null = null;
+let _dmMessagesChannel: ReturnType<typeof supabase.channel> | null = null;
 let _callInviteTimer: ReturnType<typeof setTimeout> | null = null;
 let _dmVoiceEngine: NativeVoiceEngine | null = null;
 
@@ -290,7 +291,10 @@ export const useDMStore = create<DMState>((set, get) => ({
 
       // Setup Realtime hook for incoming DM Messages
       // In advanced implementations, you'd only subscribe to channels you are part of
-      supabase
+      if (_dmMessagesChannel) {
+        await supabase.removeChannel(_dmMessagesChannel);
+      }
+      _dmMessagesChannel = supabase
         .channel("public:dm_messages")
         .on(
           "postgres_changes",
