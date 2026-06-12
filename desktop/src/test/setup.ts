@@ -52,6 +52,9 @@ const mockQuery = {
   then: vi.fn().mockImplementation((resolve: (v: unknown) => void) => resolve({ data: null, error: null })),
 };
 
+// RPC mock: defaults to a benign null result; tests override per-call.
+const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+
 // Make every chainable method return the query object itself
 Object.keys(mockQuery).forEach((key) => {
   if (key !== "single" && key !== "maybeSingle" && key !== "then") {
@@ -70,6 +73,7 @@ vi.mock("@/lib/supabaseClient", () => ({
     channel: vi.fn().mockReturnValue(mockChannel),
     removeChannel: vi.fn().mockResolvedValue({}),
     from: vi.fn().mockReturnValue(mockQuery),
+    rpc: mockRpc,
     storage: {
       from: vi.fn().mockReturnValue({
         upload: vi.fn().mockResolvedValue({ error: null }),
@@ -82,3 +86,4 @@ vi.mock("@/lib/supabaseClient", () => ({
 // Expose mockQuery so tests can configure per-test return values
 (globalThis as Record<string, unknown>).__mockSupabaseQuery = mockQuery;
 (globalThis as Record<string, unknown>).__mockChannel = mockChannel;
+(globalThis as Record<string, unknown>).__mockSupabaseRpc = mockRpc;

@@ -1,15 +1,35 @@
 // Copied from root lib/store/types.ts
 
+export type Rarity = "common" | "rare" | "epic" | "legendary";
+export type CosmeticType = "nameplate" | "avatar_frame" | "badge" | "banner";
+
+/** A single equipped cosmetic, denormalized onto profiles.cosmetics by the equip RPC. */
+export interface CosmeticItem {
+  id: string;
+  rarity: Rarity;
+  payload: Record<string, any>;
+}
+
+/** Snapshot of a user's equipped cosmetics (profiles.cosmetics jsonb). */
+export interface Cosmetics {
+  nameplate?: CosmeticItem;
+  avatar_frame?: CosmeticItem;
+  banner?: CosmeticItem;
+  badges?: CosmeticItem[];
+}
+
 export interface User {
   id: string;
   username: string;
   email: string;
   displayName?: string;
   avatarUrl?: string;
+  bannerUrl?: string;
   bio?: string;
   statusMessage?: string;
   accentColor?: string;
   pronouns?: string;
+  cosmetics?: Cosmetics;
   createdAt: string;
 }
 

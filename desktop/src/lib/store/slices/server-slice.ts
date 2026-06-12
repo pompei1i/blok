@@ -320,6 +320,36 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       );
 
       trackDataChannel(
+        supabase.channel("public:server_members").on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "server_members" },
+          (payload) => {
+            const m = payload.new as any;
+            if (!m?.server_id) return;
+            set((state) => {
+              const list = state.members[m.server_id];
+              if (!list) return {};
+              return {
+                members: {
+                  ...state.members,
+                  [m.server_id]: list.map((mem) =>
+                    mem.id === m.id
+                      ? {
+                          ...mem,
+                          xp: m.xp ?? mem.xp,
+                          roleId: m.role_id ?? undefined,
+                          nickname: m.nickname ?? undefined,
+                        }
+                      : mem,
+                  ),
+                },
+              };
+            });
+          },
+        ).subscribe(),
+      );
+
+      trackDataChannel(
         supabase.channel("public:channels").on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "channels" },

@@ -40,3 +40,6 @@ desktop/src-tauri/nsis-res/
 
 # Installer build cache
 installer/src-tauri/target/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

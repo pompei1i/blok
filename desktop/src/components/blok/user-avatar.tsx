@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
+import { avatarFrameStyle } from "@/lib/economy";
 import type { User } from "@/lib/store/types";
 
 interface AvatarProps {
@@ -26,12 +28,20 @@ export function UserAvatar({
 
   const initial = user?.username?.charAt(0).toUpperCase() || "?";
 
+  // Equipped avatar frame (cosmetic). Speaking glow takes visual priority.
+  const frame = avatarFrameStyle(user);
+  const frameStyle: CSSProperties | undefined =
+    frame?.ring && !isSpeaking
+      ? { boxShadow: frame.effect ? `0 0 0 2px ${frame.ring}, 0 0 8px ${frame.ring}` : `0 0 0 2px ${frame.ring}` }
+      : undefined;
+
   return (
     <div
+      style={frameStyle}
       className={cn(
         "relative flex items-center justify-center rounded-full bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
         sizeClasses[size],
-        showRing && "ring-2 ring-[var(--accent-red)]",
+        showRing && !frameStyle && "ring-2 ring-[var(--accent-red)]",
         isSpeaking && "speaking-glow ring-2 ring-[var(--online)]",
         className,
       )}

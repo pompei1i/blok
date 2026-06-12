@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { nameplateStyle } from "@/lib/economy";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { UrlPreview, extractFirstUrl } from "./url-preview";
@@ -462,7 +463,10 @@ export function MessageBubble({
         )}
         {showAvatar && (
           <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
-            <span className="text-sm font-medium text-[var(--text-primary)]">
+            <span
+              className={cn("text-sm font-medium text-[var(--text-primary)]", nameplateStyle(user).className)}
+              style={nameplateStyle(user).style}
+            >
               @{user?.username || "Unknown"}
             </span>
             {"isAnnouncement" in message && message.isAnnouncement && (

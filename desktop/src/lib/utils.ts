@@ -13,10 +13,12 @@ export function mapProfile(p: Record<string, any>): User {
     email: p.email,
     displayName: p.display_name ?? undefined,
     avatarUrl: p.avatar_url ?? undefined,
+    bannerUrl: p.banner_url ?? undefined,
     bio: p.bio ?? undefined,
     statusMessage: p.status_message ?? undefined,
     accentColor: p.accent_color ?? undefined,
     pronouns: p.pronouns ?? undefined,
+    cosmetics: p.cosmetics ?? undefined,
     createdAt: p.created_at,
   };
 }

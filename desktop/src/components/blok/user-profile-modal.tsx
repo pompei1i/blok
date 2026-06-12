@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { X, MessageCircle, Phone } from "lucide-react";
 import { UserAvatar } from "./user-avatar";
 import { levelProgress, levelColor } from "@/lib/levels";
+import { nameplateStyle, bannerBackground } from "@/lib/economy";
+import { cn } from "@/lib/utils";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import type { User, PresenceStatus } from "@/lib/store/types";
@@ -43,6 +45,9 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
   const progress = xp !== undefined ? levelProgress(xp) : null;
   const lvColor = progress ? levelColor(progress.level) : null;
   const accent = user.accentColor ?? "var(--accent-red)";
+  const np = nameplateStyle(user);
+  const bannerBg = bannerBackground(user) ?? `linear-gradient(135deg, ${accent}, ${accent}99)`;
+  const badges = user.cosmetics?.badges ?? [];
 
   return createPortal(
     <div
@@ -54,7 +59,7 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
         {/* Banner */}
         <div
           className="relative h-20 flex-shrink-0"
-          style={{ background: `linear-gradient(135deg, ${accent}, ${accent}99)` }}
+          style={{ background: bannerBg }}
         >
           <button
             onClick={onClose}
@@ -87,10 +92,19 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
 
         {/* Name */}
         <div className="px-4 pb-3">
-          <p className="font-bold text-[var(--text-primary)] leading-tight">{displayName}</p>
+          <p className={cn("font-bold text-[var(--text-primary)] leading-tight", np.className)} style={np.style}>{displayName}</p>
           <p className="text-xs text-[var(--text-muted)]">@{user.username}</p>
           {user.pronouns && (
             <p className="text-[11px] text-[var(--text-muted)] opacity-60 mt-0.5">{user.pronouns}</p>
+          )}
+          {badges.length > 0 && (
+            <div className="flex items-center gap-1.5 mt-1.5">
+              {badges.map((b) => (
+                <span key={b.id} title={b.payload?.label} className="text-base leading-none">
+                  {b.payload?.icon ?? "🎖"}
+                </span>
+              ))}
+            </div>
           )}
         </div>
 

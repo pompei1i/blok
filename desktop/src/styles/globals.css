@@ -217,6 +217,11 @@
   100% { background-color: transparent; }
 }
 
+@keyframes nameplate-shimmer {
+  0%   { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
 /* ─── Scrollbar (pseudo-elements, stay outside layers) ─────────────────── */
 
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
@@ -242,6 +247,8 @@
   }
 
   .animate-fade-in  { animation: fadeIn  0.5s ease-out forwards; }
+
+  .nameplate-shimmer { animation: nameplate-shimmer 3s linear infinite; }
   .animate-slide-in { animation: slideIn 0.5s ease-out forwards; }
 
   .presence-online { box-shadow: 0 0 6px var(--online); }

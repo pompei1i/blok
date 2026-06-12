@@ -9,6 +9,8 @@ import {
   MonitorOff,
   Video,
   VideoOff,
+  Store,
+  ScrollText,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useServerStore } from "@/lib/store/server-store";
@@ -22,7 +24,11 @@ import { playSound } from "@/lib/sounds";
 import { useI18n } from "@/lib/i18n";
 import { levelProgress, levelColor } from "@/lib/levels";
 import { useFriendsStore } from "@/lib/store/friends-store";
+import { useEconomyStore } from "@/lib/store/economy-store";
+import { nameplateStyle } from "@/lib/economy";
 import { ActivityPicker } from "./activity-picker";
+import { EconomyModal } from "./economy-modal";
+import { QuestsModal } from "./quests-modal";
 
 export function UserBar() {
   const { t } = useI18n();
@@ -52,6 +58,10 @@ export function UserBar() {
   const myXp = serverMembers.find((m) => m.userId === user?.id)?.xp;
   const lvProgress = myXp !== undefined ? levelProgress(myXp) : null;
   const lvColor = lvProgress ? levelColor(lvProgress.level) : null;
+  const coins = useEconomyStore((s) => s.coins);
+  const dust = useEconomyStore((s) => s.dust);
+  const [showStore, setShowStore] = useState(false);
+  const [showQuests, setShowQuests] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showScreenPicker, setShowScreenPicker] = useState(false);
   const [showActivityPicker, setShowActivityPicker] = useState(false);
@@ -99,7 +109,10 @@ export function UserBar() {
             />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+            <p
+              className={cn("text-sm font-medium text-[var(--text-primary)] truncate", nameplateStyle(user).className)}
+              style={nameplateStyle(user).style}
+            >
               @{user?.username}
             </p>
             {lvProgress && lvColor ? (
@@ -128,6 +141,14 @@ export function UserBar() {
                 {user?.statusMessage || t("userBar.online")}
               </p>
             )}
+            <button
+              onClick={() => setShowStore(true)}
+              title={t("userBar.store")}
+              className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <span>🪙 {coins}</span>
+              <span className="text-[var(--accent-purple,#a855f7)]">✦ {dust}</span>
+            </button>
             <button
               ref={activityBtnRef}
               onClick={() => setShowActivityPicker((v) => !v)}
@@ -213,6 +234,20 @@ export function UserBar() {
             </button>
           )}
           <button
+            onClick={() => setShowQuests(true)}
+            className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+            title={t("userBar.quests")}
+          >
+            <ScrollText className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowStore(true)}
+            className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+            title={t("userBar.store")}
+          >
+            <Store className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => setShowSettings(true)}
             className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
             title={t("userBar.settings")}
@@ -226,6 +261,10 @@ export function UserBar() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+
+      <EconomyModal isOpen={showStore} onClose={() => setShowStore(false)} />
+
+      <QuestsModal isOpen={showQuests} onClose={() => setShowQuests(false)} />
 
       {showActivityPicker && activityBtnRef.current && user && (
         <ActivityPicker

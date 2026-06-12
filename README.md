@@ -93,6 +93,15 @@ blok/
 - Floating DM popups with drag, minimize, unread counter
 - DM history with attachments and GIFs
 
+### Progression, Economy & Cosmetics
+- **XP & Levels** — +5 XP per message (per-server); levels 1–10+ with color tiers (gray → blue → purple → gold); level badge in member list, XP bar in profile/UserBar
+- **Rich Presence** — `+ set activity` picker (Gaming, Listening, Studying, Working, Watching, AFK), synced in realtime
+- **Daily Quests** — "quests" sidebar tab; 3 daily quests (send 5 / send 15 messages, react to 5); progress auto-counted via DB triggers; claim grants **XP + coins**
+- **Economy (coins + dust)** — global wallet; coins earned from quests under a **global daily cap** (anti-farm); spend in the "store" sidebar tab
+- **Gacha loot box** — random cosmetic by rarity weights, **pity** (guaranteed Epic+ on the 10th dud open), duplicates convert to **dust**; all RNG/spend is server-side (`SECURITY DEFINER` RPC, `FOR UPDATE` locking)
+- **Shop** — deterministic purchase of a chosen item with coins or dust
+- **Cosmetics (4 types)** — nameplate (username color/gradient), avatar frame (ring/glow), profile badges (emoji, up to 3), profile banner (gradient). Equipped state is denormalized onto `profiles.cosmetics` and propagates to all viewers live via the existing `profiles` Realtime subscription
+
 ### Settings (7 tabs)
 | Section | Details |
 |---|---|
@@ -160,7 +169,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 | `servers` | Servers |
 | `channels` | Channels (text / voice) |
 | `categories` | Channel categories |
-| `server_members` | Server membership + role assignment |
+| `server_members` | Server membership + role assignment + `xp` (per-server) |
 | `roles` | Per-server roles with bitfield permissions |
 | `messages` | Channel messages |
 | `attachments` | Message attachments |
@@ -172,13 +181,24 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 | `polls` | Polls (question, type, anonymity) |
 | `poll_options` | Poll answer options |
 | `poll_votes` | Votes (`UNIQUE(poll_option_id, user_id)`) |
+| `daily_quest_progress` | Per-user/server daily quest counters (DB triggers) |
+| `daily_quest_claims` | One-time claim records (idempotency) |
+| `user_wallet` | Global wallet: `coins` + `dust` |
+| `item_catalog` | Cosmetic item catalog (type, rarity, payload, shop cost, gacha weight) |
+| `user_inventory` | Owned cosmetics (`PK(user_id, item_id)`) |
+| `user_gacha_state` | Pity counter (`opens_since_epic`) |
+| `daily_coin_earn` | Global daily coin-earn cap (`PK(user_id, date)`, no `server_id`) |
+
+`profiles` also carries equipped cosmetics: `equipped_nameplate/avatar_frame/banner`, `equipped_badges`, and a denormalized `cosmetics` jsonb snapshot.
 
 `servers.invite_code` — nullable VARCHAR, generated on demand by the owner.
 
-RLS schema — `supabase/policies.sql`. For Realtime:
+RLS schema — `supabase/policies.sql` + per-feature migrations (e.g. `supabase/migrations/20260611_economy.sql`). Economy tables are `SELECT`-only for clients; all mutations go through `SECURITY DEFINER` RPCs (`claim_quest_reward`, `open_loot_box`, `buy_item`, `equip_item`, `unequip_slot`). For Realtime:
 ```sql
 ALTER TABLE user_relationships REPLICA IDENTITY FULL;
 ALTER TABLE user_presence REPLICA IDENTITY FULL;
+-- profiles must be in the supabase_realtime publication (cosmetics propagation)
+-- user_wallet is added to the publication by the economy migration (live balance)
 ```
 
 ## Tests
@@ -190,7 +210,7 @@ npm run test:watch    # watch mode
 npm run test:ui       # browser UI
 ```
 
-Coverage: store actions (`generateInviteCode`, `joinByInviteCode`, `loadMoreMessages`), DM store, friends store, auth store, UI-settings store, message search, poll slice, utilities, i18n.
+Coverage: store actions (`generateInviteCode`, `joinByInviteCode`, `loadMoreMessages`), DM store, friends store, auth store, economy store (box/shop/equip), UI-settings store, message search, poll slice, utilities (incl. economy helpers), i18n. 356 tests.
 
 ## Releases
 

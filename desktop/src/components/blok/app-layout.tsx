@@ -9,11 +9,14 @@ import { VideoCallOverlay } from "./video-call-overlay";
 import { IncomingCallBanner } from "./incoming-call-banner";
 import { OfflineBanner } from "./offline-banner";
 import { RightSidebar } from "./right-sidebar";
+import { ToastHost } from "./toast-host";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { useEconomyStore } from "@/lib/store/economy-store";
+import { useQuestsStore } from "@/lib/store/quests-store";
 import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 
@@ -24,8 +27,17 @@ export function AppLayout() {
   const { initData: initServerData } = useServerStore();
   const { initFriendsData, updatePresence } = useFriendsStore();
   const { initDMData } = useDMStore();
+  const loadEconomy = useEconomyStore((s) => s.loadEconomy);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const loadQuests = useQuestsStore((s) => s.loadQuests);
   const { user } = useAuthStore();
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+
+  // Keep the quest progress subscription always live (per active server) so
+  // completion toasts fire even when the quests panel was never opened.
+  useEffect(() => {
+    if (user?.id && activeServerId) void loadQuests(user.id, activeServerId);
+  }, [user?.id, activeServerId, loadQuests]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -42,6 +54,7 @@ export function AppLayout() {
         initServerData(user.id),
         initFriendsData(user.id),
         initDMData(user.id),
+        loadEconomy(user.id),
       ]);
 
       void updatePresence(user.id, "online");
@@ -57,7 +70,7 @@ export function AppLayout() {
   // Depend on user?.id (not the full user object) so profile edits don't
   // trigger a full re-bootstrap — only login/logout should.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, initServerData, initFriendsData, initDMData, updatePresence]);
+  }, [user?.id, initServerData, initFriendsData, initDMData, loadEconomy, updatePresence]);
 
   if (isBootstrapping) {
     return (
@@ -99,6 +112,7 @@ export function AppLayout() {
       <ScreenShareOverlay />
       <VideoCallOverlay />
       <IncomingCallBanner />
+      <ToastHost />
     </div>
   );
 }

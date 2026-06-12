@@ -13,13 +13,15 @@ import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { AddFriendModal } from "./add-friend-modal";
 import { UserProfileModal } from "./user-profile-modal";
+import { EconomyView } from "./economy-view";
 import { cn } from "@/lib/utils";
 import { xpToLevel, levelColor } from "@/lib/levels";
+import { nameplateStyle } from "@/lib/economy";
 import { useQuestsStore } from "@/lib/store/quests-store";
 import { DAILY_QUESTS } from "@/lib/quests";
 import type { ServerMember } from "@/lib/store/types";
 
-type Tab = "members" | "friends" | "quests";
+type Tab = "members" | "friends" | "quests" | "shop";
 
 // ─── Tab button ───────────────────────────────────────────────────────────────
 
@@ -143,7 +145,10 @@ function MembersView() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+            <p
+              className={cn("text-xs font-medium text-[var(--text-primary)] truncate", nameplateStyle(m.user).className)}
+              style={nameplateStyle(m.user).style}
+            >
               @{name}
               {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-50">{t("members.you")}</span>}
             </p>
@@ -625,7 +630,7 @@ function FriendsView() {
 
 // ─── Quests view ──────────────────────────────────────────────────────────────
 
-function QuestsView() {
+export function QuestsView() {
   const { user } = useAuthStore();
   const { activeServerId } = useServerStore();
   const { progress, loading, loadQuests, claimQuest } = useQuestsStore();
@@ -667,7 +672,7 @@ function QuestsView() {
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-[var(--text-primary)]">{quest.label}</p>
                 <p className="text-[10px] text-[var(--text-muted)]">
-                  {count}/{quest.target} · +{quest.xp} XP
+                  {count}/{quest.target} · +{quest.xp} XP · 🪙{quest.coins}
                 </p>
               </div>
               {claimed && <span className="text-[10px] text-[var(--text-muted)]">✓</span>}
@@ -685,10 +690,10 @@ function QuestsView() {
 
             {done && !claimed && (
               <button
-                onClick={() => void claimQuest(quest.id, quest.xp)}
+                onClick={() => void claimQuest(quest.id, quest.xp, quest.coins)}
                 className="w-full py-1 text-xs font-bold text-white bg-[var(--accent-red)] hover:bg-[var(--accent-red)]/80 transition-colors"
               >
-                Claim +{quest.xp} XP
+                Claim +{quest.xp} XP · 🪙{quest.coins}
               </button>
             )}
           </div>
@@ -709,7 +714,7 @@ export function RightSidebar() {
   const [tab, setTab] = useState<Tab>("members");
   const { isTabOpen: isBaitTabOpen, isActive: isBaitActive, openTab: openBaitTab, activate: activateBait } = useBaitStore();
 
-  const activeTab = activeServerId ? tab : "friends";
+  const activeTab = activeServerId ? tab : (tab === "shop" ? "shop" : "friends");
 
   return (
     <div className="w-52 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col flex-shrink-0">
@@ -721,9 +726,13 @@ export function RightSidebar() {
               <TabBtn label={t("sidebar.members")} count={memberCount} active={activeTab === "members"} onClick={() => setTab("members")} />
               <TabBtn label={t("friends.friends")} count={friendCount} active={activeTab === "friends"} onClick={() => setTab("friends")} />
               <TabBtn label="quests" active={activeTab === "quests"} onClick={() => setTab("quests")} />
+              <TabBtn label={t("store.tab")} active={activeTab === "shop"} onClick={() => setTab("shop")} />
             </>
           ) : (
-            <TabBtn label={t("friends.friends")} count={friendCount} active />
+            <>
+              <TabBtn label={t("friends.friends")} count={friendCount} active={activeTab === "friends"} onClick={() => setTab("friends")} />
+              <TabBtn label={t("store.tab")} active={activeTab === "shop"} onClick={() => setTab("shop")} />
+            </>
           )}
         </div>
       </div>
@@ -731,6 +740,7 @@ export function RightSidebar() {
       {activeTab === "members" && <MembersView />}
       {activeTab === "friends" && <FriendsView />}
       {activeTab === "quests" && <QuestsView />}
+      {activeTab === "shop" && <EconomyView />}
 
       <button
         onClick={() => isBaitTabOpen ? activateBait() : openBaitTab()}

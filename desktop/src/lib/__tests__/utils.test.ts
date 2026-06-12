@@ -83,4 +83,15 @@ describe("mapProfile", () => {
     const user = mapProfile(row);
     expect(user.pronouns).toBe("they/them");
   });
+
+  it("maps banner_url and cosmetics snapshot", () => {
+    const row = {
+      id: "u5", username: "erin", email: "e@e.com", created_at: "2024-01-05",
+      banner_url: "https://example.com/banner.png",
+      cosmetics: { nameplate: { id: "np_crimson", rarity: "common", payload: { color: "#e74c3c" } }, badges: [] },
+    };
+    const user = mapProfile(row);
+    expect(user.bannerUrl).toBe("https://example.com/banner.png");
+    expect(user.cosmetics?.nameplate?.id).toBe("np_crimson");
+  });
 });

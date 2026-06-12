@@ -24,3 +24,9 @@ export function useI18n() {
   const t = (key: TranslationKey): string => locales[language][key] ?? en[key];
   return { t, language };
 }
+
+/** Translate outside of React (e.g. in stores). Reads the current language from the store. */
+export function translate(key: TranslationKey): string {
+  const language = useUiSettingsStore.getState().language;
+  return locales[language][key] ?? en[key];
+}

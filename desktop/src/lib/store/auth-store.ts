@@ -266,6 +266,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await useServerStore.getState().leaveVoiceChannel();
     const { clearDataChannels } = await import("./slices/_shared");
     await clearDataChannels();
+    const { useEconomyStore } = await import("./economy-store");
+    useEconomyStore.getState().cleanup();
     if (_profileSelfChannel) {
       await supabase.removeChannel(_profileSelfChannel);
       _profileSelfChannel = null;

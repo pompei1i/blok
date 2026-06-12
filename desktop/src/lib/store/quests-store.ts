@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { supabase } from "../supabaseClient";
-import { DAILY_QUESTS } from "../quests";
+import { DAILY_QUESTS, type QuestDef } from "../quests";
+import { useToastStore } from "./toast-store";
+import { translate } from "../i18n";
 
 export interface QuestProgress {
   questId: string;
@@ -14,7 +16,7 @@ interface QuestsState {
   loading: boolean;
 
   loadQuests: (userId: string, serverId: string) => Promise<void>;
-  claimQuest: (questId: string, xp: number) => Promise<boolean>;
+  claimQuest: (questId: string, xp: number, coins: number) => Promise<boolean>;
   cleanup: () => void;
 }
 
@@ -68,34 +70,52 @@ export const useQuestsStore = create<QuestsState>((set, get) => ({
         (payload) => {
           const row = payload.new as any;
           if (!row || row.server_id !== serverId) return;
+          const completed: QuestDef[] = [];
           set((state) => ({
             progress: state.progress.map((p) => {
               const q = DAILY_QUESTS.find((q) => q.id === p.questId);
               if (!q || q.type !== row.quest_type) return p;
+              const wasDone = p.count >= q.target;
+              const nowDone = row.count >= q.target;
+              if (!wasDone && nowDone && !p.claimed) completed.push(q);
               return { ...p, count: row.count };
             }),
           }));
+          for (const q of completed) {
+            useToastStore.getState().showToast({
+              emoji: q.emoji,
+              title: translate("quests.completed"),
+              message: `${q.label} · +${q.xp} XP · 🪙${q.coins}`,
+            });
+          }
         },
       )
       .subscribe();
   },
 
-  claimQuest: async (questId, xp) => {
+  claimQuest: async (questId, xp, coins) => {
     const { serverId } = get();
     if (!serverId) return false;
-    const { data } = await supabase.rpc("claim_quest_xp", {
+    const { data } = await supabase.rpc("claim_quest_reward", {
       p_server_id: serverId,
       p_quest_id: questId,
       p_xp: xp,
+      p_coins: coins,
     });
-    if (data) {
+    const claimed = !!data?.claimed;
+    if (claimed) {
       set((state) => ({
         progress: state.progress.map((p) =>
           p.questId === questId ? { ...p, claimed: true } : p,
         ),
       }));
+      const granted = data?.coins_granted ?? 0;
+      if (granted > 0) {
+        const { useEconomyStore } = await import("./economy-store");
+        useEconomyStore.getState().addCoins(granted);
+      }
     }
-    return !!data;
+    return claimed;
   },
 
   cleanup: () => {
