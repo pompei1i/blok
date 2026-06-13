@@ -19,7 +19,7 @@ export function ToastHost() {
           <div className="min-w-0">
             <p className="text-xs font-bold text-[var(--text-primary)] truncate">{t.title}</p>
             {t.message && (
-              <p className="text-[10px] text-[var(--text-muted)] truncate">{t.message}</p>
+              <p className="text-[12px] text-[var(--text-muted)] truncate">{t.message}</p>
             )}
           </div>
         </button>

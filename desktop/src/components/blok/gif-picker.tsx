@@ -122,7 +122,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
       </div>
 
       <div className="px-2 py-1 border-t border-[var(--border)]">
-        <span className="text-[10px] text-[var(--text-muted)]">Powered by GIPHY</span>
+        <span className="text-[12px] text-[var(--text-muted)]">Powered by GIPHY</span>
       </div>
     </div>
   );

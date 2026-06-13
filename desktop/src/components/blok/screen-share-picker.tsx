@@ -52,7 +52,7 @@ function OptionGroup<T extends string | number>({
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider w-8 flex-shrink-0">
+      <span className="text-[11px] font-mono text-[var(--text-muted)] uppercase tracking-wider w-8 flex-shrink-0">
         {label}
       </span>
       <div className="flex gap-0.5 flex-wrap justify-end">
@@ -61,7 +61,7 @@ function OptionGroup<T extends string | number>({
             key={String(opt.value)}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "px-1.5 py-0.5 text-[9px] font-mono rounded transition-colors",
+              "px-1.5 py-0.5 text-[11px] font-mono rounded transition-colors",
               value === opt.value
                 ? "bg-[var(--online)] text-white"
                 : "bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
@@ -135,7 +135,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
       style={{ width: "17rem" }}
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] bg-[var(--bg-surface)]">
-        <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
+        <span className="text-[12px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
           <span className="text-[var(--online)] mr-1">$</span>{t("screenShare.selectSource")}
         </span>
         <button
@@ -156,7 +156,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
           <>
             {screens.length > 0 && (
               <>
-                <p className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-1 pb-0.5 opacity-60">
+                <p className="text-[11px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-1 pb-0.5 opacity-60">
                   {t("screenShare.monitors")}
                 </p>
                 {screens.map((s) => (
@@ -166,7 +166,7 @@ export function ScreenSharePicker({ onSelect, onClose }: ScreenSharePickerProps)
             )}
             {windows.length > 0 && (
               <>
-                <p className="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-2 pb-0.5 opacity-60">
+                <p className="text-[11px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-2 pt-2 pb-0.5 opacity-60">
                   {t("screenShare.windows")}
                 </p>
                 {windows.map((w) => (

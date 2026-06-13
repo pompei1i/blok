@@ -33,7 +33,7 @@ function VideoTile({
         muted={muted}
         className={cn("w-full h-full object-cover", mirror && "scale-x-[-1]")}
       />
-      <span className="absolute bottom-1 left-1 px-1 py-0.5 bg-black/60 rounded text-[10px] font-mono text-white">
+      <span className="absolute bottom-1 left-1 px-1 py-0.5 bg-black/60 rounded text-[12px] font-mono text-white">
         {label}
       </span>
     </div>

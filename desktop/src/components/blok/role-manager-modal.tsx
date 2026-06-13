@@ -189,13 +189,13 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                       <button
                         onClick={() => void handleCreateRole()}
                         disabled={saving || !newRoleName.trim()}
-                        className="flex-1 py-1 text-[10px] bg-[var(--accent-red)] text-white rounded disabled:opacity-50"
+                        className="flex-1 py-1 text-[12px] bg-[var(--accent-red)] text-white rounded disabled:opacity-50"
                       >
                         {saving ? "…" : t("roles.create")}
                       </button>
                       <button
                         onClick={() => setCreating(false)}
-                        className="flex-1 py-1 text-[10px] bg-[var(--bg-surface)] text-[var(--text-muted)] rounded hover:text-[var(--text-primary)]"
+                        className="flex-1 py-1 text-[12px] bg-[var(--bg-surface)] text-[var(--text-muted)] rounded hover:text-[var(--text-primary)]"
                       >
                         {t("roles.cancel")}
                       </button>
@@ -222,7 +222,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
               ) : (
                 <div className="space-y-5">
                   <div>
-                    <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
+                    <label className="block text-[12px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
                       {t("roles.roleName")}
                     </label>
                     <input
@@ -233,7 +233,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
+                    <label className="block text-[12px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
                       {t("roles.color")}
                     </label>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -259,7 +259,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
+                    <label className="block text-[12px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
                       {t("roles.permissions")}
                     </label>
                     <div className="space-y-1.5">
@@ -278,7 +278,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                                   : "border-[var(--border)] bg-[var(--bg-surface)] group-hover:border-[var(--text-muted)]"
                               )}
                             >
-                              {has && <span className="text-white text-[10px] leading-none">✓</span>}
+                              {has && <span className="text-white text-[12px] leading-none">✓</span>}
                             </button>
                             <span className="text-xs text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">
                               {t(labelKey)}
@@ -330,7 +330,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                           </span>
                           {memberRole && (
                             <span
-                              className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+                              className="text-[12px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
                               style={{ backgroundColor: (memberRole.color ?? "#6b7280") + "33", color: memberRole.color ?? "#6b7280" }}
                             >
                               {memberRole.name}
@@ -338,14 +338,14 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                           )}
                         </div>
                         {member.user?.displayName && (
-                          <span className="text-[10px] text-[var(--text-muted)] truncate block">{member.user.displayName}</span>
+                          <span className="text-[12px] text-[var(--text-muted)] truncate block">{member.user.displayName}</span>
                         )}
                       </div>
                       <select
                         value={member.roleId ?? ""}
                         onChange={(e) => void assignRole(member.id, serverId, e.target.value || null)}
                         disabled={isCurrentUser}
-                        className="text-[10px] bg-[var(--bg-surface)] border border-[var(--border)] rounded px-1.5 py-1 text-[var(--text-muted)] outline-none focus:border-[var(--accent-red)] disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-[12px] bg-[var(--bg-surface)] border border-[var(--border)] rounded px-1.5 py-1 text-[var(--text-muted)] outline-none focus:border-[var(--accent-red)] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <option value="">{t("roles.noRole")}</option>
                         {serverRoles.map((r) => (
@@ -367,7 +367,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
           style={{ position: "fixed", left: memberCtx.x, top: memberCtx.y, zIndex: 99999 }}
           className="w-44 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
         >
-          <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border)] truncate">
+          <div className="px-3 py-1.5 text-[12px] text-[var(--text-muted)] border-b border-[var(--border)] truncate">
             @{memberCtx.username}
           </div>
           <button

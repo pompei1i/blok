@@ -106,7 +106,7 @@ export function TopBar() {
                 <span className="text-[var(--text-muted)]">@</span>
                 <span className="max-w-[100px] truncate">{server.name}</span>
                 {serverUnread > 0 && !isActive && (
-                  <span className="min-w-[16px] h-4 flex items-center justify-center bg-[var(--accent-red)] text-[10px] text-white font-bold px-1">
+                  <span className="min-w-[16px] h-4 flex items-center justify-center bg-[var(--accent-red)] text-[12px] text-white font-bold px-1">
                     {serverUnread > 99 ? "99+" : serverUnread}
                   </span>
                 )}
@@ -164,7 +164,7 @@ export function TopBar() {
               <>
                 {openServers.length > 0 && (
                   <>
-                    <div className="px-3 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono opacity-60">open</div>
+                    <div className="px-3 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-mono opacity-60">open</div>
                     {openServers.map((server) => (
                       <div key={server.id} className="flex items-center gap-1 px-2">
                         <button
@@ -190,7 +190,7 @@ export function TopBar() {
                 )}
                 {closedServers.length > 0 && (
                   <>
-                    <div className="px-3 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono opacity-60 mt-1 border-t border-[var(--border)] pt-2">closed</div>
+                    <div className="px-3 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-mono opacity-60 mt-1 border-t border-[var(--border)] pt-2">closed</div>
                     {closedServers.map((server) => (
                       <button
                         key={server.id}

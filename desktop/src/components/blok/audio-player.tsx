@@ -124,7 +124,7 @@ export function AudioPlayer({ src, filename, className }: AudioPlayerProps) {
  </div>
  
  <div className="flex items-center gap-2">
- <span className="text-[10px] text-[var(--text-muted)] font-mono w-8 text-right">
+ <span className="text-[12px] text-[var(--text-muted)] font-mono w-8 text-right">
  {formatTime(progress)}
  </span>
  <input
@@ -138,7 +138,7 @@ export function AudioPlayer({ src, filename, className }: AudioPlayerProps) {
  background: `linear-gradient(to right, var(--accent-red) ${(progress / duration) * 100}%, var(--bg-hover) ${(progress / duration) * 100}%)`
  }}
  />
- <span className="text-[10px] text-[var(--text-muted)] font-mono w-8">
+ <span className="text-[12px] text-[var(--text-muted)] font-mono w-8">
  {formatTime(duration)}
  </span>
  </div>

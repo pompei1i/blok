@@ -34,7 +34,7 @@ export function IncomingCallBanner() {
  <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[var(--online)] border-2 border-[var(--bg-elevated)] animate-pulse" />
  </div>
  <div className="flex-1 min-w-0">
- <p className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider opacity-60">
+ <p className="text-[12px] font-mono text-[var(--text-muted)] uppercase tracking-wider opacity-60">
  {t("incomingCall.incoming")}
  </p>
  <p className="text-sm font-medium text-[var(--text-primary)] truncate">
@@ -69,7 +69,7 @@ export function IncomingCallBanner() {
  <UserAvatar user={callee} size="md" />
  </div>
  <div className="flex-1 min-w-0">
- <p className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider opacity-60">
+ <p className="text-[12px] font-mono text-[var(--text-muted)] uppercase tracking-wider opacity-60">
  {t("incomingCall.calling")}
  </p>
  <p className="text-sm font-medium text-[var(--text-primary)] truncate">

@@ -171,7 +171,7 @@ export function VideoPlayer({ src, className, poster }: VideoPlayerProps) {
           </button>
           
           <div className="flex items-center gap-2 flex-1">
-            <span className="text-[10px] text-white/80 font-mono w-8">{formatTime(progress)}</span>
+            <span className="text-[12px] text-white/80 font-mono w-8">{formatTime(progress)}</span>
             <input
               type="range"
               min={0}
@@ -183,7 +183,7 @@ export function VideoPlayer({ src, className, poster }: VideoPlayerProps) {
                 background: `linear-gradient(to right, var(--accent-red) ${(progress / duration) * 100}%, rgba(255,255,255,0.3) ${(progress / duration) * 100}%)`
               }}
             />
-            <span className="text-[10px] text-white/80 font-mono w-8">{formatTime(duration)}</span>
+            <span className="text-[12px] text-white/80 font-mono w-8">{formatTime(duration)}</span>
           </div>
 
           <div className="flex items-center gap-2">

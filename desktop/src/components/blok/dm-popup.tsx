@@ -382,7 +382,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
                 setShowAttachmentPicker(false);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors text-[var(--text-muted)] text-[10px] font-bold leading-none",
+                "p-1 hover:bg-[var(--bg-hover)] rounded transition-colors text-[var(--text-muted)] text-[12px] font-bold leading-none",
                 showGifPicker && "bg-[var(--bg-hover)]",
               )}
             >

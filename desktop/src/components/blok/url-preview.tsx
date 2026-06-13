@@ -69,7 +69,7 @@ export function UrlPreview({ url }: { url: string }) {
       )}
       <div className="flex-1 min-w-0 flex flex-col gap-0.5 justify-center">
         {data.siteName && (
-          <span className="text-[10px] text-[var(--accent-red)] uppercase tracking-wide font-medium truncate">
+          <span className="text-[12px] text-[var(--accent-red)] uppercase tracking-wide font-medium truncate">
             {data.siteName}
           </span>
         )}
@@ -83,7 +83,7 @@ export function UrlPreview({ url }: { url: string }) {
             {data.description}
           </span>
         )}
-        <span className="text-[10px] text-[var(--text-muted)] opacity-60 truncate mt-0.5">
+        <span className="text-[12px] text-[var(--text-muted)] opacity-60 truncate mt-0.5">
           {hostname}
         </span>
       </div>

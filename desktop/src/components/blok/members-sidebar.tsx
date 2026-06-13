@@ -82,22 +82,22 @@ export function MembersSidebar() {
               {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-60">you</span>}
             </p>
             <span
-              className="text-[9px] font-bold flex-shrink-0 px-1 rounded"
+              className="text-[11px] font-bold flex-shrink-0 px-1 rounded"
               style={{ color, border: `1px solid ${color}44` }}
             >
               {level}
             </span>
           </div>
           {activity[m.userId] && (
-            <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
+            <p className="text-[12px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
           )}
           {!activity[m.userId] && m.user?.pronouns && (
-            <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">
+            <p className="text-[12px] text-[var(--text-muted)] truncate opacity-60">
               {m.user.pronouns}
             </p>
           )}
           {inCall && (
-            <p className="text-[10px] text-[var(--online)] truncate">in voice</p>
+            <p className="text-[12px] text-[var(--online)] truncate">in voice</p>
           )}
         </div>
         {!isMe && (
@@ -111,7 +111,7 @@ export function MembersSidebar() {
     <div className="w-52 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col flex-shrink-0">
       {/* Header */}
       <div className="px-3 py-2 border-b border-[var(--border)]">
-        <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
+        <span className="text-[12px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
           <span className="text-[var(--accent-red)]">$</span> members — {serverMembers.length}
         </span>
       </div>
@@ -136,7 +136,7 @@ export function MembersSidebar() {
           <div className="mt-2">
             <button
               onClick={() => setOnlineOpen((v) => !v)}
-              className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
+              className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !onlineOpen && "-rotate-90")} />
               Online — {online.length}
@@ -154,7 +154,7 @@ export function MembersSidebar() {
           <div className="mt-2">
             <button
               onClick={() => setOfflineOpen((v) => !v)}
-              className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
+              className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !offlineOpen && "-rotate-90")} />
               Offline — {offline.length}

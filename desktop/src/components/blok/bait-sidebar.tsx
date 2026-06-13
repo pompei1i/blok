@@ -36,7 +36,7 @@ export function BaitSidebar() {
 
         {activeServer && (
           <div>
-            <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
+            <p className="px-1 py-1.5 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
               <span className="mr-1 text-[var(--text-muted)] opacity-60">$</span>{t("bait.context")}
             </p>
             <div className="border border-dashed border-[var(--border)] px-3 py-2 space-y-1.5">
@@ -55,7 +55,7 @@ export function BaitSidebar() {
         )}
 
         <div>
-          <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
+          <p className="px-1 py-1.5 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
             <span className="mr-1 text-[var(--text-muted)] opacity-60">$</span>{t("bait.quickCommands")}
           </p>
           <div className="space-y-1">
@@ -63,7 +63,7 @@ export function BaitSidebar() {
               <button
                 key={key}
                 onClick={() => sendMessage(prompt)}
-                className="w-full text-left px-2 py-1.5 text-xs font-mono text-[var(--text-muted)] transition-all duration-150 border border-dashed border-[var(--border)] hover:border-solid hover:border-white/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                className="w-full text-left px-2 py-1.5 text-xs font-mono text-[var(--text-muted)] transition-all duration-150 border border-dashed border-[var(--border)] hover:border-solid hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
               >
                 <span className="text-[var(--accent-red)] mr-1">$</span>{t(key)}
               </button>
@@ -72,11 +72,11 @@ export function BaitSidebar() {
         </div>
 
         <div>
-          <p className="px-1 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
+          <p className="px-1 py-1.5 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-mono font-medium">
             <span className="mr-1 text-[var(--text-muted)] opacity-60">$</span>{t("bait.history")}
           </p>
           <div className="px-2 py-2">
-            <p className="text-[10px] text-[var(--text-muted)] font-mono">
+            <p className="text-[12px] text-[var(--text-muted)] font-mono">
               {messages.length > 0 ? `${messages.length} messages` : t("bait.noHistory")}
             </p>
           </div>

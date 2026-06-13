@@ -118,11 +118,11 @@ export function UserBar() {
             {lvProgress && lvColor ? (
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold" style={{ color: lvColor }}>
+                  <span className="text-[12px] font-bold" style={{ color: lvColor }}>
                     Lv.{lvProgress.level}{lvProgress.maxed ? " MAX" : ""}
                   </span>
                   {!lvProgress.maxed && (
-                    <span className="text-[9px] text-[var(--text-muted)]">
+                    <span className="text-[11px] text-[var(--text-muted)]">
                       {lvProgress.current}/{lvProgress.needed}
                     </span>
                   )}
@@ -144,7 +144,7 @@ export function UserBar() {
             <button
               onClick={() => setShowStore(true)}
               title={t("userBar.store")}
-              className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              className="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               <span>🪙 {coins}</span>
               <span className="text-[var(--accent-purple,#a855f7)]">✦ {dust}</span>
@@ -152,7 +152,7 @@ export function UserBar() {
             <button
               ref={activityBtnRef}
               onClick={() => setShowActivityPicker((v) => !v)}
-              className="mt-0.5 text-[10px] text-left truncate w-full transition-colors"
+              className="mt-0.5 text-[12px] text-left truncate w-full transition-colors"
               style={{ color: myActivity ? "var(--text-muted)" : undefined }}
             >
               {myActivity

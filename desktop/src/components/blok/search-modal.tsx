@@ -191,7 +191,7 @@ export function SearchModal({
                     <span className="text-xs font-medium text-[var(--text-primary)]">
                       @{msg.author?.username ?? "unknown"}
                     </span>
-                    <span className="text-[10px] text-[var(--text-muted)]">{formatDate(msg.createdAt)}</span>
+                    <span className="text-[12px] text-[var(--text-muted)]">{formatDate(msg.createdAt)}</span>
                   </div>
                   <p className="text-xs text-[var(--text-muted)] line-clamp-2 leading-relaxed">
                     {highlightMatch(msg.content ?? "", query)}
@@ -214,7 +214,7 @@ export function SearchModal({
                     @{highlightMatch(u.username, query)}
                   </span>
                   {u.displayName && (
-                    <span className="text-[10px] text-[var(--text-muted)] block truncate">
+                    <span className="text-[12px] text-[var(--text-muted)] block truncate">
                       {highlightMatch(u.displayName, query)}
                     </span>
                   )}
@@ -238,14 +238,14 @@ export function SearchModal({
                 <span className="text-xs font-medium text-[var(--text-primary)] flex-1 truncate">
                   {highlightMatch(ch.name, query)}
                 </span>
-                <span className="text-[10px] text-[var(--text-muted)] uppercase">{ch.type}</span>
+                <span className="text-[12px] text-[var(--text-muted)] uppercase">{ch.type}</span>
               </button>
             ))
           )}
         </div>
 
         {currentResults.length > 0 && (
-          <div className="px-4 py-2 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)] flex items-center gap-3">
+          <div className="px-4 py-2 border-t border-[var(--border)] text-[12px] text-[var(--text-muted)] flex items-center gap-3">
             <span>{t("search.navHint")}</span>
             {tab !== "users" && <span>{tab === "messages" ? t("search.jumpHint") : t("search.openHint")}</span>}
             <span>{t("search.escHint")}</span>

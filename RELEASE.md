@@ -1,30 +1,30 @@
 # Release guide
 
-## 1. Подготовка
+## 1. Preparation
 
-Обнови версию в трёх файлах (например, `0.9.7` → `0.9.8`):
+Bump the version in three files (e.g. `0.9.7` → `0.9.8`):
 
 ```
 desktop/package.json              "version": "0.9.8"
 desktop/src-tauri/tauri.conf.json "version": "0.9.8"
-CHANGELOG.md                      добавь секцию ## [0.9.8] — YYYY-MM-DD
+CHANGELOG.md                      add a ## [0.9.8] — YYYY-MM-DD section
 ```
 
-## 2. Коммит
+## 2. Commit
 
 ```powershell
 git add CHANGELOG.md desktop/package.json desktop/src-tauri/tauri.conf.json
-git commit -m "feat: v0.9.8 — описание изменений"
+git commit -m "feat: v0.9.8 — change description"
 ```
 
-Для хотфиксов (не релизных изменений):
+For hotfixes (non-release changes):
 
 ```powershell
-git add <файлы>
-git commit -m "fix: краткое описание"
+git add <files>
+git commit -m "fix: short description"
 ```
 
-## 3. Тег и деплой
+## 3. Tag and deploy
 
 ```powershell
 git tag v0.9.8
@@ -32,31 +32,31 @@ git push origin main
 git push origin v0.9.8
 ```
 
-Пуш тега автоматически запускает GitHub Actions → собирает NSIS-инсталлятор → публикует релиз в `pompei1i/blok-releases`.
+Pushing the tag automatically triggers GitHub Actions → builds the NSIS installer → publishes the release to `pompei1i/blok-releases`.
 
-## 4. Проверка сборки
+## 4. Verify the build
 
-GitHub → репозиторий → **Actions** → последний запуск → проверь, что все шаги зелёные.
+GitHub → repository → **Actions** → latest run → check that all steps are green.
 
-Если шаг **"Inject build secrets into .env"** показывает `VITE_BAIT_DEFAULT_KEY=***` — ключ вшит корректно.
+If the **"Inject build secrets into .env"** step shows `VITE_BAIT_DEFAULT_KEY=***`, the key was embedded correctly.
 
-## Структура commit message
+## Commit message format
 
 ```
-feat:  новая функциональность
-fix:   исправление бага
-chore: обновление зависимостей, конфигов
-docs:  только документация
+feat:  new functionality
+fix:   bug fix
+chore: dependency/config updates
+docs:  documentation only
 ```
 
 ## GitHub Secrets (Settings → Secrets → Actions)
 
-| Secret | Назначение |
-|--------|------------|
-| `VITE_BAIT_DEFAULT_KEY` | Anthropic API key для b.ai.t |
+| Secret | Purpose |
+|--------|---------|
+| `VITE_BAIT_DEFAULT_KEY` | Anthropic API key for b.ai.t |
 | `VITE_SUPABASE_URL` | Supabase URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key |
 | `VITE_TENOR_API_KEY` | Tenor GIF API |
-| `TAURI_SIGNING_PRIVATE_KEY` | Подпись обновлений |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Пароль к ключу |
-| `RELEASES_PAT` | PAT для записи в `blok-releases` |
+| `TAURI_SIGNING_PRIVATE_KEY` | Update signing |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Key password |
+| `RELEASES_PAT` | PAT for writing to `blok-releases` |

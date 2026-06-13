@@ -37,7 +37,7 @@ export function ActivityPicker({ current, anchorRect, onSelect, onClose }: Props
       className="fixed z-50 bg-[var(--bg-elevated)] border border-[var(--border)] shadow-xl p-1.5 w-44"
       style={{ bottom: window.innerHeight - top, left }}
     >
-      <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider px-2 py-1 font-medium">Set activity</p>
+      <p className="text-[12px] text-[var(--text-muted)] uppercase tracking-wider px-2 py-1 font-medium">Set activity</p>
       <div className="grid grid-cols-2 gap-0.5">
         {ACTIVITY_PRESETS.map(({ emoji, label }) => {
           const value = `${emoji} ${label}`;

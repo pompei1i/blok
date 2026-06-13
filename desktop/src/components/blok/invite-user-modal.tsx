@@ -256,7 +256,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  <div className="flex items-center gap-3 px-1">
  {expiryLabel && (
  <span className={cn(
- "flex items-center gap-1 text-[10px]",
+ "flex items-center gap-1 text-[12px]",
  isExpired ? "text-[var(--destructive)]" : "text-[var(--text-muted)]"
  )}>
  <Clock className="w-3 h-3" /> {expiryLabel}
@@ -264,7 +264,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  )}
  {usesLabel && (
  <span className={cn(
- "flex items-center gap-1 text-[10px]",
+ "flex items-center gap-1 text-[12px]",
  isExhausted ? "text-[var(--destructive)]" : "text-[var(--text-muted)]"
  )}>
  <Users className="w-3 h-3" /> {usesLabel}

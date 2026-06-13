@@ -75,7 +75,7 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
             <UserAvatar user={user} size="xl" />
             {progress && lvColor && (
               <div
-                className="absolute -bottom-1 -right-1 text-[9px] font-black px-1.5 py-px rounded-full border-2 border-[var(--bg-elevated)] text-white leading-tight"
+                className="absolute -bottom-1 -right-1 text-[11px] font-black px-1.5 py-px rounded-full border-2 border-[var(--bg-elevated)] text-white leading-tight"
                 style={{ background: lvColor }}
               >
                 {progress.level}
@@ -86,7 +86,7 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
             className="mb-1 flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[var(--border)] bg-[var(--bg-surface)]"
           >
             <div className="w-1.5 h-1.5 rounded-full" style={{ background: PRESENCE_COLOR[status] }} />
-            <span className="text-[10px] font-medium text-[var(--text-muted)]">{PRESENCE_LABEL[status]}</span>
+            <span className="text-[12px] font-medium text-[var(--text-muted)]">{PRESENCE_LABEL[status]}</span>
           </div>
         </div>
 
@@ -132,11 +132,11 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
         {progress && lvColor && (
           <div className="px-4 pb-3">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: lvColor }}>
+              <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: lvColor }}>
                 Level {progress.level}{progress.maxed ? " · MAX" : ""}
               </span>
               {!progress.maxed && (
-                <span className="text-[10px] text-[var(--text-muted)]">{progress.current} / {progress.needed} XP</span>
+                <span className="text-[12px] text-[var(--text-muted)]">{progress.current} / {progress.needed} XP</span>
               )}
             </div>
             {!progress.maxed && (
@@ -153,20 +153,20 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
         {/* Custom status message (skip the default "Online" that's set by the DB trigger) */}
         {user.statusMessage && user.statusMessage !== "Online" && (
           <div className="mx-4 border-t border-[var(--border)] py-3">
-            <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium mb-1">Status</p>
+            <p className="text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium mb-1">Status</p>
             <p className="text-xs text-[var(--text-primary)]">{user.statusMessage}</p>
           </div>
         )}
 
         {user.bio && (
           <div className="mx-4 border-t border-[var(--border)] py-3">
-            <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium mb-1">About me</p>
+            <p className="text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium mb-1">About me</p>
             <p className="text-xs text-[var(--text-primary)] whitespace-pre-wrap">{user.bio}</p>
           </div>
         )}
 
         <div className="mx-4 border-t border-[var(--border)] py-3">
-          <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium mb-1">Member since</p>
+          <p className="text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium mb-1">Member since</p>
           <p className="text-xs text-[var(--text-muted)]">{new Date(user.createdAt).toLocaleDateString()}</p>
         </div>
 

@@ -191,7 +191,7 @@ export function AuthScreen() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="btn-terminal prefix-dollar w-full py-3 font-semibold uppercase tracking-widest border-white/60 mt-2"
+                className="btn-terminal prefix-dollar w-full py-3 font-semibold uppercase tracking-widest border-[var(--border-strong)] mt-2"
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">

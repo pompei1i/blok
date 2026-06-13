@@ -30,7 +30,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
     <button
       onClick={onClick}
       className={cn(
-        "relative flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors",
+        "relative flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-mono uppercase tracking-wider transition-colors",
         active
           ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]"
           : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]/50",
@@ -40,7 +40,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
       {label}
       {count !== undefined && (
         <span className={cn(
-          "px-1 py-0.5 text-[9px] leading-none",
+          "px-1 py-0.5 text-[11px] leading-none",
           active ? "bg-[var(--accent-red)]/20 text-[var(--accent-red)]" : "bg-[var(--bg-hover)] text-[var(--text-muted)]",
         )}>
           {count}
@@ -153,20 +153,20 @@ function MembersView() {
               {isMe && <span className="ml-1 text-[var(--text-muted)] font-normal opacity-50">{t("members.you")}</span>}
             </p>
             <span
-              className="text-[9px] font-bold flex-shrink-0 px-1 rounded"
+              className="text-[11px] font-bold flex-shrink-0 px-1 rounded"
               style={{ color: levelColor(xpToLevel(m.xp)), border: `1px solid ${levelColor(xpToLevel(m.xp))}44` }}
             >
               {xpToLevel(m.xp)}
             </span>
           </div>
           {m.user?.pronouns && (
-            <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{m.user.pronouns}</p>
+            <p className="text-[12px] text-[var(--text-muted)] truncate opacity-60">{m.user.pronouns}</p>
           )}
           {activity[m.userId] && (
-            <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
+            <p className="text-[12px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
           )}
           {inVoice.has(m.userId) && (
-            <p className="text-[10px] text-[var(--online)]">{t("members.inVoice")}</p>
+            <p className="text-[12px] text-[var(--online)]">{t("members.inVoice")}</p>
           )}
         </div>
         {!isMe && (
@@ -196,7 +196,7 @@ function MembersView() {
           <div className="mt-2">
             <button
               onClick={() => setOnlineOpen((v) => !v)}
-              className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
+              className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !onlineOpen && "-rotate-90")} />
               {t("members.online")} — {online.length}
@@ -209,7 +209,7 @@ function MembersView() {
           <div className="mt-2">
             <button
               onClick={() => setOfflineOpen((v) => !v)}
-              className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
+              className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !offlineOpen && "-rotate-90")} />
               {t("members.offline")} — {offline.length}
@@ -244,7 +244,7 @@ function MembersView() {
             style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
             className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl py-1"
           >
-            <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border)] truncate font-medium">
+            <div className="px-3 py-1.5 text-[12px] text-[var(--text-muted)] border-b border-[var(--border)] truncate font-medium">
               @{username}
             </div>
 
@@ -422,10 +422,10 @@ function FriendsView() {
       <div className="flex-1 min-w-0">
         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{f.friendUser?.username ?? "unknown"}</p>
         {activity[f.friendId] && (
-          <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[f.friendId]}</p>
+          <p className="text-[12px] text-[var(--text-muted)] truncate opacity-70">{activity[f.friendId]}</p>
         )}
         {!activity[f.friendId] && f.friendUser?.pronouns && (
-          <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{f.friendUser.pronouns}</p>
+          <p className="text-[12px] text-[var(--text-muted)] truncate opacity-60">{f.friendUser.pronouns}</p>
         )}
       </div>
       <MessageCircle className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
@@ -448,7 +448,7 @@ function FriendsView() {
       </div>
 
       <div className="flex items-center justify-between px-3 py-1.5">
-        <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium">
+        <span className="text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium">
           {t("friends.friends")} — {friends.length}
         </span>
         <button onClick={() => setShowAddFriend(true)} className="p-1 hover:bg-[var(--bg-hover)] transition-colors" title="Add friend">
@@ -466,7 +466,7 @@ function FriendsView() {
         {/* Outgoing requests */}
         {outgoingRequests.length > 0 && (
           <div className="mt-1">
-            <button onClick={() => setOutgoingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+            <button onClick={() => setOutgoingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !outgoingOpen && "-rotate-90")} />
               Outgoing — {outgoingRequests.length}
             </button>
@@ -477,7 +477,7 @@ function FriendsView() {
                     <UserAvatar user={req.targetUser} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.targetUser?.username ?? "unknown"}</p>
-                      <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{t("friends.pending")}</p>
+                      <p className="text-[12px] text-[var(--text-muted)] truncate opacity-60">{t("friends.pending")}</p>
                     </div>
                     <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
                       <X className="w-3 h-3" />
@@ -492,7 +492,7 @@ function FriendsView() {
         {/* Incoming requests */}
         {pendingRequests.length > 0 && (
           <div className="mt-1">
-            <button onClick={() => setIncomingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+            <button onClick={() => setIncomingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !incomingOpen && "-rotate-90")} />
               <span className="text-[var(--online)]">Incoming — {pendingRequests.length}</span>
             </button>
@@ -504,7 +504,7 @@ function FriendsView() {
                       <UserAvatar user={req.requesterUser} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.requesterUser?.username ?? "unknown"}</p>
-                        <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{t("friends.wantsToAdd")}</p>
+                        <p className="text-[12px] text-[var(--text-muted)] truncate opacity-60">{t("friends.wantsToAdd")}</p>
                       </div>
                     </div>
                     <div className="mt-1.5 flex gap-1">
@@ -525,7 +525,7 @@ function FriendsView() {
         {/* Online friends */}
         {onlineFriends.length > 0 && (
           <div className="mt-1">
-            <button onClick={() => setOnlineOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+            <button onClick={() => setOnlineOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !onlineOpen && "-rotate-90")} />
               Online — {onlineFriends.length}
             </button>
@@ -540,7 +540,7 @@ function FriendsView() {
         {/* Offline friends */}
         {offlineFriends.length > 0 && (
           <div className="mt-1">
-            <button onClick={() => setOfflineOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
+            <button onClick={() => setOfflineOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[12px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !offlineOpen && "-rotate-90")} />
               Offline — {offlineFriends.length}
             </button>
@@ -644,10 +644,10 @@ export function QuestsView() {
   return (
     <div className="flex flex-col flex-1 min-h-0 px-3 py-3 gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
+        <span className="text-[12px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
           <span className="text-[var(--accent-red)]">$</span> daily quests
         </span>
-        <span className="text-[10px] text-[var(--text-muted)]">{today}</span>
+        <span className="text-[12px] text-[var(--text-muted)]">{today}</span>
       </div>
 
       {loading && (
@@ -671,11 +671,11 @@ export function QuestsView() {
               <span className="text-base leading-none">{quest.emoji}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-[var(--text-primary)]">{quest.label}</p>
-                <p className="text-[10px] text-[var(--text-muted)]">
+                <p className="text-[12px] text-[var(--text-muted)]">
                   {count}/{quest.target} · +{quest.xp} XP · 🪙{quest.coins}
                 </p>
               </div>
-              {claimed && <span className="text-[10px] text-[var(--text-muted)]">✓</span>}
+              {claimed && <span className="text-[12px] text-[var(--text-muted)]">✓</span>}
             </div>
 
             <div className="w-full h-1 rounded-full bg-[var(--bg-elevated)] overflow-hidden">
@@ -763,7 +763,7 @@ export function RightSidebar() {
             $b.ai.t
             <span className="cursor-blink inline-block w-1 h-3 bg-current opacity-80" />
           </span>
-          <span className="text-[10px] text-[var(--text-muted)] font-mono leading-tight">
+          <span className="text-[12px] text-[var(--text-muted)] font-mono leading-tight">
             $blok artificial intelligence toy
           </span>
         </div>

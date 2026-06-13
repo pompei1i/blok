@@ -74,11 +74,11 @@ _(none queued)_
 ## Done (v0.8.1)
 
 - [x] **Per-user voice volume** — right-click on any non-self participant in the voice channel list → context menu; slider 0–200% (step 5, default 100); applied in `NativeVoiceEngine` by scaling i16 samples before `audio_receive` — no Rust changes required.
-- [x] **Local mute** — "Замутить для себя" toggle in the same context menu; silences one participant for the local client only (skips `audio_receive` for that peer); state in voice-slice, reset on leave.
-- [x] **Member context menu (RightSidebar)** — ПКМ на участнике открывает меню: View Profile (placeholder), Add/Remove Friend, Message, Call, Mention, Invite to Server, Kick (owner или `kick_member` perm).
-- [x] **RoleManagerModal polish** — Pin Messages и Kick Members убраны из списка пермишенов; кик вынесен в ПКМ; бейдж роли теперь рядом с именем участника.
-- [x] **Roles RLS fix** — `GRANT` + `SECURITY DEFINER is_server_owner()` исправляет 403/42501 при создании/изменении ролей.
-- [x] **bait apiKey не персистится** — убран из `partialize`; всегда берётся из `VITE_BAIT_DEFAULT_KEY`.
+- [x] **Local mute** — "Mute for myself" toggle in the same context menu; silences one participant for the local client only (skips `audio_receive` for that peer); state in voice-slice, reset on leave.
+- [x] **Member context menu (RightSidebar)** — right-click on a member opens a menu: View Profile (placeholder), Add/Remove Friend, Message, Call, Mention, Invite to Server, Kick (owner or `kick_member` perm).
+- [x] **RoleManagerModal polish** — Pin Messages and Kick Members removed from the permission list; kick moved to the right-click menu; the role badge is now next to the member's name.
+- [x] **Roles RLS fix** — `GRANT` + `SECURITY DEFINER is_server_owner()` fixes 403/42501 when creating/editing roles.
+- [x] **bait apiKey no longer persisted** — removed from `partialize`; always read from `VITE_BAIT_DEFAULT_KEY`.
 
 ## Done (v0.8.0)
 
@@ -97,7 +97,7 @@ _(none queued)_
 
 - [x] **In-channel search** — `Ctrl+F` / 🔍 icon opens modal; debounced Supabase ILIKE query; ↑↓ keyboard navigation; Enter jumps to message with flash highlight.
 - [x] **Polls** — 📊 in chat toolbar; single/multiple choice; anonymous/open; vote confirmation step; realtime progress bars; voter names on hover (open polls); DB: `polls`, `poll_options`, `poll_votes` + RLS.
-- [x] **Right-click context menu** — ПКМ on any message opens the action menu at cursor position.
+- [x] **Right-click context menu** — right-click on any message opens the action menu at cursor position.
 - [x] **Portal context menu** — menu rendered via `createPortal` in `document.body`; `position: fixed`; never clipped, never closes on cursor movement. Closes on outside click or Escape.
 - [x] **"original deleted message :"** — shown when replied-to message no longer exists.
 - [x] **Project structure cleanup** — dead root Tauri files removed; `lib/i18n.ts`, `lib/store/ui-settings-store.ts`, `locales/` moved to proper root locations; `desktop/README.md` slimmed; root `package.json` cleaned.

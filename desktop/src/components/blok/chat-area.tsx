@@ -70,7 +70,7 @@ export function ChatArea() {
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const prevScrollHeightRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
@@ -180,6 +180,15 @@ export function ChatArea() {
       prevScrollHeightRef.current = null;
     }
   }, [activeChannelId]);
+
+  // Auto-grow the composer with its content (single line → up to ~6 lines),
+  // and snap back to one line after a send clears the value.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [chat.inputValue]);
 
   // Ctrl+F / Cmd+F → open search
   useEffect(() => {
@@ -610,7 +619,7 @@ export function ChatArea() {
 
         {chat.isUploading && (
           <div className="mb-2">
-            <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] mb-1">
+            <div className="flex items-center justify-between text-[12px] text-[var(--text-muted)] mb-1">
               <span>{chat.fileProgress < 100 ? `Uploading… ${chat.fileProgress}%` : "Sending…"}</span>
             </div>
             <div className="h-0.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
@@ -626,7 +635,7 @@ export function ChatArea() {
           </div>
         )}
 
-        <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-2 relative">
+        <div className="flex items-end gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-2 relative">
           {chat.mentionQuery !== null && (
             <AtMentionDropdown
               query={chat.mentionQuery}
@@ -671,9 +680,9 @@ export function ChatArea() {
           </button>
 
           {/* Text input */}
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
+            rows={1}
             value={chat.inputValue}
             onChange={(e) => {
               chat.handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
@@ -701,7 +710,7 @@ export function ChatArea() {
               chat.handleKeyDown(e);
             }}
             placeholder={t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
-            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none max-h-40 leading-relaxed py-1"
           />
 
           {/* GIF picker */}
@@ -713,7 +722,7 @@ export function ChatArea() {
                 if (next) chat.setShowGifPicker(true);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] text-[10px] font-bold leading-none",
+                "p-1 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] text-[12px] font-bold leading-none",
                 chat.showGifPicker && "bg-[var(--bg-hover)]",
               )}
             >

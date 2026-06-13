@@ -76,11 +76,11 @@ function ItemCard({
       style={equipped ? undefined : { borderColor: `${color}44` }}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[8px] font-mono uppercase tracking-wider" style={{ color }}>
+        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color }}>
           {t(rarityKey(item.rarity))}
         </span>
         {owned && (
-          <span className="text-[8px] text-[var(--text-muted)]">
+          <span className="text-[11px] text-[var(--text-muted)]">
             {equipped ? t("store.equipped") : t("store.ownedShort")}
           </span>
         )}
@@ -88,7 +88,7 @@ function ItemCard({
       <div className="flex items-center justify-center h-8">
         <CosmeticPreview item={item} />
       </div>
-      <p className="text-[10px] text-[var(--text-primary)] truncate text-center">{item.name}</p>
+      <p className="text-[12px] text-[var(--text-primary)] truncate text-center">{item.name}</p>
       {footer}
     </div>
   );
@@ -111,7 +111,7 @@ function DropReveal() {
       className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 p-4 bg-[var(--bg-base)]/95 animate-fade-in"
       onClick={clearDrop}
     >
-      <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color }}>
+      <span className="text-[12px] font-mono uppercase tracking-widest" style={{ color }}>
         {t(rarityKey(lastDrop.rarity))}
       </span>
       <div
@@ -139,7 +139,7 @@ function DropReveal() {
           </button>
         )
       )}
-      <p className="text-[9px] text-[var(--text-muted)]">{t("store.closeHint")}</p>
+      <p className="text-[11px] text-[var(--text-muted)]">{t("store.closeHint")}</p>
     </div>
   );
 }
@@ -169,9 +169,9 @@ function BoxSection() {
       >
         {opening ? t("store.opening") : t("store.openBox").replace("{cost}", String(BOX_COST))}
       </button>
-      {!canAfford && <p className="text-[10px] text-[var(--text-muted)]">{t("store.notEnoughCoins")}</p>}
+      {!canAfford && <p className="text-[12px] text-[var(--text-muted)]">{t("store.notEnoughCoins")}</p>}
       <div className="w-full mt-2">
-        <div className="flex items-center justify-between text-[9px] text-[var(--text-muted)] mb-0.5">
+        <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] mb-0.5">
           <span>{t("store.pity")}</span>
           <span>{pity}/{PITY_N}</span>
         </div>
@@ -214,7 +214,7 @@ function ShopSection() {
             owned={owned}
             footer={
               owned ? (
-                <span className="text-[9px] text-center text-[var(--text-muted)]">{t("store.owned")}</span>
+                <span className="text-[11px] text-center text-[var(--text-muted)]">{t("store.owned")}</span>
               ) : (
                 <button
                   disabled={!affordable || busy === item.id}
@@ -224,7 +224,7 @@ function ShopSection() {
                     setBusy(null);
                   }}
                   className={cn(
-                    "w-full py-0.5 text-[10px] font-bold transition-colors",
+                    "w-full py-0.5 text-[12px] font-bold transition-colors",
                     affordable
                       ? "text-white bg-[var(--accent-red)] hover:bg-[var(--accent-red)]/80"
                       : "text-[var(--text-muted)] bg-[var(--bg-elevated)] cursor-not-allowed",
@@ -270,7 +270,7 @@ function InventorySection() {
         if (items.length === 0) return null;
         return (
           <div key={type} className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
               {t(typeKey(type))}
             </span>
             <div className="grid grid-cols-2 gap-2">
@@ -284,7 +284,7 @@ function InventorySection() {
                     equipped={eq}
                     onClick={() => (eq && type !== "badge" ? void unequipSlot(type) : void equipItem(item.id))}
                     footer={
-                      <span className="text-[9px] text-center text-[var(--text-muted)]">
+                      <span className="text-[11px] text-center text-[var(--text-muted)]">
                         {eq ? t("store.clickUnequip") : t("store.clickEquip")}
                       </span>
                     }
@@ -317,7 +317,7 @@ export function EconomyView({ onClose }: { onClose?: () => void } = {}) {
     <div className="relative flex flex-col flex-1 min-h-0">
       {/* Balance header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
-        <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
+        <span className="text-[12px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
           <span className="text-[var(--accent-red)]">$</span> {t("store.tab")}
         </span>
         <span className="text-[11px] text-[var(--text-primary)] flex items-center gap-2">
@@ -342,7 +342,7 @@ export function EconomyView({ onClose }: { onClose?: () => void } = {}) {
             key={s}
             onClick={() => setSub(s)}
             className={cn(
-              "flex-1 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors",
+              "flex-1 py-1 text-[12px] font-mono uppercase tracking-wider transition-colors",
               sub === s
                 ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text-primary)]",

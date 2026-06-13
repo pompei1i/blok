@@ -308,7 +308,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  {/* Settings Sidebar */}
  <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col p-4">
  <div className="mb-5 px-1">
- <p className="text-[10px] text-[var(--text-muted)] mb-0.5">~/blok</p>
+ <p className="text-[12px] text-[var(--text-muted)] mb-0.5">~/blok</p>
  <h2 className="text-sm font-bold text-[var(--text-primary)] font-mono tracking-wider uppercase">
  <span className="text-[var(--text-muted)] font-normal">$ </span>
  {t("settings.title")}
@@ -327,7 +327,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  "w-full flex items-center gap-2 px-2 py-2 text-xs font-mono transition-all duration-150 text-left border",
  isActive
  ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[inset_2px_0_0_var(--accent-red)]"
- : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-white/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+ : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
  )}
  >
  <span className={cn("flex-shrink-0", isActive ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]")}>
@@ -345,7 +345,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <div className="absolute right-4 top-4 z-10">
  <button
  onClick={onClose}
- className="font-mono text-sm text-[var(--text-muted)] hover:text-white transition-colors px-2 py-1 border border-dashed border-[var(--border)] hover:border-solid hover:border-white/30"
+ className="font-mono text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors px-2 py-1 border border-dashed border-[var(--border)] hover:border-solid hover:border-[var(--border-strong)]"
  >
  [×]
  </button>
@@ -408,7 +408,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <div className="p-5 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-5">
  <div className="grid grid-cols-2 gap-5">
  <div>
- <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <label className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.account.displayName")}
  </label>
  <input
@@ -422,7 +422,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  />
  </div>
  <div>
- <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <label className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.account.username")}
  </label>
  <div className="flex items-end gap-1">
@@ -441,7 +441,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div>
- <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <label className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.account.email")}
  </label>
  <input
@@ -456,7 +456,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div>
- <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <label className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.account.pronouns")}
  </label>
  <input
@@ -471,7 +471,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div>
- <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <label className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.account.aboutMe")}
  </label>
  <textarea
@@ -480,7 +480,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  setFormData((d) => ({ ...d, bio: e.target.value }))
  }
  rows={4}
- className="w-full bg-transparent border-b border-[var(--border)] focus:border-white focus:outline-none text-sm text-[var(--text-primary)] font-mono py-2 resize-none transition-colors placeholder:text-[#444]"
+ className="w-full bg-transparent border-b border-[var(--border)] focus:border-[var(--text-primary)] focus:outline-none text-sm text-[var(--text-primary)] font-mono py-2 resize-none transition-colors placeholder:text-[var(--text-muted)]"
  placeholder={t("settings.account.aboutMePlaceholder")}
  />
  </div>
@@ -502,7 +502,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  logout();
  onClose();
  }}
- className="text-sm font-mono text-[var(--destructive)] hover:text-white transition-colors"
+ className="text-sm font-mono text-[var(--destructive)] hover:text-[var(--text-primary)] transition-colors"
  >
  [!] {t("settings.account.logOut")}
  </button>
@@ -529,7 +529,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-3">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.video.cameraAccess")}
  </span>
  <div className="flex items-center justify-between gap-4">
@@ -560,13 +560,13 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-5">
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.video.cameraDevice")}
  </span>
  <select
  value={draftSettings.cameraDevice}
  onChange={(e) => setDraftSettings((prev) => ({ ...prev, cameraDevice: e.target.value }))}
- className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-white transition-colors"
+ className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
  >
  <option value="">{t("settings.device.systemDefault")}</option>
  {cameraDevices.map((d) => (
@@ -576,13 +576,13 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </label>
 
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.video.cameraQuality")}
  </span>
  <select
  value={draftSettings.cameraQuality}
  onChange={(e) => setDraftSettings((prev) => ({ ...prev, cameraQuality: e.target.value as CameraQuality }))}
- className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-white transition-colors"
+ className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
  >
  <option>720p</option>
  <option>1080p</option>
@@ -618,7 +618,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  muted
  className={cn("w-full h-full object-cover", draftSettings.mirrorCamera && "scale-x-[-1]")}
  />
- <span className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 text-[10px] font-mono text-[var(--text-muted)]">
+ <span className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 text-[12px] font-mono text-[var(--text-muted)]">
  {t("settings.video.preview")}
  </span>
  </div>
@@ -637,7 +637,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-3">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.audio.microphoneAccess")}
  </span>
  <div className="flex items-center justify-between gap-4">
@@ -684,13 +684,13 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-5">
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.audio.inputDevice")}
  </span>
  <select
  value={draftSettings.inputDevice}
  onChange={(e) => setDraftSettings((prev) => ({ ...prev, inputDevice: e.target.value }))}
- className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-white transition-colors"
+ className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
  >
  <option value="">{t("settings.device.systemDefault")}</option>
  {inputDevices.map((d) => (
@@ -699,13 +699,13 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </select>
  </label>
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.audio.outputDevice")}
  </span>
  <select
  value={draftSettings.outputDevice}
  onChange={(e) => setDraftSettings((prev) => ({ ...prev, outputDevice: e.target.value }))}
- className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-white transition-colors"
+ className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
  >
  <option value="">{t("settings.device.systemDefault")}</option>
  {outputDevices.map((d) => (
@@ -733,7 +733,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  />
  </label>
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.audio.inputVolume")}: {draftSettings.inputVolume}%
  </span>
  <input
@@ -746,7 +746,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  />
  </label>
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-1 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-1 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.audio.noiseGate")}: {draftSettings.noiseGateThreshold === 0 ? t("settings.audio.noiseGateOff") : `${draftSettings.noiseGateThreshold}%`}
  </span>
  <p className="text-xs text-[var(--text-muted)] mb-2 font-mono">{t("settings.audio.noiseGateHint")}</p>
@@ -818,7 +818,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  />
  </label>
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.view.uiScale")}: {draftSettings.uiScale}%
  </span>
  <input
@@ -845,7 +845,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-4">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.theme.baseTheme")}
  </span>
  <div className="flex gap-2">
@@ -858,7 +858,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  "px-4 py-2 border text-xs font-mono capitalize transition-all duration-150",
  draftSettings.themeMode === mode
  ? "border-[var(--text-primary)] text-[var(--text-primary)] bg-[var(--bg-elevated)]"
- : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-white/30 hover:text-[var(--text-primary)]",
+ : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
  )}
  >
  {draftSettings.themeMode === mode ? "[✓] " : "> "}{mode}
@@ -869,7 +869,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-3">
  <div>
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-0.5">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-0.5">
  <span className="mr-1">&gt;</span>{t("settings.theme.customCss")}
  </span>
  <p className="text-xs text-[var(--text-muted)] font-mono">
@@ -882,7 +882,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  rows={12}
  spellCheck={false}
  placeholder={`/* Example: change accent color */\n:root {\n --accent-red: #0ac000;\n}\n\n/* Hide scrollbars */\n* { scrollbar-width: none; }`}
- className="w-full bg-transparent border border-dashed border-[var(--border)] focus:border-solid focus:border-white focus:outline-none px-3 py-2 text-sm text-[var(--text-primary)] font-mono resize-none transition-colors placeholder:text-[#333]"
+ className="w-full bg-transparent border border-dashed border-[var(--border)] focus:border-solid focus:border-[var(--text-primary)] focus:outline-none px-3 py-2 text-sm text-[var(--text-primary)] font-mono resize-none transition-colors placeholder:text-[var(--text-muted)]"
  />
  </div>
  </div>
@@ -921,7 +921,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
 
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-4">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.system.updates")}
  </span>
  <div className="flex items-center justify-between gap-4">
@@ -958,13 +958,13 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
  <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)]">
  <label className="block">
- <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="block text-[12px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.language.label")}
  </span>
  <select
  value={draftSettings.language}
  onChange={(e) => setDraftSettings((prev) => ({ ...prev, language: e.target.value as Language }))}
- className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-white transition-colors"
+ className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
  >
  <option>English</option>
  <option>Polish</option>

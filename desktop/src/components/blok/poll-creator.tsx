@@ -89,7 +89,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
       <div className="flex flex-col gap-1.5 mb-2">
         {options.map((opt, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[var(--text-muted)] w-4 text-right flex-shrink-0">{i + 1}</span>
+            <span className="text-[12px] text-[var(--text-muted)] w-4 text-right flex-shrink-0">{i + 1}</span>
             <input
               type="text"
               value={opt}
@@ -114,7 +114,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
         {options.length < 10 && (
           <button
             onClick={addOption}
-            className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors pl-5 mt-0.5"
+            className="flex items-center gap-1.5 text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors pl-5 mt-0.5"
           >
             <Plus className="w-3 h-3" />
             {t("poll.addOption")}
@@ -129,7 +129,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
           <button
             onClick={() => setIsMultipleChoice(false)}
             className={cn(
-              "text-[10px] px-2 py-1 rounded border transition-colors",
+              "text-[12px] px-2 py-1 rounded border transition-colors",
               !isMultipleChoice
                 ? "border-[var(--accent-red)] bg-[var(--accent-red)]/10 text-[var(--accent-red)]"
                 : "border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-muted)]",
@@ -140,7 +140,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
           <button
             onClick={() => setIsMultipleChoice(true)}
             className={cn(
-              "text-[10px] px-2 py-1 rounded border transition-colors",
+              "text-[12px] px-2 py-1 rounded border transition-colors",
               isMultipleChoice
                 ? "border-[var(--accent-red)] bg-[var(--accent-red)]/10 text-[var(--accent-red)]"
                 : "border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-muted)]",
@@ -155,7 +155,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
           <button
             onClick={() => setIsAnonymous(false)}
             className={cn(
-              "text-[10px] px-2 py-1 rounded border transition-colors",
+              "text-[12px] px-2 py-1 rounded border transition-colors",
               !isAnonymous
                 ? "border-[var(--accent-red)] bg-[var(--accent-red)]/10 text-[var(--accent-red)]"
                 : "border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-muted)]",
@@ -166,7 +166,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
           <button
             onClick={() => setIsAnonymous(true)}
             className={cn(
-              "text-[10px] px-2 py-1 rounded border transition-colors",
+              "text-[12px] px-2 py-1 rounded border transition-colors",
               isAnonymous
                 ? "border-[var(--accent-red)] bg-[var(--accent-red)]/10 text-[var(--accent-red)]"
                 : "border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-muted)]",

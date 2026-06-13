@@ -31,7 +31,7 @@ export function AtMentionDropdown({ query, members, activeIndex, onSelect }: AtM
 
   return (
     <div className="absolute bottom-full left-0 mb-1 w-64 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-50">
-      <p className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] font-mono uppercase tracking-wider border-b border-[var(--border)]">
+      <p className="px-3 py-1.5 text-[12px] text-[var(--text-muted)] font-mono uppercase tracking-wider border-b border-[var(--border)]">
         members
       </p>
       <div className="max-h-48 overflow-y-auto py-1">

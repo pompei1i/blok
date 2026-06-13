@@ -349,7 +349,7 @@ export function MessageBubble({
               </div>
             )}
             {showTimestamp && (
-              <span className="text-[10px] opacity-60 mt-1 block">{formatTime(message.createdAt)}</span>
+              <span className="text-[12px] opacity-60 mt-1 block">{formatTime(message.createdAt)}</span>
             )}
           </div>
 
@@ -429,7 +429,7 @@ export function MessageBubble({
         </div>
       ) : (
         <div className="w-8 flex-shrink-0 flex items-start justify-end pr-1 pt-1">
-          <span className="text-[9px] text-[var(--text-muted)] opacity-0 group-hover:opacity-60 transition-opacity leading-none whitespace-nowrap select-none">
+          <span className="text-[11px] text-[var(--text-muted)] opacity-0 group-hover:opacity-60 transition-opacity leading-none whitespace-nowrap select-none">
             {formatTime(message.createdAt)}
           </span>
         </div>
@@ -470,7 +470,7 @@ export function MessageBubble({
               @{user?.username || "Unknown"}
             </span>
             {"isAnnouncement" in message && message.isAnnouncement && (
-              <span className="flex items-center gap-0.5 text-[10px] font-mono font-semibold text-[var(--accent-red)] uppercase tracking-wide leading-none">
+              <span className="flex items-center gap-0.5 text-[12px] font-mono font-semibold text-[var(--accent-red)] uppercase tracking-wide leading-none">
                 <Megaphone className="w-3 h-3" /> {t("message.announcement")}
               </span>
             )}

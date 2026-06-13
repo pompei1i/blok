@@ -10,12 +10,15 @@
   --bg-hover: #222222;
   --accent-red: #c0392b;
   --text-primary: #e0e0e0;
-  --text-muted: #666666;
+  --text-muted: #8a8a8a;
   --online: #27ae60;
   --offline: #e74c3c;
   --afk: #f39c12;
   --border: #333333;
   --border-color: #333333;
+  /* Adapts per theme: a "strong" hover/emphasis border that stays visible in
+     both dark and light. Replaces hard-coded white/30 borders. */
+  --border-strong: rgba(255, 255, 255, 0.3);
 
   --background: #0a0a0a;
   --foreground: #e0e0e0;
@@ -28,13 +31,13 @@
   --secondary: #1a1a1a;
   --secondary-foreground: #e0e0e0;
   --muted: #1a1a1a;
-  --muted-foreground: #666666;
+  --muted-foreground: #8a8a8a;
   --accent: #222222;
   --accent-foreground: #e0e0e0;
   --destructive: #c0392b;
   --destructive-foreground: #ffffff;
   --input: #1a1a1a;
-  --ring: #666666;
+  --ring: #8a8a8a;
   --radius: 0;
 
   --sidebar: #0f0f0f;
@@ -63,7 +66,9 @@
   --bg-hover: #e8e8e8;
   --border: #d0d0d0;
   --text-primary: #1a1a1a;
-  --text-muted: #666666;
+  --text-muted: #595959;
+  --border-strong: rgba(0, 0, 0, 0.28);
+  --ring: #555555;
   --background: #f7f7f7;
   --foreground: #1a1a1a;
   --card: #ffffff;
@@ -108,14 +113,14 @@
   --secondary: #1a1a1a;
   --secondary-foreground: #e0e0e0;
   --muted: #1a1a1a;
-  --muted-foreground: #666666;
+  --muted-foreground: #8a8a8a;
   --accent: #222222;
   --accent-foreground: #e0e0e0;
   --destructive: #c0392b;
   --destructive-foreground: #ffffff;
   --border: #333333;
   --input: #1a1a1a;
-  --ring: #666666;
+  --ring: #8a8a8a;
   --sidebar: #0f0f0f;
   --sidebar-foreground: #e0e0e0;
   --sidebar-primary: #ffffff;
@@ -229,6 +234,35 @@
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
+/* ─── Keyboard focus ring (unlayered: must beat the `focus:outline-none`        */
+/*     utility so keyboard users always get a visible indicator) ─────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* Mouse clicks shouldn't paint the ring; :focus-visible already handles this,
+   but normalise any element that opts out of the default ring. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ─── Reduced motion — disable the infinite/decorative animations for users     */
+/*     who request it (vestibular safety + battery). Unlayered so it wins. ────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .terminal-grid { animation: none !important; }
+  .cursor-blink  { animation: none !important; }
+}
+
 /* ─── Component layer — Tailwind utilities (@layer utilities) CAN override ─ */
 /*     This is required for Tailwind v4: unlayered CSS wins over @layer       */
 /*     utilities, so custom classes must live in @layer components or lower.  */
@@ -274,8 +308,8 @@
     justify-content: center;
   }
   .btn-terminal:hover:not(:disabled) {
-    border-color: white;
-    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--text-primary);
+    background: var(--bg-hover);
   }
   .btn-terminal:disabled {
     opacity: 0.5;
@@ -293,8 +327,8 @@
   }
   .terminal-card:hover {
     border-style: solid;
-    border-color: white;
-    background: rgba(255, 255, 255, 0.02);
+    border-color: var(--text-primary);
+    background: var(--bg-hover);
   }
 
   .input-terminal {
@@ -310,7 +344,7 @@
     width: 100%;
     transition: border-color 0.2s ease;
   }
-  .input-terminal::placeholder { color: #444; }
-  .input-terminal:focus { border-bottom-color: white; }
+  .input-terminal::placeholder { color: var(--text-muted); }
+  .input-terminal:focus { border-bottom-color: var(--text-primary); }
 }
 
