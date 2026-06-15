@@ -7,7 +7,7 @@ function makeServer(id: string): Server {
 }
 
 function makeChannel(id: string, serverId: string, type: "text" | "voice" = "text"): Channel {
-  return { id, serverId, name: `ch-${id}`, type, position: 0, isPrivate: false, createdAt: "2024-01-01" };
+  return { id, serverId, name: `ch-${id}`, type, position: 0, isPrivate: false, slowModeSeconds: 0, createdAt: "2024-01-01" };
 }
 
 function makeMessage(id: string, channelId: string): Message {

@@ -10,6 +10,7 @@ import { IncomingCallBanner } from "./incoming-call-banner";
 import { OfflineBanner } from "./offline-banner";
 import { RightSidebar } from "./right-sidebar";
 import { ToastHost } from "./toast-host";
+import { CommandPalette } from "./command-palette";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore } from "@/lib/store/friends-store";
@@ -114,6 +115,7 @@ export function AppLayout() {
       <VideoCallOverlay />
       <IncomingCallBanner />
       <ToastHost />
+      <CommandPalette />
     </div>
   );
 }

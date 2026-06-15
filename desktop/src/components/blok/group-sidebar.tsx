@@ -10,7 +10,9 @@ import {
   UserPlus,
   Trash2,
   X,
+  Clock,
 } from "lucide-react";
+import { SLOWMODE_PRESETS, formatSlowmode } from "@/lib/moderation";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
@@ -50,6 +52,7 @@ export function GroupSidebar() {
     updateServerIcon,
     renameChannel,
     renameServer,
+    setChannelSlowmode,
   } = useServerStore();
   const { user } = useAuthStore();
   const [expandedSections, setExpandedSections] = useState({
@@ -76,10 +79,11 @@ export function GroupSidebar() {
     : null;
   const roleCtx = { userId: user?.id, server: activeServer ?? null, role: myRole };
 
-  const canManage       = can("manage_server",      roleCtx);
-  const canRenameChannel= can("rename_channel",     roleCtx);
-  const canRenameServer = can("rename_server",      roleCtx);
-  const canManageIcon   = can("manage_server_icon", roleCtx);
+  const canManage        = can("manage_server",      roleCtx);
+  const canRenameChannel = can("rename_channel",     roleCtx);
+  const canRenameServer  = can("rename_server",      roleCtx);
+  const canManageIcon    = can("manage_server_icon", roleCtx);
+  const canManageChannels= can("manage_channels",    roleCtx);
 
   const [showInviteUser, setShowInviteUser] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -106,6 +110,7 @@ export function GroupSidebar() {
   const [joiningChannel, setJoiningChannel] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [confirmDeleteChannelId, setConfirmDeleteChannelId] = useState<string | null>(null);
+  const [slowmodeChannelId, setSlowmodeChannelId] = useState<string | null>(null);
   const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null);
   const [renamingServer, setRenamingServer] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -346,6 +351,32 @@ export function GroupSidebar() {
                         <X className="w-3 h-3" />
                       </button>
                     </div>
+                  ) : slowmodeChannelId === channel.id ? (
+                    <div className="flex flex-col gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--accent-red)]/40">
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--text-muted)]">
+                        <Clock className="w-3 h-3" />
+                        <span className="flex-1 truncate">{t("slowmode.title")} #{channel.name}</span>
+                        <button onClick={() => setSlowmodeChannelId(null)} className="hover:text-[var(--text-primary)] transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {SLOWMODE_PRESETS.map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => { void setChannelSlowmode(channel.id, s); setSlowmodeChannelId(null); }}
+                            className={cn(
+                              "px-1.5 py-0.5 text-[10px] font-mono border transition-colors",
+                              (channel.slowModeSeconds ?? 0) === s
+                                ? "border-[var(--accent-red)] text-[var(--accent-red)]"
+                                : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)]/40",
+                            )}
+                          >
+                            {s === 0 ? t("slowmode.off") : formatSlowmode(s)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ) : renamingChannelId === channel.id ? (
                     <div className="flex items-center gap-1.5 w-full px-2 py-1.5 border border-[var(--accent-red)]/60 bg-[var(--bg-elevated)]">
                       <span className="text-[var(--text-muted)] flex-shrink-0 font-mono">#</span>
@@ -381,6 +412,21 @@ export function GroupSidebar() {
                       {(unreadCounts[channel.id] ?? 0) > 0 && (
                         <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center bg-[var(--accent-red)] text-[10px] text-white font-bold px-1">
                           {unreadCounts[channel.id] > 99 ? "99+" : unreadCounts[channel.id]}
+                        </span>
+                      )}
+                      {canManageChannels && (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); setSlowmodeChannelId(channel.id); }}
+                          title={`${t("slowmode.title")}: ${(channel.slowModeSeconds ?? 0) === 0 ? t("slowmode.off") : formatSlowmode(channel.slowModeSeconds ?? 0)}`}
+                          className={cn(
+                            "p-0.5 transition-all",
+                            (channel.slowModeSeconds ?? 0) > 0
+                              ? "text-[var(--accent-red)] opacity-100"
+                              : "opacity-0 group-hover/ch:opacity-100 hover:text-[var(--text-primary)]",
+                          )}
+                        >
+                          <Clock className="w-3 h-3" />
                         </span>
                       )}
                       {canManage && (

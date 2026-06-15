@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Plus, Trash2, Shield, Users, UserX } from "lucide-react";
+import { X, Plus, Trash2, Shield, Users, UserX, Ban, ScrollText, RotateCcw } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -8,14 +8,15 @@ import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/i18n";
-import type { Role } from "@/lib/store/types";
+import type { Role, AuditEntry } from "@/lib/store/types";
+import { formatSlowmode } from "@/lib/moderation";
 
 interface RoleManagerModalProps {
   serverId: string;
   onClose: () => void;
 }
 
-type Tab = "roles" | "members";
+type Tab = "roles" | "members" | "bans" | "audit";
 
 const PERM_LABELS: { flag: number; labelKey: TranslationKey }[] = [
   { flag: Perm.INVITE_MEMBER,      labelKey: "roles.perm.inviteMembers" },
@@ -24,6 +25,9 @@ const PERM_LABELS: { flag: number; labelKey: TranslationKey }[] = [
   { flag: Perm.RENAME_CHANNEL,     labelKey: "roles.perm.renameChannels" },
   { flag: Perm.RENAME_SERVER,      labelKey: "roles.perm.renameServer" },
   { flag: Perm.MANAGE_SERVER_ICON, labelKey: "roles.perm.manageServerIcon" },
+  { flag: Perm.MANAGE_CHANNELS,    labelKey: "roles.perm.manageChannels" },
+  { flag: Perm.MODERATE_MEMBERS,   labelKey: "roles.perm.moderateMembers" },
+  { flag: Perm.BAN_MEMBER,         labelKey: "roles.perm.banMembers" },
   { flag: Perm.MANAGE_SERVER,      labelKey: "roles.perm.manageServer" },
   { flag: Perm.MANAGE_ROLES,       labelKey: "roles.perm.manageRoles" },
 ];
@@ -34,7 +38,10 @@ const PRESET_COLORS = [
 ];
 
 export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
-  const { roles, members, createRole, updateRole, deleteRole, assignRole, kickMember } = useServerStore();
+  const {
+    roles, members, createRole, updateRole, deleteRole, assignRole, kickMember,
+    bans, auditLog, loadBans, loadAuditLog, unbanMember, channelIndex, userProfileCache,
+  } = useServerStore();
   const { user } = useAuthStore();
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("roles");
@@ -63,6 +70,13 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
   const serverRoles = roles[serverId] ?? [];
   const serverMembers = members[serverId] ?? [];
   const selectedRole = serverRoles.find((r) => r.id === selectedRoleId) ?? null;
+  const serverBans = bans[serverId] ?? [];
+  const serverAudit = auditLog[serverId] ?? [];
+
+  useEffect(() => {
+    if (tab === "bans") void loadBans(serverId);
+    if (tab === "audit") void loadAuditLog(serverId);
+  }, [tab, serverId, loadBans, loadAuditLog]);
 
   const openRole = (role: Role) => {
     setSelectedRoleId(role.id);
@@ -101,6 +115,40 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
   const togglePerm = (flag: number) =>
     setEditPerms((p) => (p & flag ? p & ~flag : p | flag));
 
+  const AuditRow = ({ entry }: { entry: AuditEntry }) => {
+    const actorName = entry.actor?.username ?? entry.actorId?.slice(0, 8) ?? "system";
+    const isChannelTarget = entry.action === "slowmode";
+    const targetName = isChannelTarget
+      ? (entry.targetId ? `#${channelIndex[entry.targetId]?.name ?? entry.targetId.slice(0, 8)}` : "")
+      : `@${userProfileCache[entry.targetId ?? ""]?.username
+          ?? serverMembers.find((m) => m.userId === entry.targetId)?.user?.username
+          ?? entry.targetId?.slice(0, 8) ?? ""}`;
+    const actionLabel = t(`audit.action.${entry.action}` as TranslationKey);
+    const detail =
+      entry.action === "timeout" ? `${entry.meta.minutes ?? 0}m`
+      : entry.action === "slowmode" ? formatSlowmode(entry.meta.seconds ?? 0)
+      : entry.action === "ban" && entry.meta.reason ? `— ${entry.meta.reason}`
+      : "";
+    const when = new Date(entry.createdAt).toLocaleString();
+    const color = entry.action === "ban" ? "text-[var(--destructive)]"
+      : entry.action === "unban" ? "text-[var(--online)]"
+      : "text-[var(--text-muted)]";
+    return (
+      <div className="flex items-start gap-2 px-3 py-2 text-xs border-b border-[var(--border)]/40">
+        <ScrollText className={cn("w-3 h-3 mt-0.5 flex-shrink-0", color)} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[var(--text-primary)] break-words">
+            <span className="font-medium">@{actorName}</span>{" "}
+            <span className={color}>{actionLabel}</span>{" "}
+            <span className="font-medium">{targetName}</span>
+            {detail && <span className="text-[var(--text-muted)]"> {detail}</span>}
+          </p>
+          <p className="text-[10px] text-[var(--text-muted)]">{when}</p>
+        </div>
+      </div>
+    );
+  };
+
   const isDirty = selectedRole &&
     (editName !== selectedRole.name || editColor !== (selectedRole.color ?? "#6b7280") || editPerms !== selectedRole.permissions);
 
@@ -127,21 +175,31 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
 
         {/* Tabs */}
         <div className="flex border-b border-[var(--border)] flex-shrink-0">
-          {(["roles", "members"] as Tab[]).map((tabId) => (
-            <button
-              key={tabId}
-              onClick={() => setTab(tabId)}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2",
-                tab === tabId
-                  ? "border-[var(--accent-red)] text-[var(--accent-red)]"
-                  : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              )}
-            >
-              {tabId === "roles" ? <Shield className="w-3 h-3" /> : <Users className="w-3 h-3" />}
-              {t(tabId === "roles" ? "roles.tab.roles" : "roles.tab.members")}
-            </button>
-          ))}
+          {(["roles", "members", "bans", "audit"] as Tab[]).map((tabId) => {
+            const icon = tabId === "roles" ? <Shield className="w-3 h-3" />
+              : tabId === "members" ? <Users className="w-3 h-3" />
+              : tabId === "bans" ? <Ban className="w-3 h-3" />
+              : <ScrollText className="w-3 h-3" />;
+            const labelKey: TranslationKey = tabId === "roles" ? "roles.tab.roles"
+              : tabId === "members" ? "roles.tab.members"
+              : tabId === "bans" ? "roles.tab.bans"
+              : "roles.tab.audit";
+            return (
+              <button
+                key={tabId}
+                onClick={() => setTab(tabId)}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2",
+                  tab === tabId
+                    ? "border-[var(--accent-red)] text-[var(--accent-red)]"
+                    : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                )}
+              >
+                {icon}
+                {t(labelKey)}
+              </button>
+            );
+          })}
         </div>
 
         {tab === "roles" && (
@@ -355,6 +413,49 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "bans" && (
+          <div className="flex-1 overflow-y-auto p-4">
+            {serverBans.length === 0 ? (
+              <div className="text-xs text-[var(--text-muted)] text-center py-8">{t("bans.empty")}</div>
+            ) : (
+              <div className="space-y-1">
+                {serverBans.map((ban) => (
+                  <div key={ban.userId} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors">
+                    <UserAvatar user={ban.user} size="sm" className="flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-medium text-[var(--text-primary)] truncate block">
+                        @{ban.user?.username ?? ban.userId.slice(0, 8)}
+                      </span>
+                      {ban.reason && (
+                        <span className="text-[12px] text-[var(--text-muted)] truncate block">{ban.reason}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => void unbanMember(serverId, ban.userId)}
+                      className="flex items-center gap-1 text-[12px] px-2 py-1 border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--online)] hover:border-[var(--online)]/40 transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      {t("bans.unban")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "audit" && (
+          <div className="flex-1 overflow-y-auto p-4">
+            {serverAudit.length === 0 ? (
+              <div className="text-xs text-[var(--text-muted)] text-center py-8">{t("audit.empty")}</div>
+            ) : (
+              <div className="space-y-0.5">
+                {serverAudit.map((e) => <AuditRow key={e.id} entry={e} />)}
               </div>
             )}
           </div>

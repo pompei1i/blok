@@ -5,10 +5,6 @@ import {
   HeadphoneOff,
   Settings,
   PhoneOff,
-  Monitor,
-  MonitorOff,
-  Video,
-  VideoOff,
   Store,
   ScrollText,
 } from "lucide-react";
@@ -18,7 +14,6 @@ import { UserAvatar } from "./user-avatar";
 import { CoinIcon } from "./coin-icon";
 import { PresenceDot } from "./presence-dot";
 import { AccountEditModal } from "./account-edit-modal";
-import { ScreenSharePicker } from "./screen-share-picker";
 import { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { playSound } from "@/lib/sounds";
@@ -39,12 +34,8 @@ export function UserBar() {
     leaveVoiceChannel,
     isMuted,
     isDeafened,
-    isScreenSharing,
-    isCameraOn,
     toggleMute,
     toggleDeafen,
-    toggleScreenShare,
-    toggleCamera,
     channels,
     activeServerId,
     voiceParticipants,
@@ -64,7 +55,6 @@ export function UserBar() {
   const [showStore, setShowStore] = useState(false);
   const [showQuests, setShowQuests] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showScreenPicker, setShowScreenPicker] = useState(false);
   const [showActivityPicker, setShowActivityPicker] = useState(false);
   const activityBtnRef = useRef<HTMLButtonElement>(null);
   const { activity, setActivity } = useFriendsStore();
@@ -195,45 +185,6 @@ export function UserBar() {
               <Headphones className="w-4 h-4" />
             )}
           </button>
-          {activeVoiceChannelId && (
-            <div className="relative">
-              <button
-                onClick={() => isScreenSharing ? void toggleScreenShare() : setShowScreenPicker((v) => !v)}
-                className={cn(
-                  "p-2 transition-colors",
-                  isScreenSharing
-                    ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
-                    : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
-                )}
-                title={isScreenSharing ? "Stop sharing" : "Share screen"}
-              >
-                {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-              </button>
-              {showScreenPicker && !isScreenSharing && (
-                <ScreenSharePicker
-                  onSelect={(sourceId) => {
-                    setShowScreenPicker(false);
-                    void toggleScreenShare(sourceId);
-                  }}
-                  onClose={() => setShowScreenPicker(false)}
-                />
-              )}
-            </div>
-          )}
-          {activeVoiceChannelId && (
-            <button
-              onClick={() => void toggleCamera()}
-              className={cn(
-                "p-2 transition-colors",
-                isCameraOn
-                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
-                  : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
-              )}
-              title={isCameraOn ? "Turn off camera" : "Turn on camera"}
-            >
-              {isCameraOn ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-            </button>
-          )}
           <button
             onClick={() => setShowQuests(true)}
             className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"

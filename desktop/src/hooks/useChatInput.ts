@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useServerStore } from "@/lib/store/server-store";
 import { supabase } from "@/lib/supabaseClient";
+import { can } from "@/lib/permission";
 import { MAX_FILE_SIZE } from "@/lib/constants";
 import type { Message, Attachment, User } from "@/lib/store/types";
 
@@ -10,7 +11,48 @@ interface UseChatInputOptions {
 }
 
 export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
-  const { addMessage } = useServerStore();
+  const {
+    addMessage,
+    channelIndex = {},
+    members = {},
+    roles = {},
+    servers = [],
+    activeServerId = null,
+  } = useServerStore();
+
+  // ── Slowmode + timeout (moderation) ───────────────────────────────────────
+  // Server-side triggers are the source of truth; this only guards UX so the
+  // user isn't surprised by a rejected send. Moderators bypass slowmode.
+  const lastSentRef = useRef<Record<string, number>>({});
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  const channel = activeChannelId ? channelIndex[activeChannelId] : undefined;
+  const slowModeSeconds = channel?.slowModeSeconds ?? 0;
+  const server = servers.find((s) => s.id === activeServerId) ?? null;
+  const myMember = activeServerId
+    ? (members[activeServerId] ?? []).find((m) => m.userId === user?.id)
+    : undefined;
+  const myRole = myMember?.roleId
+    ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember.roleId) ?? null
+    : null;
+  const bypassSlowmode = can("manage_channels", { userId: user?.id, server, role: myRole });
+
+  const timeoutUntilMs = myMember?.timeoutUntil ? new Date(myMember.timeoutUntil).getTime() : 0;
+  const isTimedOut = timeoutUntilMs > nowTick;
+  const timeoutRemaining = isTimedOut ? Math.ceil((timeoutUntilMs - nowTick) / 1000) : 0;
+
+  const cooldownEndMs =
+    !bypassSlowmode && slowModeSeconds > 0 && activeChannelId
+      ? (lastSentRef.current[activeChannelId] ?? 0) + slowModeSeconds * 1000
+      : 0;
+  const cooldownRemaining = cooldownEndMs > nowTick ? Math.ceil((cooldownEndMs - nowTick) / 1000) : 0;
+
+  // Tick once a second only while a cooldown or timeout is counting down.
+  useEffect(() => {
+    if (cooldownRemaining === 0 && timeoutRemaining === 0) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [cooldownRemaining, timeoutRemaining]);
 
   const [inputValue, setInputValue] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -26,10 +68,11 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
   const [fileProgress, setFileProgress] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  const canSend =
+  const hasContent =
     inputValue.trim().length > 0 ||
     attachments.length > 0 ||
     gifAttachments.length > 0;
+  const canSend = hasContent && !isTimedOut && cooldownRemaining === 0;
 
   const closeAllPickers = () => {
     setShowEmojiPicker(false);
@@ -116,6 +159,10 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
       };
 
       await addMessage(activeChannelId, message);
+
+      // Start the slowmode cooldown for this channel (no-op if slowmode is off).
+      lastSentRef.current[activeChannelId] = Date.now();
+      setNowTick(Date.now());
 
       setInputValue("");
       setAttachments([]);
@@ -205,6 +252,10 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     replyTo,
     setReplyTo,
     canSend,
+    slowModeSeconds,
+    cooldownRemaining,
+    isTimedOut,
+    timeoutRemaining,
     isUploading,
     fileProgress,
     fileError,

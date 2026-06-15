@@ -1,7 +1,7 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
-import type { Server, Category, Channel, ServerMember, User, VoiceParticipant, Role } from "../types";
+import type { Server, Category, Channel, ServerMember, User, VoiceParticipant, Role, ServerBan, AuditEntry } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import {
   voicePresenceCh, setVoicePresenceCh,
@@ -43,6 +43,8 @@ export interface ServerSlice {
   serverAccessOrder: string[];
   lastChannelPerServer: Record<string, string>;
   unreadCounts: Record<string, number>;
+  bans: Record<string, ServerBan[]>;
+  auditLog: Record<string, AuditEntry[]>;
 
   initData: (userId: string) => Promise<void>;
   setActiveServer: (serverId: string | null) => void;
@@ -66,6 +68,13 @@ export interface ServerSlice {
   assignRole: (memberId: string, serverId: string, roleId: string | null) => Promise<void>;
   kickMember: (memberId: string, serverId: string) => Promise<void>;
   updateServerIcon: (serverId: string, iconUrl: string | null) => Promise<void>;
+  // Moderation
+  banMember: (serverId: string, userId: string, reason?: string) => Promise<string | null>;
+  unbanMember: (serverId: string, userId: string) => Promise<void>;
+  timeoutMember: (serverId: string, userId: string, minutes: number) => Promise<string | null>;
+  setChannelSlowmode: (channelId: string, seconds: number) => Promise<void>;
+  loadBans: (serverId: string) => Promise<void>;
+  loadAuditLog: (serverId: string) => Promise<void>;
   // Search
   searchUsers: (serverId: string, query: string) => User[];
   searchChannels: (serverId: string, query: string) => Channel[];
@@ -87,6 +96,8 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   serverAccessOrder: [],
   lastChannelPerServer: {},
   unreadCounts: {},
+  bans: {},
+  auditLog: {},
 
   initData: async (_userId) => {
     try {
@@ -119,7 +130,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         const ch: Channel = {
           id: c.id, serverId: c.server_id, categoryId: c.category_id, name: c.name,
           type: c.type, topic: c.topic, position: c.position,
-          isPrivate: c.is_private, createdAt: c.created_at,
+          isPrivate: c.is_private, slowModeSeconds: c.slow_mode_seconds ?? 0, createdAt: c.created_at,
         };
         channelsMap[c.server_id].push(ch);
         channelIndex[c.id] = ch;
@@ -144,7 +155,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         const entry: ServerMember = {
           id: m.id, serverId: m.server_id, userId: m.user_id,
           roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at,
-          xp: m.xp ?? 0, user,
+          xp: m.xp ?? 0, timeoutUntil: m.timeout_until ?? null, user,
         };
         membersMap[m.server_id].push(entry);
         if (!memberUserIndex[m.user_id]) memberUserIndex[m.user_id] = [];
@@ -339,6 +350,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
                           xp: m.xp ?? mem.xp,
                           roleId: m.role_id ?? undefined,
                           nickname: m.nickname ?? undefined,
+                          timeoutUntil: m.timeout_until ?? null,
                         }
                       : mem,
                   ),
@@ -350,6 +362,47 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       );
 
       trackDataChannel(
+        supabase.channel("public:roles").on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "roles" },
+          (payload) => {
+            if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+              const r = payload.new;
+              const role: Role = {
+                id: r.id, serverId: r.server_id, name: r.name, color: r.color,
+                permissions: r.permissions, position: r.position,
+                isDefault: r.is_default, createdAt: r.created_at,
+              };
+              set((state) => {
+                const list = state.roles[r.server_id] ?? [];
+                const exists = list.some((x) => x.id === r.id);
+                return {
+                  roles: {
+                    ...state.roles,
+                    [r.server_id]: exists ? list.map((x) => (x.id === r.id ? role : x)) : [...list, role],
+                  },
+                };
+              });
+            } else if (payload.eventType === "DELETE") {
+              // DELETE payloads carry only the primary key, so sweep all servers.
+              const id = payload.old.id;
+              set((state) => {
+                const newRoles: Record<string, Role[]> = {};
+                for (const [sid, list] of Object.entries(state.roles)) {
+                  newRoles[sid] = list.filter((x) => x.id !== id);
+                }
+                const newMembers: Record<string, ServerMember[]> = {};
+                for (const [sid, list] of Object.entries(state.members)) {
+                  newMembers[sid] = list.map((m) => (m.roleId === id ? { ...m, roleId: undefined } : m));
+                }
+                return { roles: newRoles, members: newMembers };
+              });
+            }
+          }
+        ).subscribe()
+      );
+
+      trackDataChannel(
         supabase.channel("public:channels").on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "channels" },
@@ -358,7 +411,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
             const newChannel: Channel = {
               id: c.id, serverId: c.server_id, categoryId: c.category_id, name: c.name,
               type: c.type, topic: c.topic, position: c.position,
-              isPrivate: c.is_private, createdAt: c.created_at,
+              isPrivate: c.is_private, slowModeSeconds: c.slow_mode_seconds ?? 0, createdAt: c.created_at,
             };
             set((state) => {
               const existing = state.channels[c.server_id] || [];
@@ -366,6 +419,30 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
               return {
                 channels: { ...state.channels, [c.server_id]: [...existing, newChannel].sort((a, b) => a.position - b.position) },
                 channelIndex: { ...state.channelIndex, [newChannel.id]: newChannel },
+              };
+            });
+          }
+        ).subscribe()
+      );
+
+      trackDataChannel(
+        supabase.channel("public:channels:update").on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "channels" },
+          (payload) => {
+            const c = payload.new;
+            set((state) => {
+              const list = state.channels[c.server_id];
+              if (!list) return {};
+              const patch = (ch: Channel): Channel => ch.id === c.id
+                ? { ...ch, name: c.name, topic: c.topic, slowModeSeconds: c.slow_mode_seconds ?? 0 }
+                : ch;
+              const existing = state.channelIndex[c.id];
+              return {
+                channels: { ...state.channels, [c.server_id]: list.map(patch) },
+                channelIndex: existing
+                  ? { ...state.channelIndex, [c.id]: patch(existing) }
+                  : state.channelIndex,
               };
             });
           }
@@ -493,7 +570,8 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     const newMember: ServerMember = {
       id: insertedRow.id, serverId, userId: profile.id,
       roleId: insertedRow.role_id ?? undefined,
-      joinedAt: insertedRow.joined_at, xp: insertedRow.xp ?? 0, user: mapProfile(profile),
+      joinedAt: insertedRow.joined_at, xp: insertedRow.xp ?? 0,
+      timeoutUntil: insertedRow.timeout_until ?? null, user: mapProfile(profile),
     };
     set((state) => ({
       members: { ...state.members, [serverId]: [...(state.members[serverId] || []), newMember] },
@@ -544,7 +622,10 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
     const { error: insertError } = await supabase
       .from("server_members").insert({ server_id: server.id, user_id: userId });
-    if (insertError) return "Failed to join server";
+    if (insertError) {
+      if (/banned/i.test(insertError.message)) return "You are banned from this server";
+      return "Failed to join server";
+    }
 
     await supabase.from("servers")
       .update({ invite_used_count: (server.invite_used_count ?? 0) + 1 })
@@ -570,7 +651,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     const newChannels: Channel[] = (channelRes.data || []).map((c) => ({
       id: c.id, serverId: c.server_id, categoryId: c.category_id, name: c.name,
       type: c.type, topic: c.topic, position: c.position,
-      isPrivate: c.is_private, createdAt: c.created_at,
+      isPrivate: c.is_private, slowModeSeconds: c.slow_mode_seconds ?? 0, createdAt: c.created_at,
     }));
 
     const newChannelIndex: Record<string, Channel> = {};
@@ -588,7 +669,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       if (user) newProfileCache[m.user_id] = user;
       if (!addedMemberIndex[m.user_id]) addedMemberIndex[m.user_id] = [];
       addedMemberIndex[m.user_id].push({ serverId: server.id, memberId: m.id });
-      return { id: m.id, serverId: m.server_id, userId: m.user_id, roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at, xp: m.xp ?? 0, user };
+      return { id: m.id, serverId: m.server_id, userId: m.user_id, roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at, xp: m.xp ?? 0, timeoutUntil: m.timeout_until ?? null, user };
     });
 
     const newRoles: Role[] = (rolesRes.data || []).map((r) => ({
@@ -719,6 +800,100 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     set((s) => ({
       members: { ...s.members, [serverId]: (s.members[serverId] ?? []).filter((m) => m.id !== memberId) },
     }));
+  },
+
+  banMember: async (serverId, userId, reason) => {
+    const { data, error } = await supabase.rpc("ban_member", {
+      p_server_id: serverId, p_user_id: userId, p_reason: reason ?? "",
+    });
+    if (error || !data?.ok) {
+      console.error("banMember failed", error ?? data?.reason);
+      return (data?.reason as string) ?? "ban_failed";
+    }
+    // Drop the member locally (the acting client doesn't get a DELETE event for itself).
+    set((s) => ({
+      members: { ...s.members, [serverId]: (s.members[serverId] ?? []).filter((m) => m.userId !== userId) },
+    }));
+    void get().loadBans(serverId);
+    return null;
+  },
+
+  unbanMember: async (serverId, userId) => {
+    const { data, error } = await supabase.rpc("unban_member", { p_server_id: serverId, p_user_id: userId });
+    if (error || !data?.ok) { console.error("unbanMember failed", error ?? data?.reason); return; }
+    set((s) => ({
+      bans: { ...s.bans, [serverId]: (s.bans[serverId] ?? []).filter((b) => b.userId !== userId) },
+    }));
+  },
+
+  timeoutMember: async (serverId, userId, minutes) => {
+    const { data, error } = await supabase.rpc("timeout_member", {
+      p_server_id: serverId, p_user_id: userId, p_minutes: minutes,
+    });
+    if (error || !data?.ok) {
+      console.error("timeoutMember failed", error ?? data?.reason);
+      return (data?.reason as string) ?? "timeout_failed";
+    }
+    const until = (data.timeout_until as string | null) ?? null;
+    set((s) => ({
+      members: {
+        ...s.members,
+        [serverId]: (s.members[serverId] ?? []).map((m) =>
+          m.userId === userId ? { ...m, timeoutUntil: until } : m
+        ),
+      },
+    }));
+    return null;
+  },
+
+  setChannelSlowmode: async (channelId, seconds) => {
+    const { data, error } = await supabase.rpc("set_channel_slowmode", {
+      p_channel_id: channelId, p_seconds: seconds,
+    });
+    if (error || !data?.ok) { console.error("setChannelSlowmode failed", error ?? data?.reason); return; }
+    const applied = (data.seconds as number) ?? seconds;
+    set((state) => {
+      const existing = state.channelIndex[channelId];
+      const serverId = existing?.serverId;
+      const patch = (ch: Channel): Channel => ch.id === channelId ? { ...ch, slowModeSeconds: applied } : ch;
+      return {
+        channelIndex: existing ? { ...state.channelIndex, [channelId]: patch(existing) } : state.channelIndex,
+        channels: serverId
+          ? { ...state.channels, [serverId]: (state.channels[serverId] ?? []).map(patch) }
+          : state.channels,
+      };
+    });
+  },
+
+  loadBans: async (serverId) => {
+    const { data, error } = await supabase
+      .from("server_bans")
+      .select("*, user:profiles!server_bans_user_id_fkey(*)")
+      .eq("server_id", serverId)
+      .order("created_at", { ascending: false });
+    if (error) { console.error("loadBans failed", error); return; }
+    const bans: ServerBan[] = (data ?? []).map((b: any) => ({
+      serverId: b.server_id, userId: b.user_id, reason: b.reason,
+      bannedBy: b.banned_by, createdAt: b.created_at,
+      user: b.user ? mapProfile(b.user) : undefined,
+    }));
+    set((s) => ({ bans: { ...s.bans, [serverId]: bans } }));
+  },
+
+  loadAuditLog: async (serverId) => {
+    const { data, error } = await supabase
+      .from("audit_log")
+      .select("*, actor:profiles!audit_log_actor_id_fkey(*)")
+      .eq("server_id", serverId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) { console.error("loadAuditLog failed", error); return; }
+    const entries: AuditEntry[] = (data ?? []).map((e: any) => ({
+      id: e.id, serverId: e.server_id, actorId: e.actor_id, action: e.action,
+      targetId: e.target_id, meta: e.meta ?? {}, createdAt: e.created_at,
+      actor: e.actor ? mapProfile(e.actor) : undefined,
+    }));
+    set((s) => ({ auditLog: { ...s.auditLog, [serverId]: entries } }));
   },
 
   searchUsers: (serverId, query) => {

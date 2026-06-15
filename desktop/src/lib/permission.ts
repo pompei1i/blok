@@ -1,16 +1,19 @@
 import type { Server, Role } from "./store/types";
 
 export const Perm = {
-  INVITE_MEMBER:      1 << 0,  //   1
-  CREATE_CHANNEL:     1 << 1,  //   2
-  DELETE_CHANNEL:     1 << 2,  //   4
-  PIN_MESSAGE:        1 << 3,  //   8
-  MANAGE_SERVER:      1 << 4,  //  16
-  MANAGE_ROLES:       1 << 5,  //  32
-  KICK_MEMBER:        1 << 6,  //  64
-  RENAME_CHANNEL:     1 << 7,  // 128
-  RENAME_SERVER:      1 << 8,  // 256
-  MANAGE_SERVER_ICON: 1 << 9,  // 512
+  INVITE_MEMBER:      1 << 0,  //    1
+  CREATE_CHANNEL:     1 << 1,  //    2
+  DELETE_CHANNEL:     1 << 2,  //    4
+  PIN_MESSAGE:        1 << 3,  //    8
+  MANAGE_SERVER:      1 << 4,  //   16
+  MANAGE_ROLES:       1 << 5,  //   32
+  KICK_MEMBER:        1 << 6,  //   64
+  RENAME_CHANNEL:     1 << 7,  //  128
+  RENAME_SERVER:      1 << 8,  //  256
+  MANAGE_SERVER_ICON: 1 << 9,  //  512
+  BAN_MEMBER:         1 << 10, // 1024
+  MODERATE_MEMBERS:   1 << 11, // 2048  — timeout members
+  MANAGE_CHANNELS:    1 << 12, // 4096  — slowmode / topic; bypasses slowmode
 } as const;
 
 export type ServerAction =
@@ -23,7 +26,10 @@ export type ServerAction =
   | "kick_member"
   | "rename_channel"
   | "rename_server"
-  | "manage_server_icon";
+  | "manage_server_icon"
+  | "ban_member"
+  | "moderate_members"
+  | "manage_channels";
 
 export interface PermissionContext {
   userId?: string | null;
@@ -43,6 +49,9 @@ const ACTION_FLAG: Record<ServerAction, number> = {
   rename_channel:     Perm.RENAME_CHANNEL,
   rename_server:      Perm.RENAME_SERVER,
   manage_server_icon: Perm.MANAGE_SERVER_ICON,
+  ban_member:         Perm.BAN_MEMBER,
+  moderate_members:   Perm.MODERATE_MEMBERS,
+  manage_channels:    Perm.MANAGE_CHANNELS,
 };
 
 export function can(action: ServerAction, ctx: PermissionContext): boolean {

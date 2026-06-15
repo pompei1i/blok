@@ -13,6 +13,7 @@ import {
   Search,
   BarChart2,
   Megaphone,
+  Clock,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useServerStore } from "@/lib/store/server-store";
@@ -29,6 +30,7 @@ import type { Message } from "@/lib/store/types";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useChatInput } from "@/hooks/useChatInput";
+import { formatDurationSeconds } from "@/lib/moderation";
 import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS } from "@/lib/constants";
 import { can } from "@/lib/permission";
 import { useBaitStore } from "@/lib/store/bait-store";
@@ -620,6 +622,18 @@ export function ChatArea() {
           <p className="mb-1 text-xs text-[var(--destructive)] font-mono">{chat.fileError}</p>
         )}
 
+        {chat.isTimedOut ? (
+          <p className="mb-1 text-xs text-[var(--destructive)] font-mono flex items-center gap-1.5">
+            <Clock className="w-3 h-3 flex-shrink-0" />
+            {t("moderation.timedOut").replace("{time}", formatDurationSeconds(chat.timeoutRemaining))}
+          </p>
+        ) : chat.cooldownRemaining > 0 ? (
+          <p className="mb-1 text-xs text-[var(--text-muted)] font-mono flex items-center gap-1.5">
+            <Clock className="w-3 h-3 flex-shrink-0" />
+            {t("moderation.slowmodeWait").replace("{time}", formatDurationSeconds(chat.cooldownRemaining))}
+          </p>
+        ) : null}
+
         {chat.isUploading && (
           <div className="mb-2">
             <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] mb-1">
@@ -712,8 +726,11 @@ export function ChatArea() {
               }
               chat.handleKeyDown(e);
             }}
-            placeholder={t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
-            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none max-h-40 py-1 leading-relaxed self-center"
+            disabled={chat.isTimedOut}
+            placeholder={chat.isTimedOut
+              ? t("moderation.timedOutPlaceholder")
+              : t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
+            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none max-h-40 py-1 leading-relaxed self-center disabled:opacity-60"
           />
 
           {/* GIF picker */}

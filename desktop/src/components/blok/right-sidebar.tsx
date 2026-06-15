@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { MessageCircle, ChevronDown, Search, UserPlus, UserMinus, Check, X, User, Phone, AtSign, Link2, UserX } from "lucide-react";
+import { MessageCircle, ChevronDown, Search, UserPlus, UserMinus, Check, X, User, Phone, AtSign, Link2, UserX, Ban, Clock } from "lucide-react";
 import { can } from "@/lib/permission";
+import { TIMEOUT_PRESETS_MIN, formatTimeoutPreset } from "@/lib/moderation";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useI18n } from "@/lib/i18n";
 import { useBaitStore } from "@/lib/store/bait-store";
@@ -56,7 +57,7 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
 // ─── Members view ─────────────────────────────────────────────────────────────
 
 function MembersView() {
-  const { activeServerId, members, channels, voiceParticipants, servers, roles, kickMember, generateInviteCode } = useServerStore();
+  const { activeServerId, members, channels, voiceParticipants, servers, roles, kickMember, banMember, timeoutMember, generateInviteCode } = useServerStore();
   const { presence, presenceLastSeen, activity, friends, sendFriendRequest, removeFriend } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
@@ -69,6 +70,9 @@ function MembersView() {
   const [ctxMenu, setCtxMenu] = useState<MemberCtxMenu | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   const [profileMember, setProfileMember] = useState<ServerMember | null>(null);
+  const [timeoutExpanded, setTimeoutExpanded] = useState(false);
+  const [banTarget, setBanTarget] = useState<ServerMember | null>(null);
+  const [banReason, setBanReason] = useState("");
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -128,8 +132,9 @@ function MembersView() {
         onClick={() => { if (user && !isMe) openDM(user.id, m.userId); }}
         onContextMenu={isMe ? undefined : (e) => {
           e.preventDefault();
-          const menuH = 260;
+          const menuH = 320;
           const y = e.clientY + menuH > window.innerHeight ? e.clientY - menuH : e.clientY;
+          setTimeoutExpanded(false);
           setCtxMenu({ member: m, x: Math.min(e.clientX, window.innerWidth - 200), y });
         }}
         disabled={isMe}
@@ -234,9 +239,13 @@ function MembersView() {
         const myRole = myMember?.roleId
           ? serverRoles.find((r) => r.id === myMember.roleId) ?? null
           : null;
-        const canKick = can("kick_member", { userId: user?.id, server: activeServer, role: myRole });
+        const permCtx = { userId: user?.id, server: activeServer, role: myRole };
+        const canKick = can("kick_member", permCtx);
+        const canBan = can("ban_member", permCtx);
+        const canTimeout = can("moderate_members", permCtx);
+        const isTimedOut = !!m.timeoutUntil && new Date(m.timeoutUntil) > new Date();
 
-        const close = () => setCtxMenu(null);
+        const close = () => { setCtxMenu(null); setTimeoutExpanded(false); };
 
         return (
           <div
@@ -321,22 +330,114 @@ function MembersView() {
               </button>
             )}
 
-            {/* Kick — owner or has kick_member perm */}
-            {canKick && (
+            {/* Moderation — gated per permission */}
+            {(canKick || canBan || canTimeout) && (
+              <div className="my-1 border-t border-[var(--border)]" />
+            )}
+
+            {canTimeout && (
               <>
-                <div className="my-1 border-t border-[var(--border)]" />
                 <button
-                  onClick={() => { if (activeServerId) void kickMember(m.id, activeServerId); close(); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+                  onClick={() => setTimeoutExpanded((v) => !v)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors"
                 >
-                  <UserX className="w-3.5 h-3.5 flex-shrink-0" />
-                  {t("member.ctx.kick")}
+                  <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                  {isTimedOut ? t("member.ctx.timeoutActive") : t("member.ctx.timeout")}
+                  <ChevronDown className={cn("w-3 h-3 ml-auto transition-transform", timeoutExpanded && "rotate-180")} />
                 </button>
+                {timeoutExpanded && (
+                  <div className="px-3 py-1 flex flex-wrap gap-1">
+                    {TIMEOUT_PRESETS_MIN.map((min) => (
+                      <button
+                        key={min}
+                        onClick={() => { if (activeServerId) void timeoutMember(activeServerId, m.userId, min); close(); }}
+                        className="px-1.5 py-0.5 text-[10px] font-mono border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)]/40 transition-colors"
+                      >
+                        {formatTimeoutPreset(min)}
+                      </button>
+                    ))}
+                    {isTimedOut && (
+                      <button
+                        onClick={() => { if (activeServerId) void timeoutMember(activeServerId, m.userId, 0); close(); }}
+                        className="px-1.5 py-0.5 text-[10px] font-mono border border-[var(--online)]/40 text-[var(--online)] hover:bg-[var(--online)]/10 transition-colors"
+                      >
+                        {t("member.ctx.timeoutRemove")}
+                      </button>
+                    )}
+                  </div>
+                )}
               </>
+            )}
+
+            {canKick && (
+              <button
+                onClick={() => { if (activeServerId) void kickMember(m.id, activeServerId); close(); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+              >
+                <UserX className="w-3.5 h-3.5 flex-shrink-0" />
+                {t("member.ctx.kick")}
+              </button>
+            )}
+
+            {canBan && (
+              <button
+                onClick={() => { setBanTarget(m); close(); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+              >
+                <Ban className="w-3.5 h-3.5 flex-shrink-0" />
+                {t("member.ctx.ban")}
+              </button>
             )}
           </div>
         );
       })(), document.body)}
+
+      {/* Ban dialog */}
+      {banTarget && createPortal(
+        <div
+          className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center"
+          onClick={() => { setBanTarget(null); setBanReason(""); }}
+        >
+          <div
+            className="w-full max-w-sm bg-[var(--bg-elevated)] border border-[var(--border)] shadow-2xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Ban className="w-4 h-4 text-[var(--destructive)]" />
+              <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
+                {t("ban.title").replace("{name}", banTarget.user?.username ?? banTarget.userId.slice(0, 8))}
+              </span>
+            </div>
+            <p className="text-xs text-[var(--text-muted)] mb-2">{t("ban.description")}</p>
+            <input
+              value={banReason}
+              onChange={(e) => setBanReason(e.target.value)}
+              placeholder={t("ban.reasonPlaceholder")}
+              autoFocus
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--destructive)] mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setBanTarget(null); setBanReason(""); }}
+                className="px-3 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              >
+                {t("ban.cancel")}
+              </button>
+              <button
+                onClick={() => {
+                  if (activeServerId) void banMember(activeServerId, banTarget.userId, banReason.trim());
+                  setBanTarget(null);
+                  setBanReason("");
+                }}
+                className="px-3 py-1.5 text-xs bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity"
+              >
+                {t("ban.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {profileMember?.user && (
         <UserProfileModal

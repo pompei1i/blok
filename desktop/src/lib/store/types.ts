@@ -180,7 +180,31 @@ export interface ServerMember {
   nickname?: string;
   joinedAt: string;
   xp: number;
+  /** ISO timestamp until which the member is timed out (cannot post). */
+  timeoutUntil?: string | null;
   user?: User;
+}
+
+export interface ServerBan {
+  serverId: string;
+  userId: string;
+  reason?: string | null;
+  bannedBy?: string | null;
+  createdAt: string;
+  user?: User;
+}
+
+export type AuditAction = "ban" | "unban" | "timeout" | "slowmode" | "kick";
+
+export interface AuditEntry {
+  id: string;
+  serverId: string;
+  actorId?: string | null;
+  action: AuditAction;
+  targetId?: string | null;
+  meta: Record<string, any>;
+  createdAt: string;
+  actor?: User;
 }
 
 export interface Channel {
@@ -192,6 +216,8 @@ export interface Channel {
   topic?: string;
   position: number;
   isPrivate: boolean;
+  /** Per-message cooldown in seconds; 0 = disabled. */
+  slowModeSeconds: number;
   createdAt: string;
 }
 

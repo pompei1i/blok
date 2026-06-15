@@ -189,7 +189,7 @@ describe("realtime: messages INSERT", () => {
       activeChannelId: "ch-1",
       unreadCounts: {},
       channelIndex: {
-        "ch-2": { id: "ch-2", serverId: "s-1", name: "general", type: "text", categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" },
+        "ch-2": { id: "ch-2", serverId: "s-1", name: "general", type: "text", categoryId: undefined, topic: undefined, position: 0, isPrivate: false, slowModeSeconds: 0, createdAt: "" },
       },
       userProfileCache: { "other": makeUser("other", "bob") },
     });
@@ -356,7 +356,7 @@ describe("realtime: channels INSERT", () => {
   });
 
   it("sorts channels by position", () => {
-    const existing = { id: "ch-0", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" };
+    const existing = { id: "ch-0", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, slowModeSeconds: 0, createdAt: "" };
     useServerStore.setState({ channels: { "s-1": [existing] }, channelIndex: { "ch-0": existing } });
 
     channelInsert({
@@ -375,7 +375,7 @@ describe("realtime: channels INSERT", () => {
 
 describe("realtime: channels DELETE", () => {
   it("removes the channel from channels map and channelIndex", () => {
-    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" };
+    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, slowModeSeconds: 0, createdAt: "" };
     useServerStore.setState({ channels: { "s-1": [c] }, channelIndex: { "ch-1": c }, activeChannelId: "other" });
 
     channelDelete({ old: { id: "ch-1" } });
@@ -385,7 +385,7 @@ describe("realtime: channels DELETE", () => {
   });
 
   it("resets activeChannelId to null when the deleted channel was active", () => {
-    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, createdAt: "" };
+    const c = { id: "ch-1", serverId: "s-1", name: "general", type: "text" as const, categoryId: undefined, topic: undefined, position: 0, isPrivate: false, slowModeSeconds: 0, createdAt: "" };
     useServerStore.setState({ channels: { "s-1": [c] }, channelIndex: { "ch-1": c }, activeChannelId: "ch-1" });
 
     channelDelete({ old: { id: "ch-1" } });
