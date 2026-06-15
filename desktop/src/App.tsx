@@ -52,8 +52,10 @@ function App() {
       el.id = "blok-custom-css";
       document.head.appendChild(el);
     }
-    el.textContent = customCss;
-  }, [customCss]);
+    // Custom CSS only applies while the "custom" base theme is selected, so the
+    // theme picker truly swaps between dark / light / custom.
+    el.textContent = themeMode === "custom" ? customCss : "";
+  }, [customCss, themeMode]);
 
   useEffect(() => {
     if (!user) return;
@@ -92,10 +94,13 @@ function App() {
       (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
     const onDown = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat || isTypingTarget(e.target)) return;
+      // Stop Space from scrolling the view or activating a focused button while held.
+      e.preventDefault();
       if (isMuted) toggleMute();
     };
     const onUp = (e: KeyboardEvent) => {
       if (e.code !== "Space" || isTypingTarget(e.target)) return;
+      e.preventDefault();
       if (!isMuted) toggleMute();
     };
     window.addEventListener("keydown", onDown);
@@ -114,8 +119,13 @@ function App() {
   if (!initialized) {
     return (
       <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center">
-        <div className="text-center text-[var(--text-muted)] font-mono text-sm">
-          <span className="cursor-blink mr-2">$</span> booting blok...
+        <div className="text-center font-mono">
+          <div className="text-[var(--text-muted)] text-sm">
+            <span className="cursor-blink mr-2">$</span> booting blok...
+          </div>
+          <p className="mt-3 text-xs text-[var(--text-muted)] opacity-70 tracking-wide">
+            youre not blocked. youre <span className="text-[var(--accent-red)]">Bloked</span>
+          </p>
         </div>
       </div>
     );

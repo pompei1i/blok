@@ -15,6 +15,7 @@ import {
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { UserAvatar } from "./user-avatar";
+import { CoinIcon } from "./coin-icon";
 import { PresenceDot } from "./presence-dot";
 import { AccountEditModal } from "./account-edit-modal";
 import { ScreenSharePicker } from "./screen-share-picker";
@@ -146,7 +147,7 @@ export function UserBar() {
               title={t("userBar.store")}
               className="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
-              <span>🪙 {coins}</span>
+              <span className="flex items-center gap-1"><CoinIcon className="w-3 h-3" />{coins}</span>
               <span className="text-[var(--accent-purple,#a855f7)]">✦ {dust}</span>
             </button>
             <button

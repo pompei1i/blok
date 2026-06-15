@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { NOISE_GATE_DEFAULT, type ScreenShareFps, type ScreenShareResolution, type ScreenShareQuality } from "../constants";
 
-export type ThemeMode = "dark" | "light";
+export type ThemeMode = "dark" | "light" | "custom";
 export type Language = "English" | "Polish" | "German" | "Spanish" | "Ukrainian" | "Russian";
 export type CameraQuality = "720p" | "1080p" | "1440p";
 export type { ScreenShareFps, ScreenShareResolution, ScreenShareQuality };
@@ -28,6 +28,8 @@ interface UiSettingsState {
   uiScale: number;
   language: Language;
   customCss: string;
+  /** Custom chat background — data URL or image URL. Empty = no background. */
+  chatBackground: string;
   setSetting: <K extends keyof Omit<UiSettingsState, "setSetting">>(
     key: K,
     value: UiSettingsState[K],
@@ -57,6 +59,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       uiScale: 100,
       language: "English",
       customCss: "",
+      chatBackground: "",
       setSetting: (key, value) => set({ [key]: value } as Partial<UiSettingsState>),
     }),
     {

@@ -75,12 +75,13 @@ export function AppLayout() {
   if (isBootstrapping) {
     return (
       <div className="h-screen flex bg-[var(--bg-base)] items-center justify-center">
-        <div className="fixed inset-0 pointer-events-none z-0">
-          <div className="absolute left-0 top-0 w-24 h-full terminal-grid opacity-30" />
-          <div className="absolute right-0 top-0 w-24 h-full terminal-grid opacity-30" />
-        </div>
-        <div className="relative z-10 text-center text-[var(--text-muted)] font-mono text-sm">
-          <span className="cursor-blink mr-2">$</span> {t("app.loading")}
+        <div className="text-center font-mono">
+          <div className="text-[var(--text-muted)] text-sm">
+            <span className="cursor-blink mr-2">$</span> {t("app.loading")}
+          </div>
+          <p className="mt-3 text-xs text-[var(--text-muted)] opacity-70 tracking-wide">
+            youre not blocked. youre <span className="text-[var(--accent-red)]">Bloked</span>
+          </p>
         </div>
       </div>
     );

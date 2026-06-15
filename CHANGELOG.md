@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.18] — 2026-06-15
+
+### Added
+- **Multi-line composer** — the message input is now an auto-growing `textarea` (grows up to ~6 lines): **Enter** sends, **Shift+Enter** inserts a newline
+- **Custom chat background** — removed the default ASCII grid behind messages; a new **Settings → Theme** control lets you upload an image (compressed to ≤1280px, stored as a data URL) or paste an image URL. The image renders behind the message list at reduced opacity for readability; the setting persists
+- **Custom theme mode** — the theme picker now offers **Dark / Light / Custom**. Custom CSS is applied **only** while the `Custom` theme is selected, so you can swap between the built-in themes and your own without deleting your CSS
+- **`kube` loot boxes** — the loot box is rebranded **kube** with a new **low-poly red cube** icon (shaded off `--accent-red`, so it re-colours with the theme). A custom **low-poly gold coin** icon replaces the `🪙` emoji in balances, the store, and the open button
+- **Store / economy redesign** — item cards get a rarity accent bar, hover lift and a rarity-aware "equipped" state; currency chips in the header; a framed kube with a **possible-drops** rarity legend; accent-underline sub-tabs
+
+### Changed
+- **Tighter, consistent message spacing** — server message rows are no longer inflated by the hover action buttons (moved to an absolute overlay), so a single-line message is a single line tall; corrected the virtualizer height estimates and removed double padding
+- **Members / Friends sidebar** — dropped the redundant `quests` / `store` tabs (both still open from the user bar), aligned the panel width with the channel sidebar, and tightened the secondary-text scale (11px headers / 12px names / 10px meta)
+- **Loading screen** — added the `you're not blocked. you're Bloked` tagline and removed the animated scrolling grid from the bootstrap screen
+
+### Fixed
+- **Push-to-talk** — Space now calls `preventDefault`, so holding it to talk no longer scrolls the view or activates a focused button
+- **Auth screen** no longer force-resizes the OS window (it was shrinking / clobbering the user's window size on every login and logout)
+- **Light theme** — restored the higher-contrast `--text-muted` (`#595959`) and focus `--ring` (`#555555`)
+
+### Accessibility
+- Modals (settings, join-by-code) now expose `role="dialog"` + `aria-modal` and close on **Escape**; icon-only message actions got `aria-label`s
+
 ## [0.9.17] — 2026-06-13
 
 ### Accessibility

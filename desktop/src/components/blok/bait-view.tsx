@@ -42,7 +42,7 @@ export function BaitView() {
         {messages.length > 0 && (
           <button
             onClick={clearHistory}
-            className="ml-auto text-[12px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors border border-dashed border-[var(--border)] hover:border-solid hover:border-[var(--border-strong)] px-2 py-0.5"
+            className="ml-auto text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors border border-dashed border-[var(--border)] hover:border-solid hover:border-[var(--text-primary)]/30 px-2 py-0.5"
           >
             clear
           </button>
@@ -53,7 +53,7 @@ export function BaitView() {
         {messages.length === 0 ? (
           <div className="flex flex-col items-start justify-end h-full pb-2">
             <div className="border-l-2 border-[var(--border)] pl-4 space-y-1">
-              <p className="text-[12px] text-[var(--text-muted)] font-mono">~/blok/b.ai.t</p>
+              <p className="text-[10px] text-[var(--text-muted)] font-mono">~/blok/b.ai.t</p>
               <p className="text-sm font-mono font-semibold text-[var(--text-muted)] opacity-40">
                 <span className="font-normal">$ </span>{t("bait.placeholder")}
               </p>
@@ -63,7 +63,7 @@ export function BaitView() {
           messages.map((msg) => (
             <div key={msg.id} className={cn("flex flex-col gap-1", msg.role === "user" ? "items-end" : "items-start")}>
               {msg.toolResults && msg.toolResults.map((r, i) => (
-                <span key={i} className="text-[12px] font-mono text-[var(--accent-red)] opacity-70">[✓] {r}</span>
+                <span key={i} className="text-[10px] font-mono text-[var(--accent-red)] opacity-70">[✓] {r}</span>
               ))}
               {msg.content && (
                 <div
@@ -105,12 +105,12 @@ export function BaitView() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t("bait.placeholder")}
-            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] font-mono disabled:cursor-not-allowed py-1"
+            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[#444] font-mono disabled:cursor-not-allowed py-1"
           />
           <button
             disabled={isLoading || !input.trim()}
             onClick={handleSend}
-            className="text-[12px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             [send]
           </button>

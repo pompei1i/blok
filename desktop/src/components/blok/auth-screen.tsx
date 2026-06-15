@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "../../lib/store/auth-store";
 import { useI18n } from "@/lib/i18n";
@@ -10,18 +10,9 @@ export function AuthScreen() {
   const { t } = useI18n();
   const [mode, setMode] = useState<AuthMode>("login");
 
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    void import("@tauri-apps/api/window").then(({ getCurrentWindow, LogicalSize }) => {
-      void getCurrentWindow().setSize(new LogicalSize(480, 580));
-    });
-    return () => {
-      if (!("__TAURI_INTERNALS__" in window)) return;
-      void import("@tauri-apps/api/window").then(({ getCurrentWindow, LogicalSize }) => {
-        void getCurrentWindow().setSize(new LogicalSize(800, 600));
-      });
-    };
-  }, []);
+  // NOTE: the auth screen no longer force-resizes the OS window — doing so
+  // clobbered the user's chosen / maximized window size on every login/logout.
+  // The card is centered, so it sits comfortably in whatever window exists.
 
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("");
@@ -191,7 +182,7 @@ export function AuthScreen() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="btn-terminal prefix-dollar w-full py-3 font-semibold uppercase tracking-widest border-[var(--border-strong)] mt-2"
+                className="btn-terminal prefix-dollar w-full py-3 font-semibold uppercase tracking-widest border-[var(--text-primary)]/60 mt-2"
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">

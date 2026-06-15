@@ -10,15 +10,13 @@
   --bg-hover: #222222;
   --accent-red: #c0392b;
   --text-primary: #e0e0e0;
+  /* WCAG AA: #8a8a8a on #0a0a0a ≈ 5.7:1 (was #666 ≈ 3.4:1, failed AA) */
   --text-muted: #8a8a8a;
   --online: #27ae60;
   --offline: #e74c3c;
   --afk: #f39c12;
   --border: #333333;
   --border-color: #333333;
-  /* Adapts per theme: a "strong" hover/emphasis border that stays visible in
-     both dark and light. Replaces hard-coded white/30 borders. */
-  --border-strong: rgba(255, 255, 255, 0.3);
 
   --background: #0a0a0a;
   --foreground: #e0e0e0;
@@ -67,7 +65,6 @@
   --border: #d0d0d0;
   --text-primary: #1a1a1a;
   --text-muted: #595959;
-  --border-strong: rgba(0, 0, 0, 0.28);
   --ring: #555555;
   --background: #f7f7f7;
   --foreground: #1a1a1a;
@@ -234,22 +231,24 @@
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-/* ─── Keyboard focus ring (unlayered: must beat the `focus:outline-none`        */
-/*     utility so keyboard users always get a visible indicator) ─────────────── */
-
-:focus-visible {
-  outline: 2px solid var(--ring);
+/* ─── Keyboard focus (unlayered: wins over Tailwind's focus:outline-none) ─── */
+/* var(--text-primary) is near-white on dark themes and near-black on light,   */
+/* so the ring stays visible in every theme. Mouse clicks don't trigger it.    */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--text-primary);
   outline-offset: 2px;
-}
-/* Mouse clicks shouldn't paint the ring; :focus-visible already handles this,
-   but normalise any element that opts out of the default ring. */
-:focus:not(:focus-visible) {
-  outline: none;
+  border-radius: 1px;
 }
 
-/* ─── Reduced motion — disable the infinite/decorative animations for users     */
-/*     who request it (vestibular safety + battery). Unlayered so it wins. ────── */
-
+/* ─── Respect reduced-motion: kill the looping terminal animations ─────────── */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -260,7 +259,8 @@
     scroll-behavior: auto !important;
   }
   .terminal-grid { animation: none !important; }
-  .cursor-blink  { animation: none !important; }
+  .cursor-blink  { animation: none !important; opacity: 1 !important; }
+  .nameplate-shimmer { animation: none !important; }
 }
 
 /* ─── Component layer — Tailwind utilities (@layer utilities) CAN override ─ */
@@ -309,7 +309,7 @@
   }
   .btn-terminal:hover:not(:disabled) {
     border-color: var(--text-primary);
-    background: var(--bg-hover);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
   }
   .btn-terminal:disabled {
     opacity: 0.5;
@@ -328,7 +328,7 @@
   .terminal-card:hover {
     border-style: solid;
     border-color: var(--text-primary);
-    background: var(--bg-hover);
+    background: color-mix(in srgb, var(--text-primary) 2%, transparent);
   }
 
   .input-terminal {
@@ -344,7 +344,7 @@
     width: 100%;
     transition: border-color 0.2s ease;
   }
-  .input-terminal::placeholder { color: var(--text-muted); }
+  .input-terminal::placeholder { color: var(--text-muted); opacity: 0.7; }
   .input-terminal:focus { border-bottom-color: var(--text-primary); }
 }
 

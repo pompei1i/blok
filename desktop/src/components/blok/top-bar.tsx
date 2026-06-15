@@ -233,7 +233,7 @@ export function TopBar() {
       {showCreateServer && <CreateServerModal onClose={() => setShowCreateServer(false)} />}
       {showJoinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-          <div className="w-[340px] bg-[var(--bg-surface)] border border-[var(--border)] shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-label={t("invite.joinByCode")} className="w-[340px] bg-[var(--bg-surface)] border border-[var(--border)] shadow-2xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-elevated)]">
               <span className="text-xs text-[var(--text-muted)] font-mono">~/blok $ {t("invite.joinByCode")}</span>
               <button onClick={() => setShowJoinModal(false)} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-mono transition-colors">[esc]</button>

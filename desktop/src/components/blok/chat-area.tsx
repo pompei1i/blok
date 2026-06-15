@@ -34,8 +34,7 @@ import { can } from "@/lib/permission";
 import { useBaitStore } from "@/lib/store/bait-store";
 import { BaitView } from "./bait-view";
 import { VoiceView } from "./voice-view";
-
-const ASCII_BG = Array(80).fill(Array(52).fill("·").join("   ")).join("\n");
+import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 
 export function ChatArea() {
   const { t } = useI18n();
@@ -66,6 +65,7 @@ export function ChatArea() {
   const { user } = useAuthStore();
 
   const isBaitActive = useBaitStore((s) => s.isActive);
+  const chatBackground = useUiSettingsStore((s) => s.chatBackground);
 
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
 
@@ -156,18 +156,20 @@ export function ChatArea() {
     // but the initial estimate determines scrollToIndex accuracy.
     estimateSize: (index) => {
       const msg = channelMessages[index];
-      if (!msg) return 64;
+      if (!msg) return 44;
       // Base: grouped message (no avatar header) is shorter than a new group.
       const prev = channelMessages[index - 1];
       const isGrouped = prev &&
         prev.authorId === msg.authorId &&
         new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() < MESSAGE_GROUP_THRESHOLD_MS;
-      let h = isGrouped ? 28 : 56;            // avatar row or compact continuation
-      if (msg.replyToId) h += 36;             // reply preview bar
-      if (msg.content) h += Math.ceil(msg.content.length / 62) * 22;
+      // Base already covers padding + (for a new group) the avatar/name header
+      // AND the first line of text — only extra wrapped lines add height.
+      let h = isGrouped ? 24 : 50;
+      if (msg.replyToId) h += 32;             // reply preview bar
+      if (msg.content) h += Math.max(0, Math.ceil(msg.content.length / 62) - 1) * 20;
       if (msg.attachments?.length) h += msg.attachments.length * 108;
       if (msg.poll) h += 180;
-      if ((msg.reactions?.length ?? 0) > 0) h += 32;
+      if ((msg.reactions?.length ?? 0) > 0) h += 30;
       return Math.min(h, 640);               // cap: prevent absurd estimates
     },
     overscan: 5,
@@ -180,15 +182,6 @@ export function ChatArea() {
       prevScrollHeightRef.current = null;
     }
   }, [activeChannelId]);
-
-  // Auto-grow the composer with its content (single line → up to ~6 lines),
-  // and snap back to one line after a send clears the value.
-  useLayoutEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [chat.inputValue]);
 
   // Ctrl+F / Cmd+F → open search
   useEffect(() => {
@@ -240,6 +233,14 @@ export function ChatArea() {
     chat.handleMentionSelect(mention);
     inputRef.current?.focus();
   };
+
+  // Auto-grow the composer up to ~6 lines; collapses back when cleared on send.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [chat.inputValue]);
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -419,10 +420,13 @@ export function ChatArea() {
 
       {/* Messages list */}
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto py-4 relative">
-        <pre
-          aria-hidden
-          className="absolute inset-0 overflow-hidden pointer-events-none select-none font-mono text-xs leading-5 text-white opacity-[0.07] whitespace-pre"
-        >{ASCII_BG}</pre>
+        {chatBackground && (
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none bg-center bg-cover bg-no-repeat opacity-40"
+            style={{ backgroundImage: `url("${chatBackground}")` }}
+          />
+        )}
         {isLoadingMore && (
           <div className="flex items-center justify-center py-2 text-xs text-[var(--text-muted)] font-mono">
             <span className="cursor-blink mr-1">$</span> loading older messages...
@@ -490,7 +494,6 @@ export function ChatArea() {
                     width: "100%",
                     transform: `translateY(${vItem.start}px)`,
                   }}
-                  className="pb-1"
                 >
                   <MessageBubble
                     message={polls[message.id] ? { ...message, poll: polls[message.id] } : message}
@@ -619,7 +622,7 @@ export function ChatArea() {
 
         {chat.isUploading && (
           <div className="mb-2">
-            <div className="flex items-center justify-between text-[12px] text-[var(--text-muted)] mb-1">
+            <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] mb-1">
               <span>{chat.fileProgress < 100 ? `Uploading… ${chat.fileProgress}%` : "Sending…"}</span>
             </div>
             <div className="h-0.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
@@ -635,7 +638,7 @@ export function ChatArea() {
           </div>
         )}
 
-        <div className="flex items-end gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-2 relative">
+        <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-2 relative">
           {chat.mentionQuery !== null && (
             <AtMentionDropdown
               query={chat.mentionQuery}
@@ -710,7 +713,7 @@ export function ChatArea() {
               chat.handleKeyDown(e);
             }}
             placeholder={t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
-            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none max-h-40 leading-relaxed py-1"
+            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none max-h-40 py-1 leading-relaxed self-center"
           />
 
           {/* GIF picker */}
@@ -722,7 +725,7 @@ export function ChatArea() {
                 if (next) chat.setShowGifPicker(true);
               }}
               className={cn(
-                "p-1 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] text-[12px] font-bold leading-none",
+                "p-1 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] text-[10px] font-bold leading-none",
                 chat.showGifPicker && "bg-[var(--bg-hover)]",
               )}
             >

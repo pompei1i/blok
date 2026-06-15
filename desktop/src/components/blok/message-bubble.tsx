@@ -414,8 +414,8 @@ export function MessageBubble({
     <div
       ref={msgRef}
       className={cn(
-        "group flex gap-3 px-4 hover:bg-[var(--bg-hover)]/50 transition-colors",
-        showAvatar ? "pt-3 pb-0.5" : "pt-0 pb-0.5",
+        "group relative flex gap-3 px-4 hover:bg-[var(--bg-hover)]/50 transition-colors",
+        showAvatar ? "pt-3 pb-1.5" : "pt-0 pb-1.5",
         "isAnnouncement" in message && message.isAnnouncement && "border-l-2 border-[var(--accent-red)] bg-[var(--accent-red)]/5",
       )}
       onMouseEnter={() => setShowTimestamp(true)}
@@ -509,7 +509,7 @@ export function MessageBubble({
           </div>
         ) : message.content ? (
           <p
-            className="text-sm text-[var(--text-primary)] leading-relaxed"
+            className="text-sm text-[var(--text-primary)] leading-snug"
             dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
           />
         ) : null}
@@ -588,7 +588,9 @@ export function MessageBubble({
       <div
         ref={menuRef}
         className={cn(
-          "relative flex items-center gap-0.5 transition-opacity self-start mt-1",
+          // Floats over the message (absolute) so the action buttons never inflate
+          // the row height — a single-line message stays a single line tall.
+          "absolute right-3 top-0.5 z-10 flex items-center gap-0.5 transition-opacity bg-[var(--bg-surface)] border border-[var(--border)]",
           showQuickEmoji ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
       >
@@ -602,6 +604,7 @@ export function MessageBubble({
                 setShowQuickEmoji(true);
                 closeMenu();
               }}
+              aria-label={t("message.react")}
               className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
             >
               <Smile className="w-4 h-4 text-[var(--text-muted)]" />
@@ -614,6 +617,7 @@ export function MessageBubble({
             const r = e.currentTarget.getBoundingClientRect();
             openMenuAt(r.right, r.bottom);
           }}
+          aria-label={t("message.moreActions")}
           className="p-1 hover:bg-[var(--bg-elevated)] rounded transition-colors"
         >
           <MoreHorizontal className="w-4 h-4 text-[var(--text-muted)]" />

@@ -111,7 +111,7 @@ blok/
 | Video: camera quality | getUserMedia constraints |
 | Video: screen share FPS / resolution / quality | Rust encoder + ui-settings-store |
 | View: compact mode, member list toggle, UI scale | CSS variables |
-| Theme: dark / light / darker, Custom CSS | CSS variables + live inject |
+| Theme: dark / light / custom, Custom CSS, custom chat background | CSS variables + live inject |
 | Language | 6 languages (EN/RU/UA/PL/DE/ES) |
 
 ### Security

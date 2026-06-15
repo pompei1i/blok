@@ -248,11 +248,11 @@ export function GroupSidebar() {
         {/* Server avatar */}
         <div className="mt-2 border border-[var(--border)]">
           <div className="px-2 py-0.5 bg-[var(--bg-elevated)] border-b border-[var(--border)] flex items-center justify-between">
-            <span className="text-[12px] font-mono text-[var(--text-muted)]"><span className="opacity-50">$ </span>icon</span>
+            <span className="text-[10px] font-mono text-[var(--text-muted)]"><span className="opacity-50">$ </span>icon</span>
             {activeServer.iconUrl && canManageIcon && (
               <button
                 onClick={() => void updateServerIcon(activeServerId!, null)}
-                className="text-[12px] font-mono text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
+                className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
               >
                 [rm]
               </button>
@@ -275,7 +275,7 @@ export function GroupSidebar() {
               )}
               {canManageIcon && (
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center">
-                  <span className="text-[12px] font-mono text-white">[edit]</span>
+                  <span className="text-[10px] font-mono text-white">[edit]</span>
                 </div>
               )}
             </div>
@@ -335,7 +335,7 @@ export function GroupSidebar() {
                       </span>
                       <button
                         onClick={() => { void deleteChannel(channel.id); setConfirmDeleteChannelId(null); }}
-                        className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[12px]"
+                        className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
                       >
                         {t("message.delete")}
                       </button>
@@ -373,13 +373,13 @@ export function GroupSidebar() {
                         "flex items-center gap-1.5 w-full px-2 py-1.5 text-sm transition-all duration-150 text-left border",
                         activeChannelId === channel.id
                           ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[inset_2px_0_0_var(--accent-red)]"
-                          : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+                          : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
                       )}
                     >
                       <span className="text-[var(--text-muted)] flex-shrink-0 font-mono">#</span>
                       <span className="truncate flex-1 min-w-0">{channel.name}</span>
                       {(unreadCounts[channel.id] ?? 0) > 0 && (
-                        <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center bg-[var(--accent-red)] text-[12px] text-white font-bold px-1">
+                        <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center bg-[var(--accent-red)] text-[10px] text-white font-bold px-1">
                           {unreadCounts[channel.id] > 99 ? "99+" : unreadCounts[channel.id]}
                         </span>
                       )}
@@ -466,7 +466,7 @@ export function GroupSidebar() {
                         "flex items-center gap-2 w-full px-2 py-1.5 text-sm transition-all duration-150 border",
                         isInChannel
                           ? "border-[var(--online)]/40 bg-[var(--bg-elevated)] text-[var(--online)] shadow-[inset_2px_0_0_var(--online)]"
-                          : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+                          : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
                         joiningChannel === channel.id && "opacity-60 cursor-wait",
                       )}
                     >
@@ -475,7 +475,7 @@ export function GroupSidebar() {
                         {channel.name}
                       </span>
                       {joiningChannel === channel.id && (
-                        <span className="text-[12px] text-[var(--text-muted)] animate-pulse">…</span>
+                        <span className="text-[10px] text-[var(--text-muted)] animate-pulse">…</span>
                       )}
                       {isInChannel && !joiningChannel && (
                         <span
@@ -607,7 +607,7 @@ export function GroupSidebar() {
               onChange={(e) => setUserVolume(ctxMenu.userId, Number(e.target.value))}
               className="w-full h-1 accent-[var(--online)] cursor-pointer"
             />
-            <div className="flex justify-between text-[11px] text-[var(--text-muted)] opacity-50">
+            <div className="flex justify-between text-[9px] text-[var(--text-muted)] opacity-50">
               <span>0</span><span>100</span><span>200</span>
             </div>
           </div>
