@@ -23,6 +23,13 @@ VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 VITE_TENOR_API_KEY=...        # optional — GIF search
 VITE_BAIT_DEFAULT_KEY=...     # Anthropic API key for b.ai.t
+
+# TURN relay for screen share / camera (required across different NATs — without
+# a working relay the viewer sees a black screen; audio is unaffected). Get free
+# credentials from metered.ca, Twilio, or a self-hosted coturn. Baked at build time.
+VITE_TURN_URLS=turn:host:3478,turns:host:5349?transport=tcp
+VITE_TURN_USERNAME=...
+VITE_TURN_CREDENTIAL=...
 ```
 
 ## Tests

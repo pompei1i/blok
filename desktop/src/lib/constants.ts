@@ -1,7 +1,10 @@
 // ── Files / attachments ───────────────────────────────────────────────────────
 
-/** Maximum allowed file attachment size (10 MB). */
-export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+/** Maximum allowed file attachment size (20 MB). */
+export const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+/** Human-readable file size cap in MB, derived from MAX_FILE_SIZE. */
+export const MAX_FILE_SIZE_MB = MAX_FILE_SIZE / (1024 * 1024);
 
 // ── Chat / messages ───────────────────────────────────────────────────────────
 

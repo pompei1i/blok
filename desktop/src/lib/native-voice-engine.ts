@@ -4,6 +4,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { supabase } from "./supabaseClient";
 import type { VoiceCallbacks } from "./voice-engine";
 import { useUiSettingsStore } from "./store/ui-settings-store";
+import { useToastStore } from "./store/toast-store";
 import { SCREEN_RES_TO_MAX_WIDTH, SCREEN_QUALITY_TO_JPEG } from "./constants";
 
 type NativeSignalMsg =
@@ -25,11 +26,25 @@ type NativeSignalMsg =
 
 const SPEAKING_TIMEOUT_MS = 400;
 
-const ICE_CONFIG: RTCConfiguration = {
-  iceServers: [
+// ICE servers. TURN is required when both peers are behind NAT (typical home
+// networks) — without a working relay, screen share / camera PCs never connect
+// and the viewer just sees a black screen (audio still works: it goes over the
+// Supabase realtime broadcast, not WebRTC). Provide a real TURN via env:
+//   VITE_TURN_URLS=turn:host:3478,turns:host:5349?transport=tcp
+//   VITE_TURN_USERNAME=...   VITE_TURN_CREDENTIAL=...
+// Falls back to the free Open Relay demo, which is unreliable / often down.
+function buildIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    {
+  ];
+  const urls = (import.meta.env.VITE_TURN_URLS as string | undefined)?.split(",").map((u) => u.trim()).filter(Boolean);
+  const username = import.meta.env.VITE_TURN_USERNAME as string | undefined;
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined;
+  if (urls && urls.length > 0 && username && credential) {
+    servers.push({ urls, username, credential });
+  } else {
+    servers.push({
       urls: [
         "turn:openrelay.metered.ca:80",
         "turn:openrelay.metered.ca:443",
@@ -37,9 +52,47 @@ const ICE_CONFIG: RTCConfiguration = {
       ],
       username: "openrelayproject",
       credential: "openrelayproject",
-    },
-  ],
-};
+    });
+  }
+  return servers;
+}
+
+const ICE_CONFIG: RTCConfiguration = { iceServers: buildIceServers() };
+
+/**
+ * Surface ICE/connection failures that would otherwise be silent (the symptom is
+ * just a black video). Logs the state transitions for each media PeerConnection.
+ */
+// Throttle so 4 simultaneous PCs failing don't stack 4 identical toasts.
+let _lastIceFailToast = 0;
+function _notifyIceFailure(): void {
+  const now = Date.now();
+  if (now - _lastIceFailToast < 8000) return;
+  _lastIceFailToast = now;
+  useToastStore.getState().showToast({
+    emoji: "📵",
+    title: "Video couldn't connect",
+    message: "Screen share / camera failed to establish a connection (TURN relay).",
+  });
+}
+
+function attachPcDiagnostics(pc: RTCPeerConnection, label: string): void {
+  pc.oniceconnectionstatechange = () => {
+    const s = pc.iceConnectionState;
+    if (s === "failed" || s === "disconnected") {
+      console.warn(`[voice] ${label}: ICE ${s} — media can't connect. Check TURN (set VITE_TURN_URLS/USERNAME/CREDENTIAL).`);
+      if (s === "failed") _notifyIceFailure();
+    } else {
+      console.info(`[voice] ${label}: ICE ${s}`);
+    }
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed") {
+      console.warn(`[voice] ${label}: connection failed`);
+      _notifyIceFailure();
+    }
+  };
+}
 
 function int16ToBase64(samples: number[]): string {
   const bytes = new Uint8Array(new Int16Array(samples).buffer);
@@ -539,6 +592,7 @@ export class NativeVoiceEngine {
   private async _setupViewerPc(sharerId: string): Promise<void> {
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._viewerPcs.set(sharerId, pc);
+    attachPcDiagnostics(pc, `screen-viewer→${sharerId.slice(0, 8)}`);
 
     const dc = pc.createDataChannel("screen", { ordered: false, maxRetransmits: 0 });
     dc.binaryType = "arraybuffer";
@@ -566,6 +620,7 @@ export class NativeVoiceEngine {
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._shareePcs.set(viewerId, pc);
+    attachPcDiagnostics(pc, `screen-sharer→${viewerId.slice(0, 8)}`);
 
     pc.ondatachannel = ({ channel }) => {
       channel.binaryType = "arraybuffer";
@@ -622,6 +677,7 @@ export class NativeVoiceEngine {
     this._closeVideoReceiverPc(senderId);
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._videoReceiverPcs.set(senderId, pc);
+    attachPcDiagnostics(pc, `camera-receiver←${senderId.slice(0, 8)}`);
 
     pc.addTransceiver("video", { direction: "recvonly" });
 
@@ -652,6 +708,7 @@ export class NativeVoiceEngine {
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._videoSenderPcs.set(viewerId, pc);
+    attachPcDiagnostics(pc, `camera-sender→${viewerId.slice(0, 8)}`);
 
     for (const track of this._cameraStream.getVideoTracks()) {
       pc.addTrack(track, this._cameraStream);

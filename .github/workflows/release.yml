@@ -71,6 +71,11 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TENOR_API_KEY: ${{ secrets.VITE_TENOR_API_KEY }}
           VITE_BAIT_DEFAULT_KEY: ${{ secrets.VITE_BAIT_DEFAULT_KEY }}
+          # TURN relay for screen share / camera (fixes black screen across NATs).
+          # Empty secrets fall back to the unreliable Open Relay demo at runtime.
+          VITE_TURN_URLS: ${{ secrets.VITE_TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
         with:
           projectPath: desktop
           tagName: ${{ github.ref_name }}

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useServerStore } from "@/lib/store/server-store";
 import { supabase } from "@/lib/supabaseClient";
 import { can } from "@/lib/permission";
-import { MAX_FILE_SIZE } from "@/lib/constants";
+import { MAX_FILE_SIZE, MAX_FILE_SIZE_MB } from "@/lib/constants";
 import type { Message, Attachment, User } from "@/lib/store/types";
 
 interface UseChatInputOptions {
@@ -213,7 +213,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
   const handleAttach = (files: File[]) => {
     const oversized = files.filter((f) => f.size > MAX_FILE_SIZE);
     if (oversized.length > 0) {
-      setFileError(`File too large (max 10 MB): ${oversized.map((f) => f.name).join(", ")}`);
+      setFileError(`File too large (max ${MAX_FILE_SIZE_MB} MB): ${oversized.map((f) => f.name).join(", ")}`);
       const valid = files.filter((f) => f.size <= MAX_FILE_SIZE);
       if (valid.length > 0) setAttachments((prev) => [...prev, ...valid]);
       return;

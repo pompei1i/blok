@@ -129,7 +129,11 @@ function MembersView() {
 
     return (
       <button
-        onClick={() => { if (user && !isMe) openDM(user.id, m.userId); }}
+        onClick={() => {
+          if (!user) return;
+          if (isMe) setProfileMember(m);
+          else openDM(user.id, m.userId);
+        }}
         onContextMenu={isMe ? undefined : (e) => {
           e.preventDefault();
           const menuH = 320;
@@ -137,12 +141,7 @@ function MembersView() {
           setTimeoutExpanded(false);
           setCtxMenu({ member: m, x: Math.min(e.clientX, window.innerWidth - 200), y });
         }}
-        disabled={isMe}
-        className={cn(
-          "flex items-center gap-2 w-full px-2 py-1.5 text-left transition-all",
-          !isMe && "hover:bg-[var(--bg-hover)] group cursor-pointer",
-          isMe && "cursor-default",
-        )}
+        className="flex items-center gap-2 w-full px-2 py-1.5 text-left transition-all hover:bg-[var(--bg-hover)] group cursor-pointer"
       >
         <div className="relative flex-shrink-0">
           <UserAvatar user={m.user} size="sm" />
@@ -174,7 +173,9 @@ function MembersView() {
             <p className="text-[10px] text-[var(--online)]">{t("members.inVoice")}</p>
           )}
         </div>
-        {!isMe && (
+        {isMe ? (
+          <User className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
+        ) : (
           <MessageCircle className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
         )}
       </button>
