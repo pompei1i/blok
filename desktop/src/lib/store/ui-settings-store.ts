@@ -42,7 +42,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       previewVideo: true,
       mirrorCamera: true,
       cameraQuality: "1080p",
-      screenShareFps: 5,
+      screenShareFps: 30,
       screenShareResolution: "720p",
       screenShareQuality: "medium",
       noiseSuppression: true,

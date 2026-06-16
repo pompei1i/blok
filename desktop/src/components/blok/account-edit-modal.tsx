@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle, XCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
-import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode } from "@/lib/store/ui-settings-store";
+import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode, type ScreenShareFps } from "@/lib/store/ui-settings-store";
+import { SCREEN_SHARE_FPS_OPTIONS } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n";
 import { useUpdater } from "@/hooks/useUpdater";
 
@@ -16,6 +17,7 @@ type SettingsDraft = {
  previewVideo: boolean;
  mirrorCamera: boolean;
  cameraQuality: CameraQuality;
+ screenShareFps: ScreenShareFps;
  cameraDevice: string;
  noiseSuppression: boolean;
  echoCancellation: boolean;
@@ -52,6 +54,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  previewVideo,
  mirrorCamera,
  cameraQuality,
+ screenShareFps,
  cameraDevice,
  noiseSuppression,
  echoCancellation,
@@ -73,6 +76,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  previewVideo,
  mirrorCamera,
  cameraQuality,
+ screenShareFps,
  cameraDevice,
  noiseSuppression,
  echoCancellation,
@@ -128,6 +132,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  previewVideo,
  mirrorCamera,
  cameraQuality,
+ screenShareFps,
  cameraDevice,
  noiseSuppression,
  echoCancellation,
@@ -150,6 +155,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  previewVideo,
  mirrorCamera,
  cameraQuality,
+ screenShareFps,
  cameraDevice,
  noiseSuppression,
  echoCancellation,
@@ -623,6 +629,21 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <option>720p</option>
  <option>1080p</option>
  <option>1440p</option>
+ </select>
+ </label>
+
+ <label className="block">
+ <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="mr-1">&gt;</span>{t("settings.video.screenShareFps")}
+ </span>
+ <select
+ value={draftSettings.screenShareFps}
+ onChange={(e) => setDraftSettings((prev) => ({ ...prev, screenShareFps: Number(e.target.value) as ScreenShareFps }))}
+ className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
+ >
+ {SCREEN_SHARE_FPS_OPTIONS.map((fps) => (
+ <option key={fps} value={fps}>{fps} FPS</option>
+ ))}
  </select>
  </label>
 
