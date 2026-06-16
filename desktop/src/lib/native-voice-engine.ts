@@ -288,8 +288,11 @@ export class NativeVoiceEngine {
     });
     this.screenStream = stream;
 
-    // The OS "Stop sharing" control ends the track outside our UI — sync state.
     const [videoTrack] = stream.getVideoTracks();
+    // Tell the encoder to favour sharpness over framerate — screen text/UI stays
+    // crisp instead of getting smeared (the default "motion" hint blurs detail).
+    if (videoTrack) videoTrack.contentHint = "detail";
+    // The OS "Stop sharing" control ends the track outside our UI — sync state.
     videoTrack?.addEventListener("ended", () => { void this.stopScreenShare(); }, { once: true });
 
     await this.broadcast({ type: "screenshare_start", from: this.userId });
@@ -420,6 +423,17 @@ export class NativeVoiceEngine {
     // Send our screen video + system audio tracks to this viewer.
     for (const track of this.screenStream.getTracks()) {
       pc.addTrack(track, this.screenStream);
+    }
+
+    // Raise the video bitrate ceiling so high-res screen content stays sharp —
+    // WebRTC's ~2.5 Mbps default blurs text. Congestion control still scales down
+    // on slow links, so this is a ceiling, not a floor.
+    const videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (videoSender) {
+      const params = videoSender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+      params.encodings[0].maxBitrate = 8_000_000;
+      videoSender.setParameters(params).catch(() => {});
     }
 
     pc.onicecandidate = ({ candidate }) => {
