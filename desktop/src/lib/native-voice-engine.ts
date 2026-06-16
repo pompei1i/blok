@@ -5,7 +5,6 @@ import { supabase } from "./supabaseClient";
 import type { VoiceCallbacks } from "./voice-engine";
 import { useUiSettingsStore } from "./store/ui-settings-store";
 import { useToastStore } from "./store/toast-store";
-import { SCREEN_RES_TO_MAX_WIDTH, SCREEN_QUALITY_TO_JPEG } from "./constants";
 
 type NativeSignalMsg =
   | { type: "join"; from: string }
@@ -132,31 +131,8 @@ export class NativeVoiceEngine {
   private _subscribeReject: ((err: Error) => void) | null = null;
   private subscribePromise: Promise<void>;
 
-  // Screen share — sender side
-  private _screenCaptureTimer: ReturnType<typeof setTimeout> | null = null;
-  private _captureInFlight = false;
-  private _windowMoving = false;
-  private _windowMoveTimer: ReturnType<typeof setTimeout> | null = null;
-  private _unlistenWindowMove: UnlistenFn | null = null;
-  private _screenVideoEl: HTMLVideoElement | null = null;
-  private _screenCanvasEl: HTMLCanvasElement | null = null;
-  // Most recent packed frame ([w][h][jpeg]). Re-sent to each viewer the instant
-  // their DataChannel opens, so late joiners (or anyone watching static content,
-  // where the Rust capture dedups identical frames) get a picture immediately
-  // instead of a black screen until the shared content next changes.
-  private _lastScreenFrame: ArrayBuffer | null = null;
-
-  // Screen share — receiver side: one canvas+stream per remote peer
-  private _remoteCanvases = new Map<string, { canvas: HTMLCanvasElement; stream: MediaStream }>();
-  // Receiver-side frame decode coalescing: keep only the newest undecoded frame
-  // per sharer and decode one at a time, so a backlog can never paint an old
-  // frame over a newer one or pile up createImageBitmap work at high FPS.
-  private _pendingFrames = new Map<string, ArrayBuffer>();
-  private _decodingFrames = new Set<string>();
-
-  // WebRTC: sharer side — one PC+DC per viewer
+  // WebRTC: screen share — sharer side: one PC per viewer
   private _shareePcs = new Map<string, RTCPeerConnection>();
-  private _shareeChannels = new Map<string, RTCDataChannel>();
 
   // WebRTC: viewer side — one PC per sharer
   private _viewerPcs = new Map<string, RTCPeerConnection>();
@@ -243,7 +219,7 @@ export class NativeVoiceEngine {
   }
 
   async leave(): Promise<void> {
-    if (this._screenCaptureTimer !== null || this._screenVideoEl) {
+    if (this.screenStream) {
       await this.stopScreenShare();
     }
 
@@ -264,13 +240,7 @@ export class NativeVoiceEngine {
     for (const id of [...this._videoSenderPcs.keys()]) this._closeVideoSenderPc(id);
     for (const id of [...this._videoReceiverPcs.keys()]) this._closeVideoReceiverPc(id);
     if (this._cameraStream) { this._cameraStream.getTracks().forEach((t) => t.stop()); this._cameraStream = null; }
-
-    for (const { stream } of this._remoteCanvases.values()) {
-      stream.getTracks().forEach((t) => t.stop());
-    }
-    this._remoteCanvases.clear();
-    this._pendingFrames.clear();
-    this._decodingFrames.clear();
+    if (this.screenStream) { this.screenStream.getTracks().forEach((t) => t.stop()); this.screenStream = null; }
 
     if (this.realtimeCh) {
       await supabase.removeChannel(this.realtimeCh);
@@ -302,139 +272,35 @@ export class NativeVoiceEngine {
   }
 
   isScreenSharing(): boolean {
-    return this._screenCaptureTimer !== null || this._screenVideoEl !== null;
+    return this.screenStream !== null;
   }
 
-  async startScreenShare(sourceId?: string): Promise<void> {
-    if (this._screenCaptureTimer !== null) return;
+  async startScreenShare(_sourceId?: string): Promise<void> {
+    if (this.screenStream) return;
 
-    const { screenShareFps, screenShareResolution, screenShareQuality } = useUiSettingsStore.getState();
-    const intervalMs = Math.round(1000 / screenShareFps);
-    const maxWidth = SCREEN_RES_TO_MAX_WIDTH[screenShareResolution];
-    const jpegQuality = SCREEN_QUALITY_TO_JPEG[screenShareQuality];
-    const jpegQualityRust = Math.round(jpegQuality * 100) as number;
-
-    if (sourceId && "__TAURI_INTERNALS__" in window) {
-      // Pause GDI capture while the window is being dragged — BitBlt competes
-      // with DWM during moves and causes visible frame drops in the UI.
-      listen("tauri://move", () => {
-        this._windowMoving = true;
-        if (this._windowMoveTimer) clearTimeout(this._windowMoveTimer);
-        this._windowMoveTimer = setTimeout(() => {
-          this._windowMoving = false;
-          this._windowMoveTimer = null;
-        }, 150);
-      }).then((unlisten) => {
-        // listen() is async: if sharing was already stopped before it resolved,
-        // detach immediately instead of leaking the listener for the app's life.
-        if (this._screenCaptureTimer === null) { unlisten(); return; }
-        this._unlistenWindowMove = unlisten;
-      }).catch(() => {});
-
-      const step = () => {
-        if (this._screenCaptureTimer === null) return;
-        if (this._captureInFlight || this._windowMoving) {
-          this._screenCaptureTimer = setTimeout(step, intervalMs);
-          return;
-        }
-        this._captureInFlight = true;
-        const t0 = performance.now();
-        invoke<{ data: string; w: number; h: number } | null>(
-          "capture_screen_frame", { sourceId, maxWidth, jpegQuality: jpegQualityRust }
-        ).then((frame) => {
-          if (frame && this._screenCaptureTimer !== null) {
-            this._sendFrameViaDC(frame.w, frame.h, frame.data);
-          }
-        }).catch(() => {}).finally(() => {
-          this._captureInFlight = false;
-          if (this._screenCaptureTimer !== null) {
-            const wait = Math.max(0, intervalMs - (performance.now() - t0));
-            this._screenCaptureTimer = setTimeout(step, wait);
-          }
-        });
-      };
-      this._screenCaptureTimer = setTimeout(step, 0);
-      await this.broadcast({ type: "screenshare_start", from: this.userId });
-      this.cb.onScreenShareStart?.(this.userId, new MediaStream());
-      return;
-    }
-
-    // Browser fallback: getDisplayMedia
+    const { screenShareFps } = useUiSettingsStore.getState();
+    // Real video (+ system audio) track over WebRTC. The browser/OS picker lets
+    // the user choose a screen, window or tab; viewers render it as a <video>.
+    // Must be called synchronously from the click gesture (no await before it).
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      audio: false,
-      video: { width: { max: maxWidth > 0 ? maxWidth : 3840 }, frameRate: { max: screenShareFps } },
+      video: { frameRate: { ideal: screenShareFps } },
+      audio: true,
     });
-
     this.screenStream = stream;
 
-    // The browser's own "Stop sharing" control ends the track without going
-    // through our UI — react to it so state stays consistent with reality.
-    const [displayTrack] = stream.getVideoTracks();
-    if (displayTrack) {
-      displayTrack.addEventListener("ended", () => { void this.stopScreenShare(); }, { once: true });
-    }
-
-    const video = document.createElement("video");
-    video.srcObject = stream;
-    video.muted = true;
-    await new Promise<void>((res) => {
-      video.onloadedmetadata = () => { void video.play().then(res); };
-    });
-
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d")!;
-    this._screenVideoEl = video;
-    this._screenCanvasEl = canvas;
-
-    const stepBrowser = () => {
-      if (this._screenCaptureTimer === null) return;
-      if (!this._screenVideoEl || !this._screenCanvasEl) return;
-      const t0 = performance.now();
-      const w = this._screenVideoEl.videoWidth;
-      const h = this._screenVideoEl.videoHeight;
-      if (!w || !h) {
-        const wait = Math.max(0, intervalMs - (performance.now() - t0));
-        this._screenCaptureTimer = setTimeout(stepBrowser, wait);
-        return;
-      }
-      const scale = maxWidth > 0 && w > maxWidth ? maxWidth / w : 1;
-      const tw = Math.round(w * scale);
-      const th = Math.round(h * scale);
-      if (canvas.width !== tw) canvas.width = tw;
-      if (canvas.height !== th) canvas.height = th;
-      ctx.drawImage(this._screenVideoEl, 0, 0, tw, th);
-      const data = canvas.toDataURL("image/jpeg", jpegQuality).split(",")[1];
-      this._sendFrameViaDC(tw, th, data);
-      const wait = Math.max(0, intervalMs - (performance.now() - t0));
-      this._screenCaptureTimer = setTimeout(stepBrowser, wait);
-    };
-    this._screenCaptureTimer = setTimeout(stepBrowser, 0);
+    // The OS "Stop sharing" control ends the track outside our UI — sync state.
+    const [videoTrack] = stream.getVideoTracks();
+    videoTrack?.addEventListener("ended", () => { void this.stopScreenShare(); }, { once: true });
 
     await this.broadcast({ type: "screenshare_start", from: this.userId });
-    this.cb.onScreenShareStart?.(this.userId, stream);
   }
 
   async stopScreenShare(): Promise<void> {
-    if (this._screenCaptureTimer) {
-      clearTimeout(this._screenCaptureTimer);
-      this._screenCaptureTimer = null;
-    }
-    this._captureInFlight = false;
-    this._unlistenWindowMove?.();
-    this._unlistenWindowMove = null;
-    if (this._windowMoveTimer) { clearTimeout(this._windowMoveTimer); this._windowMoveTimer = null; }
-    this._windowMoving = false;
-    if (this._screenVideoEl) {
-      this._screenVideoEl.srcObject = null;
-      this._screenVideoEl = null;
-    }
-    this._screenCanvasEl = null;
     if (this.screenStream) {
       this.screenStream.getTracks().forEach((t) => t.stop());
       this.screenStream = null;
     }
-    this._lastScreenFrame = null;
-    // Close all viewer peer connections (we were the sharer)
+    // Close all viewer peer connections (we were the sharer).
     for (const id of [...this._shareePcs.keys()]) this._closeShareePc(id);
     await this.broadcast({ type: "screenshare_stop", from: this.userId });
     this.cb.onScreenShareStop?.(this.userId);
@@ -511,92 +377,20 @@ export class NativeVoiceEngine {
 
   // ── WebRTC helpers ───────────────────────────────────────────────────────────
 
-  /** Pack JPEG frame as [w:u32][h:u32][jpeg bytes] and send to all open viewer DCs. */
-  private _sendFrameViaDC(w: number, h: number, jpegBase64: string): void {
-    const jpeg = Uint8Array.from(atob(jpegBase64), (c) => c.charCodeAt(0));
-    const payload = new Uint8Array(8 + jpeg.length);
-    const dv = new DataView(payload.buffer);
-    dv.setUint32(0, w, false);
-    dv.setUint32(4, h, false);
-    payload.set(jpeg, 8);
-    // Cache the latest frame even when nobody is connected yet, so a viewer whose
-    // DataChannel opens after this point still receives the current screen.
-    this._lastScreenFrame = payload.buffer;
-    for (const ch of this._shareeChannels.values()) {
-      // Skip frame if the DC send buffer is backed up (previous frame not yet drained).
-      // 1 MB threshold (raised from 256 KB in v0.9.12): high-quality frames can
-      // exceed 256 KB, which made every frame get dropped → black screen.
-      if (ch.readyState !== "open" || ch.bufferedAmount > 1_000_000) continue;
-      try { ch.send(payload.buffer); } catch { /* ignore */ }
-    }
-  }
-
-  /** Decode an incoming binary frame and paint it onto the sharer's canvas. */
-  private _onScreenFrame(sharerId: string, data: ArrayBuffer): void {
-    const entry = this._remoteCanvases.get(sharerId);
-    if (!entry || data.byteLength < 8) return;
-    if (data.byteLength - 8 > 4_000_000) return;
-    const dv = new DataView(data);
-    const fw = Math.min(dv.getUint32(0, false), 3840);
-    const fh = Math.min(dv.getUint32(4, false), 2160);
-    const { canvas } = entry;
-    // Resize synchronously from the header (cheap, needs no decode). Done here so
-    // dimensions are correct even if the async decode below is coalesced away.
-    if (canvas.width !== fw) canvas.width = fw;
-    if (canvas.height !== fh) canvas.height = fh;
-    // Keep only the newest frame per sharer; the drain loop paints it once the
-    // current decode (if any) finishes — newer frames supersede older ones.
-    this._pendingFrames.set(sharerId, data);
-    if (!this._decodingFrames.has(sharerId)) {
-      void this._drainFrames(sharerId).catch(() => {});
-    }
-  }
-
-  /** Decode and paint queued frames for one sharer, one at a time, newest-wins. */
-  private async _drainFrames(sharerId: string): Promise<void> {
-    if (typeof createImageBitmap !== "function") {
-      // No async image decoder (e.g. test env) — drop the queue; the synchronous
-      // canvas resize in _onScreenFrame already ran.
-      this._pendingFrames.delete(sharerId);
-      return;
-    }
-    this._decodingFrames.add(sharerId);
-    try {
-      let data: ArrayBuffer | undefined;
-      while ((data = this._pendingFrames.get(sharerId)) !== undefined) {
-        this._pendingFrames.delete(sharerId);
-        const entry = this._remoteCanvases.get(sharerId);
-        if (!entry) break;
-        let bitmap: ImageBitmap;
-        try {
-          bitmap = await createImageBitmap(new Blob([new Uint8Array(data, 8)], { type: "image/jpeg" }));
-        } catch {
-          continue; // corrupt/partial frame — skip, next one will repaint
-        }
-        // The viewer may have stopped watching while we were decoding.
-        const cur = this._remoteCanvases.get(sharerId);
-        if (!cur) { bitmap.close(); break; }
-        const ctx = cur.canvas.getContext("2d");
-        ctx?.drawImage(bitmap, 0, 0, cur.canvas.width, cur.canvas.height);
-        bitmap.close();
-        const track = cur.stream.getVideoTracks()[0] as
-          (CanvasCaptureMediaStreamTrack & { requestFrame?(): void }) | undefined;
-        track?.requestFrame?.();
-      }
-    } finally {
-      this._decodingFrames.delete(sharerId);
-    }
-  }
-
   /** Viewer: initiate WebRTC connection to a sharer. */
   private async _setupViewerPc(sharerId: string): Promise<void> {
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._viewerPcs.set(sharerId, pc);
     attachPcDiagnostics(pc, `screen-viewer→${sharerId.slice(0, 8)}`);
 
-    const dc = pc.createDataChannel("screen", { ordered: false, maxRetransmits: 0 });
-    dc.binaryType = "arraybuffer";
-    dc.onmessage = (e) => this._onScreenFrame(sharerId, e.data as ArrayBuffer);
+    // Request the sharer's screen video + system audio.
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addTransceiver("audio", { direction: "recvonly" });
+
+    pc.ontrack = ({ streams }) => {
+      // Fires once media arrives → the overlay shows the live picture (not black).
+      if (streams[0]) this.cb.onScreenShareStart?.(sharerId, streams[0]);
+    };
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
@@ -616,26 +410,17 @@ export class NativeVoiceEngine {
 
   /** Sharer: handle an offer from a viewer, send back an answer. */
   private async _handleShareeOffer(viewerId: string, sdp: string): Promise<void> {
+    if (!this.screenStream) return;
     this._closeShareePc(viewerId);
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
     this._shareePcs.set(viewerId, pc);
     attachPcDiagnostics(pc, `screen-sharer→${viewerId.slice(0, 8)}`);
 
-    pc.ondatachannel = ({ channel }) => {
-      channel.binaryType = "arraybuffer";
-      this._shareeChannels.set(viewerId, channel);
-      channel.onclose = () => this._shareeChannels.delete(viewerId);
-      // Push the current frame as soon as the channel is usable so the viewer
-      // doesn't wait for the next content change (which may never come).
-      const sendInitial = () => {
-        if (channel.readyState === "open" && this._lastScreenFrame) {
-          try { channel.send(this._lastScreenFrame); } catch { /* ignore */ }
-        }
-      };
-      if (channel.readyState === "open") sendInitial();
-      else channel.onopen = sendInitial;
-    };
+    // Send our screen video + system audio tracks to this viewer.
+    for (const track of this.screenStream.getTracks()) {
+      pc.addTrack(track, this.screenStream);
+    }
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
@@ -657,8 +442,6 @@ export class NativeVoiceEngine {
   }
 
   private _closeShareePc(viewerId: string): void {
-    this._shareeChannels.get(viewerId)?.close();
-    this._shareeChannels.delete(viewerId);
     this._shareePcs.get(viewerId)?.close();
     this._shareePcs.delete(viewerId);
     this._pendingShareeIce.delete(viewerId);
@@ -771,7 +554,6 @@ export class NativeVoiceEngine {
         invoke("audio_remove_peer", { peerId: msg.from }).catch(() => {});
         this._closeShareePc(msg.from);
         this._closeViewerPc(msg.from);
-        this._clearRemoteCanvas(msg.from);
         this._closeVideoSenderPc(msg.from);
         this._closeVideoReceiverPc(msg.from);
         break;
@@ -789,36 +571,27 @@ export class NativeVoiceEngine {
         break;
       case "screenshare_start": {
         // A sharer re-broadcasts screenshare_start whenever anyone new joins the
-        // channel. If we're already viewing this sharer over a healthy peer
-        // connection, ignore it — tearing down and rebuilding would black-screen
-        // the viewer every time a third party joins. A genuine re-share is always
-        // preceded by screenshare_stop, which clears the connection first.
+        // channel. If we already have a healthy viewer connection, ignore it —
+        // rebuilding would interrupt the live stream. A genuine re-share is
+        // always preceded by screenshare_stop, which clears the connection.
         const existingPc = this._viewerPcs.get(msg.from);
         if (
           existingPc &&
-          this._remoteCanvases.has(msg.from) &&
           existingPc.connectionState !== "failed" &&
           existingPc.connectionState !== "disconnected" &&
           existingPc.connectionState !== "closed"
         ) {
           break;
         }
-        this._clearRemoteCanvas(msg.from);
         this._closeViewerPc(msg.from);
         this._pendingViewerIce.delete(msg.from);
-        const canvas = document.createElement("canvas");
-        canvas.width = 1920;
-        canvas.height = 1080;
-        const stream = (canvas as HTMLCanvasElement & { captureStream(fps?: number): MediaStream }).captureStream(0);
-        this._remoteCanvases.set(msg.from, { canvas, stream });
-        this.cb.onScreenShareStart?.(msg.from, stream);
+        // onScreenShareStart fires from ontrack once media arrives (_setupViewerPc).
         await this._setupViewerPc(msg.from);
         break;
       }
       case "screenshare_stop":
         this._pendingViewerIce.delete(msg.from);
         this._closeViewerPc(msg.from);
-        this._clearRemoteCanvas(msg.from);
         this.cb.onScreenShareStop?.(msg.from);
         break;
       case "screenshare_offer":
@@ -886,16 +659,6 @@ export class NativeVoiceEngine {
         break;
       }
     }
-  }
-
-  private _clearRemoteCanvas(peerId: string): void {
-    const entry = this._remoteCanvases.get(peerId);
-    if (entry) {
-      entry.stream.getTracks().forEach((t) => t.stop());
-      this._remoteCanvases.delete(peerId);
-    }
-    this._pendingFrames.delete(peerId);
-    this._decodingFrames.delete(peerId);
   }
 
   private updateSpeaking(peerId: string, speaking: boolean): void {

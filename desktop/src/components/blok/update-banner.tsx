@@ -3,38 +3,29 @@ import { useI18n } from "@/lib/i18n";
 
 export function UpdateBanner() {
   const { t } = useI18n();
-  const { available, version, body, installing, error, installUpdate, dismiss } = useUpdater();
+  const { installing, error, version, installUpdate } = useUpdater();
 
-  if (!available && !error) return null;
+  // Updates install automatically; the banner only reports progress or an error.
+  if (!installing && !error) return null;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[100] bg-[var(--accent-red)] text-white px-4 py-2 flex items-center justify-between font-mono text-sm">
       {error ? (
-        <span className="text-red-200">{t("update.error")} {error}</span>
+        <>
+          <span className="text-red-200">{t("update.error")} {error}</span>
+          <button
+            onClick={installUpdate}
+            className="bg-white text-[var(--accent-red)] px-3 py-0.5 rounded text-xs font-bold hover:bg-gray-100"
+          >
+            {t("update.install")}
+          </button>
+        </>
       ) : (
         <span>
           <span className="opacity-60 mr-2">$</span>
-          {t("update.available")} — v{version}
-          {body && <span className="ml-2 opacity-70 text-xs">{body}</span>}
+          {t("update.installing")}{version ? ` — v${version}` : ""}
         </span>
       )}
-      <div className="flex items-center gap-3">
-        {!error && (
-          <button
-            onClick={installUpdate}
-            disabled={installing}
-            className="bg-white text-[var(--accent-red)] px-3 py-0.5 rounded text-xs font-bold hover:bg-gray-100 disabled:opacity-50 disabled:cursor-wait"
-          >
-            {installing ? t("update.installing") : t("update.install")}
-          </button>
-        )}
-        <button
-          onClick={dismiss}
-          className="opacity-60 hover:opacity-100 text-lg leading-none"
-        >
-          ×
-        </button>
-      </div>
     </div>
   );
 }

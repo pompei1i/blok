@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { UPDATER_CHECK_DELAY_MS } from "@/lib/constants";
+import { useToastStore } from "@/lib/store/toast-store";
 
 // 3 s → 30 s → 5 min — stops after the last delay whether it succeeds or fails
 const RETRY_DELAYS_MS = [UPDATER_CHECK_DELAY_MS, 30_000, 5 * 60_000];
@@ -36,12 +37,23 @@ export function useUpdater() {
           const update: Update | null = await check();
           if (cancelled) return;
           if (update?.available) {
-            setState((s) => ({
-              ...s,
-              available: true,
-              version: update.version,
-              body: update.body ?? null,
-            }));
+            // Fully automatic: download + install + relaunch, no user action.
+            // A toast explains the imminent restart so it isn't a mystery.
+            setState((s) => ({ ...s, available: true, version: update.version, body: update.body ?? null, installing: true }));
+            useToastStore.getState().showToast({
+              emoji: "⬇️",
+              title: "Updating…",
+              message: `Installing v${update.version} — the app will restart.`,
+            });
+            try {
+              await update.downloadAndInstall();
+              if (cancelled) return;
+              await relaunch();
+            } catch (err: unknown) {
+              if (cancelled) return;
+              console.error("Auto-update install failed:", err);
+              setState((s) => ({ ...s, installing: false, error: err instanceof Error ? err.message : "Update failed" }));
+            }
             return;
           }
           if (attempt + 1 < RETRY_DELAYS_MS.length) tryCheck(attempt + 1);

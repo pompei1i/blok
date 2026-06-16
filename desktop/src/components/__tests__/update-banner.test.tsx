@@ -9,7 +9,6 @@ const { mockUseUpdater } = vi.hoisted(() => ({
 vi.mock("@/hooks/useUpdater", () => ({ useUpdater: mockUseUpdater }));
 
 const mockInstallUpdate = vi.fn();
-const mockDismiss = vi.fn();
 
 const base = {
   available: false,
@@ -18,58 +17,42 @@ const base = {
   installing: false,
   error: null,
   installUpdate: mockInstallUpdate,
-  dismiss: mockDismiss,
+  dismiss: vi.fn(),
 };
 
 beforeEach(() => {
   mockInstallUpdate.mockReset();
-  mockDismiss.mockReset();
   mockUseUpdater.mockReturnValue({ ...base });
 });
 
 // ── hidden ────────────────────────────────────────────────────────────────────
 
 describe("hidden", () => {
-  it("renders nothing when not available and no error", () => {
+  it("renders nothing when idle (not installing, no error)", () => {
+    const { container } = render(<UpdateBanner />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing when an update is merely available — auto-install handles it", () => {
+    mockUseUpdater.mockReturnValue({ ...base, available: true, version: "1.2.3" });
     const { container } = render(<UpdateBanner />);
     expect(container.firstChild).toBeNull();
   });
 });
 
-// ── update available ──────────────────────────────────────────────────────────
+// ── installing ────────────────────────────────────────────────────────────────
 
-describe("update available", () => {
-  it("shows version text", () => {
-    mockUseUpdater.mockReturnValue({ ...base, available: true, version: "1.2.3" });
-    render(<UpdateBanner />);
-    expect(screen.getByText(/update available — v1\.2\.3/)).toBeTruthy();
+describe("installing", () => {
+  it("shows installing status with version", () => {
+    mockUseUpdater.mockReturnValue({ ...base, installing: true, version: "1.2.3" });
+    const { container } = render(<UpdateBanner />);
+    expect(container.textContent).toContain("1.2.3");
   });
 
-  it("shows body notes when provided", () => {
-    mockUseUpdater.mockReturnValue({ ...base, available: true, version: "1.0.0", body: "bug fixes" });
+  it("shows no retry button while installing", () => {
+    mockUseUpdater.mockReturnValue({ ...base, installing: true, version: "1.2.3" });
     render(<UpdateBanner />);
-    expect(screen.getByText("bug fixes")).toBeTruthy();
-  });
-
-  it("install button calls installUpdate", () => {
-    mockUseUpdater.mockReturnValue({ ...base, available: true, version: "1.0.0" });
-    render(<UpdateBanner />);
-    fireEvent.click(screen.getByText("install & relaunch"));
-    expect(mockInstallUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it("install button disabled and shows 'installing...' while installing", () => {
-    mockUseUpdater.mockReturnValue({ ...base, available: true, version: "1.0.0", installing: true });
-    render(<UpdateBanner />);
-    const btn = screen.getByText("installing...") as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-  });
-
-  it("dismiss button calls dismiss", () => {
-    mockUseUpdater.mockReturnValue({ ...base, available: true, version: "1.0.0" });
-    render(<UpdateBanner />);
-    fireEvent.click(screen.getByText("×"));
-    expect(mockDismiss).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("install & relaunch")).toBeNull();
   });
 });
 
@@ -82,15 +65,10 @@ describe("error state", () => {
     expect(screen.getByText(/network timeout/)).toBeTruthy();
   });
 
-  it("hides install button when error is set", () => {
+  it("retry button calls installUpdate", () => {
     mockUseUpdater.mockReturnValue({ ...base, error: "failed" });
     render(<UpdateBanner />);
-    expect(screen.queryByText("install & relaunch")).toBeNull();
-  });
-
-  it("still shows dismiss button on error", () => {
-    mockUseUpdater.mockReturnValue({ ...base, error: "failed" });
-    render(<UpdateBanner />);
-    expect(screen.getByText("×")).toBeTruthy();
+    fireEvent.click(screen.getByText("install & relaunch"));
+    expect(mockInstallUpdate).toHaveBeenCalledTimes(1);
   });
 });

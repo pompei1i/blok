@@ -46,24 +46,30 @@ describe("no Tauri environment", () => {
   });
 });
 
-// ── update available ──────────────────────────────────────────────────────────
+// ── update available (auto-install) ─────────────────────────────────────────────
 
-describe("update available", () => {
-  it("sets available, version and body from check result", async () => {
+describe("update available (auto-install)", () => {
+  it("auto-downloads, installs and relaunches when an update is found", async () => {
     setTauri();
-    mockCheck.mockResolvedValue({ available: true, version: "0.4.0", body: "patch notes" });
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    mockRelaunch.mockResolvedValue(undefined);
+    mockCheck.mockResolvedValue({ available: true, version: "0.4.0", body: "patch notes", downloadAndInstall });
 
     const { result } = renderHook(() => useUpdater());
     await act(() => vi.advanceTimersByTimeAsync(0));
 
     expect(result.current.available).toBe(true);
     expect(result.current.version).toBe("0.4.0");
-    expect(result.current.body).toBe("patch notes");
+    expect(downloadAndInstall).toHaveBeenCalled();
+    expect(mockRelaunch).toHaveBeenCalled();
+    expect(result.current.installing).toBe(true);
   });
 
   it("maps undefined body to null", async () => {
     setTauri();
-    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: undefined });
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    mockRelaunch.mockResolvedValue(undefined);
+    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: undefined, downloadAndInstall });
 
     const { result } = renderHook(() => useUpdater());
     await act(() => vi.advanceTimersByTimeAsync(0));
@@ -73,13 +79,27 @@ describe("update available", () => {
 
   it("does not retry after finding an update", async () => {
     setTauri();
-    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: null });
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    mockRelaunch.mockResolvedValue(undefined);
+    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: null, downloadAndInstall });
 
     renderHook(() => useUpdater());
     await act(() => vi.advanceTimersByTimeAsync(0));
     await act(() => vi.advanceTimersByTimeAsync(30_000));
 
     expect(mockCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces an error and clears installing when install fails", async () => {
+    setTauri();
+    const downloadAndInstall = vi.fn().mockRejectedValue(new Error("disk full"));
+    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: null, downloadAndInstall });
+
+    const { result } = renderHook(() => useUpdater());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(result.current.error).toBe("disk full");
+    expect(result.current.installing).toBe(false);
   });
 });
 
@@ -127,7 +147,9 @@ describe("retries", () => {
 describe("dismiss", () => {
   it("sets available to false", async () => {
     setTauri();
-    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: null });
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    mockRelaunch.mockResolvedValue(undefined);
+    mockCheck.mockResolvedValue({ available: true, version: "1.0.0", body: null, downloadAndInstall });
 
     const { result } = renderHook(() => useUpdater());
     await act(() => vi.advanceTimersByTimeAsync(0));

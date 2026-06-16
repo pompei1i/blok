@@ -100,12 +100,19 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     const results: Attachment[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const path = `${channelId}/${messageId}-${i}-${file.name}`;
+      // Storage object keys reject spaces and most non-ASCII chars (a screenshot
+      // named "Снимок экрана … .png" would 400 with "Invalid key"). Sanitize the
+      // key but keep the original name for display.
+      const safeName = file.name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]/g, "_") || "file";
+      const path = `${channelId}/${messageId}-${i}-${safeName}`;
       setFileProgress(Math.round((i / files.length) * 100));
 
-      const { error } = await supabase.storage.from("attachments").upload(path, file, { upsert: false });
+      const { error } = await supabase.storage
+        .from("attachments")
+        .upload(path, file, { upsert: false, contentType: file.type || undefined });
       if (error) {
         console.error("Upload failed", file.name, error);
+        setFileError(`Upload failed: ${error.message}`);
         continue;
       }
       const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
@@ -138,6 +145,13 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
       const uploadedAttachments = hasFiles
         ? await uploadFilesToStorage(attachments, messageId, activeChannelId)
         : [];
+
+      // Every upload failed and there's nothing else to send → don't post an
+      // empty message; keep the attachments so the user can retry (fileError is set).
+      if (hasFiles && uploadedAttachments.length === 0 &&
+          inputValue.trim().length === 0 && gifAttachments.length === 0) {
+        return;
+      }
 
       if (hasFiles) setFileProgress(100);
 

@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Mic, MicOff, Headphones, HeadphoneOff, VolumeX, Monitor, Video, VideoOff, PhoneOff } from "lucide-react";
-import { ScreenSharePicker } from "./screen-share-picker";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
@@ -61,7 +60,6 @@ export function VoiceView() {
   } = useServerStore();
   const { user } = useAuthStore();
   const mirrorCamera = useUiSettingsStore((s) => s.mirrorCamera);
-  const [showScreenPicker, setShowScreenPicker] = useState(false);
 
   if (!activeVoiceChannelId) return null;
 
@@ -206,29 +204,18 @@ export function VoiceView() {
           {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
         </button>
 
-        <div className="relative">
-          <button
-            onClick={() => isScreenSharing ? void toggleScreenShare() : setShowScreenPicker((v) => !v)}
-            title={isScreenSharing ? "Stop sharing" : "Share screen"}
-            className={cn(
-              "p-2.5 rounded transition-colors",
-              isScreenSharing
-                ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
-                : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-            )}
-          >
-            <Monitor className="w-4 h-4" />
-          </button>
-          {showScreenPicker && (
-            <ScreenSharePicker
-              onSelect={(sourceId) => {
-                setShowScreenPicker(false);
-                void toggleScreenShare(sourceId);
-              }}
-              onClose={() => setShowScreenPicker(false)}
-            />
+        <button
+          onClick={() => void toggleScreenShare()}
+          title={isScreenSharing ? "Stop sharing" : "Share screen"}
+          className={cn(
+            "p-2.5 rounded transition-colors",
+            isScreenSharing
+              ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
+              : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
           )}
-        </div>
+        >
+          <Monitor className="w-4 h-4" />
+        </button>
 
         <div className="w-px h-6 bg-[var(--border)] mx-1" />
 
