@@ -1,0 +1,14 @@
+# Self-hosted TURN for blok. Host networking is required so coturn's relay port
+# range (min-port..max-port) is reachable without publishing hundreds of ports.
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: blok-coturn
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      # For turns: TLS, drop your Let's Encrypt certs here and uncomment the
+      # cert/pkey lines in turnserver.conf:
+      # - /etc/letsencrypt/live/turn.yourdomain.com:/etc/coturn/certs:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
