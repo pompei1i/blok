@@ -13,12 +13,11 @@ on conflict (id) do update
       file_size_limit = 20 * 1024 * 1024;
 
 -- ── Policies on storage.objects (scoped to this bucket) ───────────────────────
--- Public read: the bucket is public (served via the CDN URL getPublicUrl()
--- returns); an explicit SELECT policy also covers listing.
+-- No SELECT policy on purpose (security review F4): the bucket is public, so
+-- files are served via the CDN URL getPublicUrl() returns without RLS. A broad
+-- SELECT policy would additionally let any client *list/enumerate* every uploaded
+-- file, so we drop it instead.
 drop policy if exists "attachments public read" on storage.objects;
-create policy "attachments public read"
-  on storage.objects for select
-  using (bucket_id = 'attachments');
 
 -- Any authenticated user may upload.
 drop policy if exists "attachments authenticated upload" on storage.objects;
@@ -26,8 +25,9 @@ create policy "attachments authenticated upload"
   on storage.objects for insert to authenticated
   with check (bucket_id = 'attachments');
 
--- Authenticated users may remove objects (e.g. cleanup on message delete).
+-- Only the uploader may delete their own attachment (security review F3 — was
+-- any authenticated user, which let anyone delete anyone else's files).
 drop policy if exists "attachments authenticated delete" on storage.objects;
 create policy "attachments authenticated delete"
   on storage.objects for delete to authenticated
-  using (bucket_id = 'attachments');
+  using (bucket_id = 'attachments' and owner = auth.uid());

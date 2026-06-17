@@ -33,8 +33,29 @@ ALTER TABLE polls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poll_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poll_votes ENABLE ROW LEVEL SECURITY;
 
+-- Security review F2: polls/options/votes were world-readable (USING true), so
+-- anyone could enumerate every poll and every vote across all servers. Scope
+-- reads to members of the server the poll's message lives in. SECURITY DEFINER so
+-- the membership lookup bypasses base-table RLS (same pattern as is_server_owner).
+create or replace function public.can_view_poll(p_poll_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from polls p
+    join messages m       on m.id = p.message_id
+    join channels c       on c.id = m.channel_id
+    join server_members sm on sm.server_id = c.server_id
+    where p.id = p_poll_id and sm.user_id = auth.uid()
+  );
+$$;
+
 drop policy if exists "polls_select" on polls;
-CREATE POLICY "polls_select" ON polls FOR SELECT USING (true);
+CREATE POLICY "polls_select" ON polls FOR SELECT USING (public.can_view_poll(id));
 drop policy if exists "polls_insert" on polls;
 CREATE POLICY "polls_insert" ON polls FOR INSERT WITH CHECK (
   EXISTS (
@@ -44,7 +65,7 @@ CREATE POLICY "polls_insert" ON polls FOR INSERT WITH CHECK (
 );
 
 drop policy if exists "poll_options_select" on poll_options;
-CREATE POLICY "poll_options_select" ON poll_options FOR SELECT USING (true);
+CREATE POLICY "poll_options_select" ON poll_options FOR SELECT USING (public.can_view_poll(poll_id));
 drop policy if exists "poll_options_insert" on poll_options;
 CREATE POLICY "poll_options_insert" ON poll_options FOR INSERT WITH CHECK (
   EXISTS (
@@ -55,7 +76,7 @@ CREATE POLICY "poll_options_insert" ON poll_options FOR INSERT WITH CHECK (
 );
 
 drop policy if exists "poll_votes_select" on poll_votes;
-CREATE POLICY "poll_votes_select" ON poll_votes FOR SELECT USING (true);
+CREATE POLICY "poll_votes_select" ON poll_votes FOR SELECT USING (public.can_view_poll(poll_id));
 drop policy if exists "poll_votes_insert" on poll_votes;
 CREATE POLICY "poll_votes_insert" ON poll_votes FOR INSERT WITH CHECK (user_id = auth.uid());
 drop policy if exists "poll_votes_delete" on poll_votes;
