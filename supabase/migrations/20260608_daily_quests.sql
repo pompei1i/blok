@@ -10,6 +10,7 @@ create table if not exists daily_quest_progress (
 
 alter table daily_quest_progress enable row level security;
 
+drop policy if exists "select own quest progress" on daily_quest_progress;
 create policy "select own quest progress"
   on daily_quest_progress for select
   using (auth.uid() = user_id);
@@ -25,6 +26,7 @@ create table if not exists daily_quest_claims (
 
 alter table daily_quest_claims enable row level security;
 
+drop policy if exists "select own quest claims" on daily_quest_claims;
 create policy "select own quest claims"
   on daily_quest_claims for select
   using (auth.uid() = user_id);

@@ -14,6 +14,7 @@ alter table server_members add column if not exists role_id uuid references role
 
 alter table roles enable row level security;
 
+drop policy if exists "members can read roles" on roles;
 create policy "members can read roles" on roles
   for select using (
     server_id in (
@@ -21,6 +22,7 @@ create policy "members can read roles" on roles
     )
   );
 
+drop policy if exists "owner can manage roles" on roles;
 create policy "owner can manage roles" on roles
   for all using (
     server_id in (select id from servers where owner_id = auth.uid())
