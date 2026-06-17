@@ -648,11 +648,9 @@ export function MessageBubble({
           {message.content && (
             <button
               onClick={() => {
-                const { openTab, sendMessage, apiKey } = useBaitStore.getState();
-                const resolvedKey = apiKey || (import.meta.env.VITE_BAIT_DEFAULT_KEY as string) || "";
-                if (!resolvedKey) return;
+                const { openTab, sendMessage } = useBaitStore.getState();
                 openTab();
-                sendMessage(`Translate this message: "${message.content}"`);
+                void sendMessage(`Translate this message: "${message.content}"`);
                 closeMenu();
               }}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors text-left"

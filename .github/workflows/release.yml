@@ -39,23 +39,6 @@ jobs:
         working-directory: desktop
         run: node scripts/gen-nsis-assets.mjs
 
-      - name: Inject build secrets into .env
-        shell: bash
-        working-directory: desktop
-        run: |
-          printf '\nVITE_BAIT_DEFAULT_KEY=%s' "${{ secrets.VITE_BAIT_DEFAULT_KEY }}" >> .env
-
-      - name: Verify VITE_BAIT_DEFAULT_KEY is set
-        shell: bash
-        working-directory: desktop
-        run: |
-          value=$(grep '^VITE_BAIT_DEFAULT_KEY=' .env | cut -d= -f2-)
-          if [ -z "$value" ]; then
-            echo "ERROR: VITE_BAIT_DEFAULT_KEY is empty — check GitHub secret"
-            exit 1
-          fi
-          echo "VITE_BAIT_DEFAULT_KEY is set (${#value} chars)"
-
       - name: Delete existing private release (if any)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,7 +53,6 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TENOR_API_KEY: ${{ secrets.VITE_TENOR_API_KEY }}
-          VITE_BAIT_DEFAULT_KEY: ${{ secrets.VITE_BAIT_DEFAULT_KEY }}
           # TURN relay for screen share / camera (fixes black screen across NATs).
           # Empty secrets fall back to the unreliable Open Relay demo at runtime.
           VITE_TURN_URLS: ${{ secrets.VITE_TURN_URLS }}

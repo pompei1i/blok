@@ -124,7 +124,7 @@ function App() {
             <span className="cursor-blink mr-2">$</span> booting blok...
           </div>
           <p className="mt-3 text-xs text-[var(--text-muted)] opacity-70 tracking-wide">
-            youre not blocked. youre <span className="text-[var(--accent-red)]">Bloked</span>
+            you`re not blocked. you`re <span className="text-[var(--accent-red)]">Bloked</span>
           </p>
         </div>
       </div>

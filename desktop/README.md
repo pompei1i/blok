@@ -22,7 +22,11 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 VITE_TENOR_API_KEY=...        # optional — GIF search
-VITE_BAIT_DEFAULT_KEY=...     # Anthropic API key for b.ai.t
+# b.ai.t no longer uses a client-side key. The Anthropic key lives in the
+# Supabase Edge Function "bait" (supabase/functions/bait): set it server-side with
+#   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+#   supabase functions deploy bait
+# and apply the 20260616_bait_rate_limit migration.
 
 # TURN relay for screen share / camera (required across different NATs — without
 # a working relay the viewer sees a black screen; audio is unaffected). Get free

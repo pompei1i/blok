@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { BAIT_TOOLS, executeTool } from "../bait-tools";
 import { useServerStore } from "./server-store";
 import { useAuthStore } from "./auth-store";
+import { supabase } from "../supabaseClient";
 
 export interface BaitMessage {
   id: string;
@@ -15,7 +16,6 @@ export interface BaitMessage {
 interface BaitStore {
   isTabOpen: boolean;
   isActive: boolean;
-  apiKey: string;
   messagesByServer: Record<string, BaitMessage[]>;
   isLoading: boolean;
 
@@ -23,7 +23,6 @@ interface BaitStore {
   closeTab: () => void;
   activate: () => void;
   deactivate: () => void;
-  setApiKey: (key: string) => void;
   clearHistory: () => void;
   sendMessage: (text: string) => Promise<void>;
 }
@@ -37,19 +36,39 @@ function serverKey(): string {
   return useServerStore.getState().activeServerId ?? "_global";
 }
 
-async function callWithRetry(
-  client: Anthropic,
+// Route the Anthropic call through the Supabase Edge Function ("bait") so the API
+// key stays server-side. Auth is the user's Supabase JWT; the function rate-limits
+// per user and forces a cheap model + token cap. Retries once on 529 (overloaded).
+async function callBaitProxy(
   params: Anthropic.MessageCreateParamsNonStreaming,
 ): Promise<Anthropic.Message> {
-  try {
-    return await client.messages.create(params);
-  } catch (err) {
-    if (err instanceof Anthropic.APIError && err.status === 529) {
-      await new Promise((r) => setTimeout(r, 2000));
-      return await client.messages.create(params);
-    }
-    throw err;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Not signed in");
+
+  const url = `${import.meta.env.VITE_SUPABASE_URL as string}/functions/v1/bait`;
+  const doFetch = () => fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  let res = await doFetch();
+  if (res.status === 529) {
+    await new Promise((r) => setTimeout(r, 2000));
+    res = await doFetch();
   }
+  if (res.status === 429) {
+    throw new Error("Rate limit — max 10 requests per minute. Please wait.");
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`b.ai.t request failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
+  return await res.json() as Anthropic.Message;
 }
 
 export const useBaitStore = create<BaitStore>()(
@@ -57,7 +76,6 @@ export const useBaitStore = create<BaitStore>()(
     (set, get) => ({
       isTabOpen: false,
       isActive: false,
-      apiKey: "",
       messagesByServer: {},
       isLoading: false,
 
@@ -65,7 +83,6 @@ export const useBaitStore = create<BaitStore>()(
       closeTab: () => set({ isTabOpen: false, isActive: false }),
       activate: () => set({ isActive: true }),
       deactivate: () => set({ isActive: false }),
-      setApiKey: (key) => set({ apiKey: key }),
 
       clearHistory: () => {
         const key = serverKey();
@@ -73,7 +90,6 @@ export const useBaitStore = create<BaitStore>()(
       },
 
       sendMessage: async (text) => {
-        const resolvedKey = get().apiKey || (import.meta.env.VITE_BAIT_DEFAULT_KEY as string) || "";
         if (!text.trim()) return;
 
         const key = serverKey();
@@ -87,15 +103,7 @@ export const useBaitStore = create<BaitStore>()(
             },
           }));
 
-        if (!resolvedKey) {
-          addMsgs(
-            { id: crypto.randomUUID(), role: "user", content: text.trim() },
-            { id: crypto.randomUUID(), role: "assistant", content: "Error: API key not configured. Set VITE_BAIT_DEFAULT_KEY in your build environment." },
-          );
-          return;
-        }
-
-        // Rate limiting
+        // Client-side rate limiting — instant feedback; the proxy enforces the real cap.
         const now = Date.now();
         requestLog = requestLog.filter((t) => now - t < RATE_WINDOW_MS);
         if (requestLog.length >= RATE_LIMIT) {
@@ -143,8 +151,6 @@ export const useBaitStore = create<BaitStore>()(
         }));
 
         try {
-          const client = new Anthropic({ apiKey: resolvedKey, dangerouslyAllowBrowser: true });
-
           const baseParams: Anthropic.MessageCreateParamsNonStreaming = {
             model: "claude-haiku-4-5-20251001",
             max_tokens: 1024,
@@ -153,7 +159,7 @@ export const useBaitStore = create<BaitStore>()(
             messages: history,
           };
 
-          let response = await callWithRetry(client, baseParams);
+          let response = await callBaitProxy(baseParams);
 
           const toolResults: string[] = [];
 
@@ -181,7 +187,7 @@ export const useBaitStore = create<BaitStore>()(
             history.push({ role: "assistant", content: response.content });
             history.push({ role: "user", content: toolResultMessages });
 
-            response = await callWithRetry(client, { ...baseParams, messages: history });
+            response = await callBaitProxy({ ...baseParams, messages: history });
           }
 
           const assistantText = response.content
