@@ -279,13 +279,20 @@ export class NativeVoiceEngine {
     if (this.screenStream) return;
 
     const { screenShareFps } = useUiSettingsStore.getState();
-    // Real video (+ system audio) track over WebRTC. The browser/OS picker lets
-    // the user choose a screen, window or tab; viewers render it as a <video>.
-    // Must be called synchronously from the click gesture (no await before it).
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: screenShareFps } },
-      audio: true,
-    });
+    const video = { frameRate: { ideal: screenShareFps } } as MediaTrackConstraints;
+    // Real video (+ system audio) track over WebRTC. The OS picker lets the user
+    // choose a screen, window or tab. Windows/Chromium can't capture audio for a
+    // single *window*, and some WebView2 builds reject the whole request instead
+    // of returning video-only — so on failure we retry without audio. A genuine
+    // user-cancel (NotAllowedError/AbortError) is rethrown.
+    // Called synchronously from the click gesture (no await before getDisplayMedia).
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: true });
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "AbortError")) throw err;
+      stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
+    }
     this.screenStream = stream;
 
     const [videoTrack] = stream.getVideoTracks();

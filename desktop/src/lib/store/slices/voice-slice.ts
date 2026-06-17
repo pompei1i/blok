@@ -3,6 +3,7 @@ import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
 import { playMuteSound, playUnmuteSound, playCaptureStartSound, playCaptureStopSound } from "../../sounds";
 import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../../native-voice-engine";
+import { useToastStore } from "../toast-store";
 import type { User, VoiceParticipant } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import { voicePresenceCh } from "./_shared";
@@ -302,7 +303,20 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         } else {
           set({ isScreenSharing: true });
         }
-      } catch { /* user cancelled */ }
+      } catch (err) {
+        // NotAllowedError / AbortError = the user dismissed the picker → stay silent.
+        // Anything else is a real failure (e.g. WebView2 audio capture) — surface it
+        // instead of silently doing nothing, which looks like "the button is dead".
+        const name = err instanceof DOMException ? err.name : "";
+        if (name !== "NotAllowedError" && name !== "AbortError") {
+          console.error("startScreenShare failed", err);
+          useToastStore.getState().showToast({
+            emoji: "🖥️",
+            title: "Couldn't start screen share",
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+      }
     }
   },
 
