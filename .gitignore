@@ -43,3 +43,5 @@ installer/src-tauri/target/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+# one-time migration concatenations (generated, not source of truth)
+supabase/_apply_*.sql
