@@ -191,31 +191,37 @@ export function VoiceView() {
           {isDeafened ? <HeadphoneOff className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
         </button>
 
-        <button
-          onClick={() => void toggleCamera()}
-          title={isCameraOn ? "Turn off camera" : "Turn on camera"}
-          className={cn(
-            "p-2.5 rounded transition-colors",
-            isCameraOn
-              ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
-              : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-          )}
-        >
-          {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => void toggleCamera()}
+            title={`${isCameraOn ? "Turn off camera" : "Turn on camera"} (experimental)`}
+            className={cn(
+              "p-2.5 rounded transition-colors",
+              isCameraOn
+                ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
+                : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+            )}
+          >
+            {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+          </button>
+          <span className="absolute -top-1 -right-1 text-[8px] font-bold leading-none px-0.5 bg-[var(--afk)] text-black rounded-sm select-none pointer-events-none" title="experimental">β</span>
+        </div>
 
-        <button
-          onClick={() => void toggleScreenShare()}
-          title={isScreenSharing ? "Stop sharing" : "Share screen"}
-          className={cn(
-            "p-2.5 rounded transition-colors",
-            isScreenSharing
-              ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
-              : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-          )}
-        >
-          <Monitor className="w-4 h-4" />
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => void toggleScreenShare()}
+            title={`${isScreenSharing ? "Stop sharing" : "Share screen"} (experimental)`}
+            className={cn(
+              "p-2.5 rounded transition-colors",
+              isScreenSharing
+                ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
+                : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+            )}
+          >
+            <Monitor className="w-4 h-4" />
+          </button>
+          <span className="absolute -top-1 -right-1 text-[8px] font-bold leading-none px-0.5 bg-[var(--afk)] text-black rounded-sm select-none pointer-events-none" title="experimental">β</span>
+        </div>
 
         <div className="w-px h-6 bg-[var(--border)] mx-1" />
 

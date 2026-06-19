@@ -223,7 +223,13 @@ export function TopBar() {
         </button>
       </div>
 
-      <div className="flex items-center gap-1 ml-2 pl-2">
+      <div className="flex items-center gap-1.5 ml-2 pl-2">
+        <span
+          title="Public beta — expect rough edges"
+          className="text-[9px] font-bold tracking-[0.15em] text-[var(--accent-red)] border border-[var(--accent-red)]/50 px-1 py-px leading-none uppercase select-none"
+        >
+          beta
+        </span>
         <div className="text-xs text-[var(--text-muted)] font-mono">
           {"~/blok"}
           <span className="cursor-blink inline-block w-2 h-4 bg-[var(--text-primary)] ml-1" />

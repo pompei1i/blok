@@ -17,6 +17,14 @@ dist-ssr
 .env.*
 .tauri-key
 *.key
+*.pem
+ssh1
+ssh1.pub
+id_rsa*
+id_ed25519*
+
+# Internal marketing materials (not part of the OSS project)
+/promo/
 
 # Editor directories and files
 .vscode/*

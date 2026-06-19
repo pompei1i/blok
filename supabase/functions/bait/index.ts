@@ -16,8 +16,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const RATE_MAX = 10;          // requests
-const RATE_WINDOW_SECS = 60;  // per minute, per user
+const RATE_MAX = 10;          // burst: requests per window, per user
+const RATE_WINDOW_SECS = 60;  // window = 1 minute
+const DAILY_MAX = 10;         // hard cap: requests per day, per user (beta cost guard).
+                             // Note: a single b.ai.t message with tool use = 2-3 calls.
 const MAX_TOKENS_CAP = 1024;
 const MODEL = "claude-haiku-4-5-20251001"; // forced: cheap model only
 
@@ -53,9 +55,10 @@ Deno.serve(async (req) => {
   const { data: allowed, error: rlErr } = await supabase.rpc("bait_rate_check", {
     p_max: RATE_MAX,
     p_window_secs: RATE_WINDOW_SECS,
+    p_daily_max: DAILY_MAX,
   });
   if (rlErr) return json({ error: "rate_check_failed" }, 500);
-  if (!allowed) return json({ error: "rate_limited", message: `Max ${RATE_MAX} requests/min.` }, 429);
+  if (!allowed) return json({ error: "rate_limited", message: `Limit reached (${RATE_MAX}/min or ${DAILY_MAX}/day).` }, 429);
 
   let body: Record<string, unknown>;
   try {
