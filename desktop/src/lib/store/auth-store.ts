@@ -23,6 +23,7 @@ interface AuthState {
   ) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
+  changePassword: (newPassword: string) => Promise<{ success: boolean; message?: string }>;
   clearError: () => void;
 }
 
@@ -308,6 +309,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       useServerStore.getState().patchUser(current);
       useFriendsStore.getState().patchUser(current);
     }
+  },
+
+  changePassword: async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) return { success: false, message: error.message };
+    return { success: true };
   },
 
   clearError: () => set({ error: null }),

@@ -47,7 +47,7 @@ const TAB_IDS = [
 ] as const;
 
 export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
- const { user, updateUser, logout } = useAuthStore();
+ const { user, updateUser, logout, changePassword } = useAuthStore();
  const { t } = useI18n();
  const [activeTab, setActiveTab] = useState<TabId>("account");
  const {
@@ -119,6 +119,9 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  } | null>(null);
  const [settingsMessage, setSettingsMessage] = useState(false);
  const [isApplyingSettings, setIsApplyingSettings] = useState(false);
+ const [pwd, setPwd] = useState({ next: "", confirm: "" });
+ const [isChangingPwd, setIsChangingPwd] = useState(false);
+ const [pwdMessage, setPwdMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
  const { available: updateAvailable, version: updateVersion, installing: updateInstalling, installUpdate } = useUpdater();
  const [appVersion, setAppVersion] = useState<string | null>(null);
  useEffect(() => {
@@ -316,6 +319,29 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
   setMessage({ type: "error", text: t("settings.account.saveError") });
  } finally {
   setIsSaving(false);
+ }
+ };
+
+ const handleChangePassword = async (e: React.FormEvent) => {
+ e.preventDefault();
+ setPwdMessage(null);
+ if (pwd.next.length < 8) {
+ setPwdMessage({ type: "error", text: t("settings.account.passwordTooShort") });
+ return;
+ }
+ if (pwd.next !== pwd.confirm) {
+ setPwdMessage({ type: "error", text: t("settings.account.passwordMismatch") });
+ return;
+ }
+ setIsChangingPwd(true);
+ const res = await changePassword(pwd.next);
+ setIsChangingPwd(false);
+ if (res.success) {
+ setPwd({ next: "", confirm: "" });
+ setPwdMessage({ type: "success", text: t("settings.account.passwordChanged") });
+ setTimeout(() => setPwdMessage(null), 3000);
+ } else {
+ setPwdMessage({ type: "error", text: res.message ?? t("settings.account.saveError") });
  }
  };
 
@@ -554,6 +580,57 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  className="btn-terminal prefix-dollar px-5 py-2 text-xs font-semibold uppercase tracking-widest disabled:opacity-50"
  >
  {isSaving ? t("settings.account.saving") : t("settings.account.saveChanges")}
+ </button>
+ </div>
+ </form>
+
+ <form onSubmit={handleChangePassword} className="mt-8 pt-6 border-t border-dashed border-[var(--border)] space-y-4">
+ <div>
+ <h3 className="text-base font-bold text-[var(--text-primary)] font-mono uppercase tracking-wider">
+ <span className="text-[var(--text-muted)] font-normal">$ </span>{t("settings.account.changePassword")}
+ </h3>
+ </div>
+ <div>
+ <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="mr-1">&gt;</span>{t("settings.account.newPassword")}
+ </label>
+ <input
+ type="password"
+ value={pwd.next}
+ onChange={(e) => setPwd((p) => ({ ...p, next: e.target.value }))}
+ className="input-terminal"
+ placeholder="••••••••"
+ autoComplete="new-password"
+ />
+ </div>
+ <div>
+ <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+ <span className="mr-1">&gt;</span>{t("settings.account.confirmPassword")}
+ </label>
+ <input
+ type="password"
+ value={pwd.confirm}
+ onChange={(e) => setPwd((p) => ({ ...p, confirm: e.target.value }))}
+ className="input-terminal"
+ placeholder="••••••••"
+ autoComplete="new-password"
+ />
+ </div>
+ {pwdMessage && (
+ <p className={cn(
+ "text-sm font-mono animate-fade-in",
+ pwdMessage.type === "success" ? "text-[var(--online)]" : "text-[var(--destructive)]",
+ )}>
+ {pwdMessage.type === "success" ? "[✓] " : "[!] "}{pwdMessage.text}
+ </p>
+ )}
+ <div className="flex justify-end pt-1">
+ <button
+ type="submit"
+ disabled={isChangingPwd || !pwd.next || !pwd.confirm}
+ className="btn-terminal prefix-dollar px-5 py-2 text-xs font-semibold uppercase tracking-widest disabled:opacity-50"
+ >
+ {isChangingPwd ? t("settings.account.saving") : t("settings.account.changePassword")}
  </button>
  </div>
  </form>
