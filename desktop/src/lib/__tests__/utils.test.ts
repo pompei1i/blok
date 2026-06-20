@@ -44,7 +44,8 @@ describe("mapProfile", () => {
     const user = mapProfile(row);
     expect(user.id).toBe("u1");
     expect(user.username).toBe("alice");
-    expect(user.email).toBe("a@a.com");
+    // email is intentionally NOT mapped from profiles (PII); it comes from the auth session
+    expect(user.email).toBeUndefined();
     expect(user.createdAt).toBe("2024-01-01");
   });
 

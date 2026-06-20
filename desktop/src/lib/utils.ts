@@ -10,7 +10,6 @@ export function mapProfile(p: Record<string, any>): User {
   return {
     id: p.id,
     username: p.username,
-    email: p.email,
     displayName: p.display_name ?? undefined,
     avatarUrl: p.avatar_url ?? undefined,
     bannerUrl: p.banner_url ?? undefined,

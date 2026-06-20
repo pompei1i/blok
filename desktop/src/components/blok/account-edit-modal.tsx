@@ -489,10 +489,10 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <input
  type="email"
  value={formData.email}
- onChange={(e) =>
- setFormData((d) => ({ ...d, email: e.target.value }))
- }
- className="input-terminal"
+ readOnly
+ disabled
+ title="Your login email is managed by your account and can't be changed here."
+ className="input-terminal opacity-60 cursor-not-allowed"
  placeholder="your@email.com"
  />
  </div>

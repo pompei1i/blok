@@ -21,7 +21,8 @@ export interface Cosmetics {
 export interface User {
   id: string;
   username: string;
-  email: string;
+  /** Only set for the current user (from the auth session); never for other users. */
+  email?: string;
   displayName?: string;
   avatarUrl?: string;
   bannerUrl?: string;

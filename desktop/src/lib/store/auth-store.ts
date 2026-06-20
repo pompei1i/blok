@@ -107,7 +107,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const profile = await fetchProfile(user.id);
     set({
-      user: profile,
+      // own email comes from the auth session, not profiles (column was dropped)
+      user: profile ? { ...profile, email: user.email ?? undefined } : null,
       isAuthenticated: !!profile,
       isLoading: false,
       initialized: true,
@@ -165,7 +166,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         {
           id: data.user.id,
           username: fallbackUsername,
-          email,
           display_name: meta.display_name ?? fallbackUsername,
           status_message: "Online",
           accent_color: "#c0392b",
@@ -194,7 +194,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: false, message: "Profile not found" };
     }
 
-    set({ user: profile, isAuthenticated: true, isLoading: false });
+    set({ user: { ...profile, email: data.user.email ?? undefined }, isAuthenticated: true, isLoading: false });
     return { success: true };
   },
 
@@ -228,7 +228,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { error: profileError } = await supabase.from("profiles").upsert({
       id: data.user.id,
       username: resolvedUsername,
-      email,
       display_name: resolvedUsername,
       status_message: "Online",
       accent_color: "#c0392b",
@@ -242,7 +241,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const profile = await fetchProfile(data.user.id);
 
     set({
-      user: profile,
+      user: profile ? { ...profile, email: data.user.email ?? undefined } : profile,
       isAuthenticated: !!profile,
       isLoading: false,
     });
@@ -294,7 +293,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       .update({
         display_name: updates.displayName,
         username: updates.username,
-        email: updates.email,
         bio: updates.bio,
         status_message: updates.statusMessage,
         accent_color: updates.accentColor,
