@@ -24,6 +24,8 @@ interface AuthState {
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   changePassword: (newPassword: string) => Promise<{ success: boolean; message?: string }>;
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; message?: string }>;
+  resetPasswordWithOtp: (email: string, token: string, newPassword: string) => Promise<{ success: boolean; message?: string }>;
   clearError: () => void;
 }
 
@@ -314,6 +316,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   changePassword: async (newPassword) => {
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  requestPasswordReset: async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    if (error) return { success: false, message: error.message };
+    return { success: true };
+  },
+
+  resetPasswordWithOtp: async (email, token, newPassword) => {
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: token.trim(),
+      type: "recovery",
+    });
+    if (verifyError) return { success: false, message: verifyError.message };
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    if (updateError) return { success: false, message: updateError.message };
+    // verifyOtp(recovery) creates a session; sign out so the user logs in fresh
+    await supabase.auth.signOut();
     return { success: true };
   },
 

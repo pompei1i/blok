@@ -3,12 +3,16 @@ import { Loader2 } from "lucide-react";
 import { useAuthStore } from "../../lib/store/auth-store";
 import { useI18n } from "@/lib/i18n";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot";
 
 export function AuthScreen() {
-  const { login, register, isLoading, error, clearError } = useAuthStore();
+  const { login, register, requestPasswordReset, resetPasswordWithOtp, isLoading, error, clearError } = useAuthStore();
   const { t } = useI18n();
   const [mode, setMode] = useState<AuthMode>("login");
+  const [forgotStep, setForgotStep] = useState<"request" | "reset">("request");
+  const [otp, setOtp] = useState("");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
 
   // NOTE: the auth screen no longer force-resizes the OS window — doing so
   // clobbered the user's chosen / maximized window size on every login/logout.
@@ -24,7 +28,40 @@ export function AuthScreen() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError("");
+    setInfo("");
     clearError();
+
+    if (mode === "forgot") {
+      if (forgotStep === "request") {
+        if (!email) { setLocalError(t("auth.email")); return; }
+        setBusy(true);
+        const res = await requestPasswordReset(email);
+        setBusy(false);
+        if (res.success) {
+          setForgotStep("reset");
+          setInfo(t("auth.resetCodeSent"));
+        } else {
+          setLocalError(res.message ?? t("auth.resetPassword"));
+        }
+      } else {
+        if (password !== confirmPassword) { setLocalError(t("auth.passwordMismatch")); return; }
+        if (password.length < 6) { setLocalError(t("auth.passwordMin")); return; }
+        setBusy(true);
+        const res = await resetPasswordWithOtp(email, otp, password);
+        setBusy(false);
+        if (res.success) {
+          setMode("login");
+          setForgotStep("request");
+          setOtp("");
+          setPassword("");
+          setConfirmPassword("");
+          setInfo(t("auth.resetSuccess"));
+        } else {
+          setLocalError(res.message ?? t("auth.resetPassword"));
+        }
+      }
+      return;
+    }
 
     if (mode === "register") {
       if (password !== confirmPassword) {
@@ -48,6 +85,24 @@ export function AuthScreen() {
   const switchMode = () => {
     setMode(mode === "login" ? "register" : "login");
     setLocalError("");
+    setInfo("");
+    clearError();
+  };
+
+  const goForgot = () => {
+    setMode("forgot");
+    setForgotStep("request");
+    setLocalError("");
+    setInfo("");
+    clearError();
+  };
+
+  const backToLogin = () => {
+    setMode("login");
+    setForgotStep("request");
+    setOtp("");
+    setLocalError("");
+    setInfo("");
     clearError();
   };
 
@@ -68,7 +123,7 @@ export function AuthScreen() {
               BLOK
             </h1>
             <p className="text-[var(--text-muted)] text-sm font-mono">
-              ~/auth {mode === "login" ? "login" : "register"}
+              ~/auth {mode === "login" ? "login" : mode === "register" ? "register" : "reset"}
               <span className="cursor-blink ml-1">_</span>
             </p>
           </div>
@@ -83,7 +138,7 @@ export function AuthScreen() {
                 <div className="w-3 h-3 bg-[var(--online)]" />
               </div>
               <span className="text-xs text-[var(--text-muted)] font-mono ml-2">
-                blok@auth:~$ {mode === "login" ? "./login.sh" : "./register.sh"}
+                blok@auth:~$ {mode === "login" ? "./login.sh" : mode === "register" ? "./register.sh" : "./reset.sh"}
               </span>
             </div>
 
@@ -132,6 +187,25 @@ export function AuthScreen() {
                 />
               </div>
 
+              {mode === "forgot" && forgotStep === "reset" && (
+                <div className="space-y-1">
+                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
+                    <span className="text-[var(--text-muted)]">&gt;</span>
+                    {t("auth.resetCode")}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    placeholder="123456"
+                    className="input-terminal tracking-[0.3em]"
+                    required
+                  />
+                </div>
+              )}
+
+              {(mode !== "forgot" || forgotStep === "reset") && (
               <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
                   <span className="text-[var(--text-muted)]">&gt;</span>
@@ -155,8 +229,9 @@ export function AuthScreen() {
                   </button>
                 </div>
               </div>
+              )}
 
-              {mode === "register" && (
+              {(mode === "register" || (mode === "forgot" && forgotStep === "reset")) && (
                 <div className="space-y-1">
                   <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium flex items-center gap-1">
                     <span className="text-[var(--text-muted)]">&gt;</span>
@@ -179,25 +254,56 @@ export function AuthScreen() {
                 </p>
               )}
 
+              {info && (
+                <p className="text-sm text-[var(--online)] font-mono">
+                  [✓] {info}
+                </p>
+              )}
+
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || busy}
                 className="btn-terminal prefix-dollar w-full py-3 font-semibold uppercase tracking-widest border-[var(--text-primary)]/60 mt-2"
               >
-                {isLoading ? (
+                {isLoading || busy ? (
                   <span className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {mode === "login" ? t("auth.authenticating") : t("auth.creatingAccount")}
+                    {mode === "login" ? t("auth.authenticating") : mode === "register" ? t("auth.creatingAccount") : t("auth.resetPassword")}
                   </span>
                 ) : (
-                  mode === "login" ? t("auth.login") : t("auth.register")
+                  mode === "login"
+                    ? t("auth.login")
+                    : mode === "register"
+                    ? t("auth.register")
+                    : forgotStep === "request"
+                    ? t("auth.sendResetCode")
+                    : t("auth.resetPassword")
                 )}
               </button>
 
               {mode === "login" && (
-                <p className="text-xs text-[var(--text-muted)] font-mono border-l border-[var(--border)] pl-3">
-                  <span className="text-[var(--online)]">tip:</span> use demo@blok.app / demo123
-                </p>
+                <>
+                  <button
+                    type="button"
+                    onClick={goForgot}
+                    className="block text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-mono underline"
+                  >
+                    {t("auth.forgotPassword")}
+                  </button>
+                  <p className="text-xs text-[var(--text-muted)] font-mono border-l border-[var(--border)] pl-3">
+                    <span className="text-[var(--online)]">tip:</span> use demo@blok.app / demo123
+                  </p>
+                </>
+              )}
+
+              {mode === "forgot" && (
+                <button
+                  type="button"
+                  onClick={backToLogin}
+                  className="block text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-mono underline"
+                >
+                  {t("auth.backToLogin")}
+                </button>
               )}
             </form>
 
