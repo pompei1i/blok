@@ -46,18 +46,23 @@ Deno.serve(async (req) => {
   if (userErr || !userData.user) return json({ error: "unauthorized" }, 401);
 
   const cfRes = await fetch(
-    `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`,
+    `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${apiToken}`, "content-type": "application/json" },
       body: JSON.stringify({ ttl: TTL_SECS }),
     },
   );
+  const text = await cfRes.text();
   if (!cfRes.ok) {
-    return json({ error: "cloudflare_failed", status: cfRes.status, detail: await cfRes.text() }, 502);
+    console.error("cloudflare TURN failed:", cfRes.status, text);
+    return json({ error: "cloudflare_failed", status: cfRes.status, detail: text }, 502);
   }
 
-  // Cloudflare returns { iceServers: { urls: [...], username, credential } }.
-  const data = await cfRes.json();
-  return json({ iceServers: data.iceServers, ttl: TTL_SECS });
+  // Endpoint returns { iceServers: { urls, username, credential } }; tolerate the
+  // older shape that returns the server object directly.
+  const data = JSON.parse(text);
+  const iceServers = data.iceServers ?? data;
+  console.log("cloudflare TURN ok:", JSON.stringify(iceServers).slice(0, 300));
+  return json({ iceServers, ttl: TTL_SECS });
 });
