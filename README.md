@@ -47,7 +47,7 @@ blok/
 ├── installer/            # Tauri updater/installer stub
 ├── supabase/             # DB migrations, RLS policies, Edge Functions (b.ai.t proxy)
 ├── infra/coturn/         # Self-hosted TURN server (Docker)
-└── .github/workflows/    # CI — release builds + DB migrate
+└── .github/workflows/    # CI — release builds
 ```
 
 ## Getting started

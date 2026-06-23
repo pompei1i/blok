@@ -5,16 +5,14 @@ Don't hand-edit the production schema in the dashboard — it drifts, and we've 
 burned by it (missing `has_server_perm`, a missing quest trigger).
 
 ## How they're applied
-`.github/workflows/db-migrate.yml` replays **every** migration in filename order on
-each push to `main` that touches this folder (or via *Run workflow* / `workflow_dispatch`).
-Because every migration is **idempotent**, replaying the whole folder is safe and
-always brings the DB into sync — there's no migration-tracking table to get out of step.
+Apply them by hand whenever you add one — replay **every** migration in filename order
+against the database. Because every migration is **idempotent**, replaying the whole
+folder is safe and always brings the DB into sync — there's no migration-tracking table
+to get out of step.
 
-**One-time setup:** add the repo secret `SUPABASE_DB_URL` = the **direct** Postgres
-URI (Supabase → Settings → Database → Connection string → URI, the 5432 one, not the
-pooler), then run the workflow once to reconcile.
-
-Locally you can do the same:
+Easiest: paste new files into the Supabase **SQL Editor** and run them. To replay the
+whole folder at once, use psql with the **direct** Postgres URI (Supabase → Settings →
+Database → Connection string → URI, the 5432 one, not the pooler):
 ```bash
 for f in $(ls supabase/migrations/*.sql | sort); do
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$f"
