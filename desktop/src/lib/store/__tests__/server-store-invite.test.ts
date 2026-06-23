@@ -7,6 +7,7 @@ function makeServer(id: string, inviteCode?: string): Server {
 }
 
 const q = () => (globalThis as Record<string, unknown>).__mockSupabaseQuery as Record<string, ReturnType<typeof vi.fn>>;
+const rpc = () => (globalThis as Record<string, unknown>).__mockSupabaseRpc as ReturnType<typeof vi.fn>;
 
 function resolveWith(data: unknown, error: unknown = null) {
   q().then.mockImplementationOnce((resolve: (v: unknown) => void) => resolve({ data, error }));
@@ -92,59 +93,73 @@ describe("generateInviteCode", () => {
 });
 
 // ── joinByInviteCode ──────────────────────────────────────────────────────────
+//
+// Validation (expiry/max-uses/ban) and the membership write now live entirely
+// in the join_server_by_invite SECURITY DEFINER RPC — see
+// supabase/migrations/20260623_server_members_lockdown.sql. The client only
+// forwards the code and interprets the {ok, reason} result.
 
 describe("joinByInviteCode", () => {
-  it("returns error message when invite code matches no server", async () => {
-    q().maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+  it("returns error message when the RPC reports an invalid code", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: false, reason: "invalid_code" }, error: null });
 
     const result = await useServerStore.getState().joinByInviteCode("INVALID", "u1");
 
     expect(result).toBe("Invalid or expired invite code");
   });
 
-  it("returns error message when maybeSingle itself errors", async () => {
-    q().maybeSingle.mockResolvedValueOnce({ data: null, error: { message: "network error" } });
+  it("returns a generic error message when the RPC call itself errors", async () => {
+    rpc().mockResolvedValueOnce({ data: null, error: { message: "network error" } });
 
     const result = await useServerStore.getState().joinByInviteCode("abc", "u1");
-
-    expect(result).toBe("Invalid or expired invite code");
-  });
-
-  it("returns null without inserting when user is already a member", async () => {
-    const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01" };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-    useServerStore.setState({
-      members: { s1: [{ id: "m1", serverId: "s1", userId: "u1", joinedAt: "2024-01-01", xp: 0 }] },
-    });
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBeNull();
-    expect(q().insert).not.toHaveBeenCalled();
-  });
-
-  it("returns 'Failed to join server' when the member insert errors", async () => {
-    const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01" };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-    useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null, { message: "insert fail" }); // insert().direct await
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 
     expect(result).toBe("Failed to join server");
   });
 
+  it("returns 'Invite link has expired' when the RPC reports expired", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: false, reason: "expired" }, error: null });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBe("Invite link has expired");
+  });
+
+  it("returns 'Invite link has reached its usage limit' when the RPC reports max_uses_reached", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: false, reason: "max_uses_reached" }, error: null });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBe("Invite link has reached its usage limit");
+  });
+
+  it("returns 'You are banned from this server' when the RPC reports banned", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: false, reason: "banned" }, error: null });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBe("You are banned from this server");
+  });
+
+  it("returns null without re-fetching when already a member and server is already in state", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: true, server_id: "s1", already_member: true }, error: null });
+    useServerStore.setState({ servers: [makeServer("s1")] });
+
+    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
+
+    expect(result).toBeNull();
+    expect(q().single).not.toHaveBeenCalled();
+  });
+
   it("returns null and appends the new server to state on successful join", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: true, server_id: "s1", member_id: "m1" }, error: null });
     const dbServer = { id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: null, invite_max_uses: null, invite_used_count: 0 };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
+      invite_expires_at: null, invite_max_uses: null, invite_used_count: 1 };
+    q().single.mockResolvedValueOnce({ data: dbServer, error: null });
     useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null);  // insert member
-    resolveWith(null);  // update used_count
-    resolveWith([]);    // channels fetch (Promise.all)
-    resolveWith([]);    // categories fetch
-    resolveWith([]);    // members fetch
-    resolveWith([]);    // roles fetch
+    resolveWith([]); // channels fetch (Promise.all)
+    resolveWith([]); // categories fetch
+    resolveWith([]); // members fetch
+    resolveWith([]); // roles fetch
 
     const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
 
@@ -155,114 +170,12 @@ describe("joinByInviteCode", () => {
     expect(state.activeServerId).toBe("s1");
   });
 
-  it("trims whitespace from the invite code before querying", async () => {
-    q().maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+  it("trims whitespace from the invite code before calling the RPC", async () => {
+    rpc().mockResolvedValueOnce({ data: { ok: false, reason: "invalid_code" }, error: null });
 
     await useServerStore.getState().joinByInviteCode("  abc123  ", "u1");
 
-    expect(q().eq).toHaveBeenCalledWith("invite_code", "abc123");
-  });
-});
-
-// ── joinByInviteCode — expiry & limits ────────────────────────────────────────
-
-describe("joinByInviteCode — expiry", () => {
-  it("returns 'Invite link has expired' when invite_expires_at is in the past", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: new Date(Date.now() - 1000).toISOString(),
-      invite_max_uses: null, invite_used_count: 0,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBe("Invite link has expired");
-    expect(q().insert).not.toHaveBeenCalled();
-  });
-
-  it("allows join when invite_expires_at is in the future", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
-      invite_max_uses: null, invite_used_count: 0,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-    useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBeNull();
-  });
-
-  it("allows join when invite_expires_at is null (no expiry)", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: null, invite_max_uses: null, invite_used_count: 0,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-    useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBeNull();
-  });
-});
-
-describe("joinByInviteCode — usage limit", () => {
-  it("returns error when used_count equals max_uses", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: null, invite_max_uses: 5, invite_used_count: 5,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBe("Invite link has reached its usage limit");
-    expect(q().insert).not.toHaveBeenCalled();
-  });
-
-  it("returns error when used_count exceeds max_uses", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: null, invite_max_uses: 3, invite_used_count: 7,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBe("Invite link has reached its usage limit");
-  });
-
-  it("allows join when used_count is below max_uses", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: null, invite_max_uses: 10, invite_used_count: 3,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-    useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBeNull();
-  });
-
-  it("allows join when max_uses is null (unlimited)", async () => {
-    const dbServer = {
-      id: "s1", invite_code: "abc123", owner_id: "owner", name: "Test", created_at: "2024-01-01",
-      invite_expires_at: null, invite_max_uses: null, invite_used_count: 9999,
-    };
-    q().maybeSingle.mockResolvedValueOnce({ data: dbServer, error: null });
-    useServerStore.setState({ members: { s1: [] } });
-    resolveWith(null); resolveWith(null); resolveWith([]); resolveWith([]); resolveWith([]); resolveWith([]);
-
-    const result = await useServerStore.getState().joinByInviteCode("abc123", "u1");
-
-    expect(result).toBeNull();
+    expect(rpc()).toHaveBeenCalledWith("join_server_by_invite", { p_code: "abc123" });
   });
 });
 

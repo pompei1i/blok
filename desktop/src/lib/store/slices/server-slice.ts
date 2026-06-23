@@ -553,32 +553,37 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     })),
 
   inviteUser: async (serverId, username) => {
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles").select("*").eq("username", username.toLowerCase().trim()).maybeSingle();
-    if (profileError) return "Failed to find user";
-    if (!profile) return "User not found";
-    const members = get().members[serverId] || [];
-    if (members.some((m) => m.userId === profile.id)) return "Already a member";
-    // Use the DB-generated row so the local member id matches the database —
-    // a synthetic id would break assignRole/kickMember (they filter by member.id).
-    const { data: insertedRow, error } = await supabase
-      .from("server_members")
-      .insert({ server_id: serverId, user_id: profile.id })
-      .select()
-      .single();
-    if (error || !insertedRow) return "Failed to add user";
+    // Membership writes go through invite_member (SECURITY DEFINER) — it checks
+    // INVITE_MEMBER permission and bans server-side; the client can't be trusted.
+    const { data, error } = await supabase.rpc("invite_member", {
+      p_server_id: serverId, p_username: username.toLowerCase().trim(),
+    });
+    if (error) return "Failed to add user";
+    if (!data?.ok) {
+      switch (data?.reason) {
+        case "user_not_found": return "User not found";
+        case "already_member": return "Already a member";
+        case "banned": return "User is banned from this server";
+        case "forbidden": return "You don't have permission to invite members";
+        default: return "Failed to add user";
+      }
+    }
+
+    const { data: row, error: rowError } = await supabase
+      .from("server_members").select("*, user:profiles(*)").eq("id", data.member_id).single();
+    if (rowError || !row) return "Failed to add user";
     const newMember: ServerMember = {
-      id: insertedRow.id, serverId, userId: profile.id,
-      roleId: insertedRow.role_id ?? undefined,
-      joinedAt: insertedRow.joined_at, xp: insertedRow.xp ?? 0,
-      timeoutUntil: insertedRow.timeout_until ?? null, user: mapProfile(profile),
+      id: row.id, serverId, userId: row.user_id,
+      roleId: row.role_id ?? undefined,
+      joinedAt: row.joined_at, xp: row.xp ?? 0,
+      timeoutUntil: row.timeout_until ?? null, user: mapProfile(row.user),
     };
     set((state) => ({
       members: { ...state.members, [serverId]: [...(state.members[serverId] || []), newMember] },
-      userProfileCache: { ...state.userProfileCache, [profile.id]: mapProfile(profile) },
+      userProfileCache: { ...state.userProfileCache, [row.user_id]: mapProfile(row.user) },
       memberUserIndex: {
         ...state.memberUserIndex,
-        [profile.id]: [...(state.memberUserIndex[profile.id] ?? []), { serverId, memberId: newMember.id }],
+        [row.user_id]: [...(state.memberUserIndex[row.user_id] ?? []), { serverId, memberId: newMember.id }],
       },
     }));
     return null;
@@ -607,29 +612,27 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     return code;
   },
 
-  joinByInviteCode: async (code, userId) => {
+  joinByInviteCode: async (code, _userId) => {
+    // join_server_by_invite (SECURITY DEFINER) validates expiry/max-uses/ban and
+    // inserts atomically server-side — the client can no longer write directly to
+    // server_members, and the old read-then-write max-uses check was racy anyway.
+    const { data: joinResult, error: joinError } = await supabase
+      .rpc("join_server_by_invite", { p_code: code.trim() });
+    if (joinError) return "Failed to join server";
+    if (!joinResult?.ok) {
+      switch (joinResult?.reason) {
+        case "invalid_code": return "Invalid or expired invite code";
+        case "expired": return "Invite link has expired";
+        case "max_uses_reached": return "Invite link has reached its usage limit";
+        case "banned": return "You are banned from this server";
+        default: return "Failed to join server";
+      }
+    }
+    if (get().servers.some((s) => s.id === joinResult.server_id)) return null;
+
     const { data: server, error } = await supabase
-      .from("servers").select("*").eq("invite_code", code.trim()).maybeSingle();
-    if (error || !server) return "Invalid or expired invite code";
-    if (server.invite_expires_at && new Date(server.invite_expires_at) < new Date()) {
-      return "Invite link has expired";
-    }
-    if (server.invite_max_uses != null && (server.invite_used_count ?? 0) >= server.invite_max_uses) {
-      return "Invite link has reached its usage limit";
-    }
-    const members = get().members[server.id] || [];
-    if (members.some((m) => m.userId === userId)) return null;
-
-    const { error: insertError } = await supabase
-      .from("server_members").insert({ server_id: server.id, user_id: userId });
-    if (insertError) {
-      if (/banned/i.test(insertError.message)) return "You are banned from this server";
-      return "Failed to join server";
-    }
-
-    await supabase.from("servers")
-      .update({ invite_used_count: (server.invite_used_count ?? 0) + 1 })
-      .eq("id", server.id);
+      .from("servers").select("*").eq("id", joinResult.server_id).single();
+    if (error || !server) return "Failed to join server";
 
     // Fetch only the new server's data instead of full re-init (avoids closing
     // all realtime subscriptions and re-fetching every server the user is in).
@@ -645,7 +648,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       description: server.description, inviteCode: server.invite_code, createdAt: server.created_at,
       inviteExpiresAt: server.invite_expires_at ?? null,
       inviteMaxUses: server.invite_max_uses ?? null,
-      inviteUsedCount: (server.invite_used_count ?? 0) + 1,
+      inviteUsedCount: server.invite_used_count ?? 0,
     };
 
     const newChannels: Channel[] = (channelRes.data || []).map((c) => ({
@@ -771,8 +774,13 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   assignRole: async (memberId, serverId, roleId) => {
-    const { error } = await supabase.from("server_members").update({ role_id: roleId }).eq("id", memberId);
-    if (error) { console.error("assignRole failed", error); throw error; }
+    const { data, error } = await supabase.rpc("assign_member_role", {
+      p_member_id: memberId, p_server_id: serverId, p_role_id: roleId,
+    });
+    if (error || !data?.ok) {
+      console.error("assignRole failed", error ?? data?.reason);
+      throw error ?? new Error(data?.reason ?? "assign_role_failed");
+    }
     set((s) => ({
       members: {
         ...s.members,
@@ -795,8 +803,13 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   kickMember: async (memberId, serverId) => {
-    const { error } = await supabase.from("server_members").delete().eq("id", memberId);
-    if (error) { console.error("kickMember failed", error); throw error; }
+    const { data, error } = await supabase.rpc("kick_server_member", {
+      p_member_id: memberId, p_server_id: serverId,
+    });
+    if (error || !data?.ok) {
+      console.error("kickMember failed", error ?? data?.reason);
+      throw error ?? new Error(data?.reason ?? "kick_failed");
+    }
     set((s) => ({
       members: { ...s.members, [serverId]: (s.members[serverId] ?? []).filter((m) => m.id !== memberId) },
     }));
