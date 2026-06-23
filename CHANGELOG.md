@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.26] — 2026-06-23
+
+### Security
+- **RLS hardening (F1)** — private messages were readable across users, and channel messages / member lists / categories leaked across servers you'd never joined; profiles were even scrapeable by unauthenticated clients. All reads are now scoped to server membership / DM participants.
+- **`server_members` lockdown** — joining by invite, inviting, role assignment and kicking went straight to the table with only client-side checks (any user could self-promote to admin, join past invite limits, or kick anyone). These now run through permission-checked `SECURITY DEFINER` RPCs.
+- **Quest rewards validated server-side** — the reward amount and completion target now come from a server catalog instead of being trusted from the client.
+- **Message edit/delete** restricted to the author (plus the server owner, for moderation); **DM call signals** scoped to the recipient instead of a shared channel; the redundant **`profiles.email`** column (a PII leak) was dropped.
+
+### Added
+- **Change password** in account settings.
+- **Forgot password** — reset via an emailed code on the login screen.
+
+### Changed
+- **TURN relay** for screen share / video now uses **Cloudflare TURN** via a credentials Edge Function — short-lived credentials minted server-side, no static TURN secrets in the client.
+
+### Meta
+- Project **open-sourced under AGPL-3.0**.
+
 ## [0.9.18] — 2026-06-15
 
 ### Added

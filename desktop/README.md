@@ -28,12 +28,12 @@ VITE_TENOR_API_KEY=...        # optional — GIF search
 #   supabase functions deploy bait
 # and apply the 20260616_bait_rate_limit migration.
 
-# TURN relay for screen share / camera (required across different NATs — without
-# a working relay the viewer sees a black screen; audio is unaffected). Get free
-# credentials from metered.ca, Twilio, or a self-hosted coturn. Baked at build time.
-VITE_TURN_URLS=turn:host:3478,turns:host:5349?transport=tcp
-VITE_TURN_USERNAME=...
-VITE_TURN_CREDENTIAL=...
+# TURN relay for screen share / camera (across strict NATs). blok fetches short-lived
+# Cloudflare TURN creds at runtime from the `turn` Edge Function (set CF_TURN_KEY_ID /
+# CF_TURN_API_TOKEN as function secrets), so these are an OPTIONAL static fallback only.
+# VITE_TURN_URLS=turn:host:3478,turns:host:5349?transport=tcp
+# VITE_TURN_USERNAME=...
+# VITE_TURN_CREDENTIAL=...
 ```
 
 ## Tests

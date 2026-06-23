@@ -74,11 +74,14 @@ The database schema lives in [`supabase/`](supabase/) as **idempotent migrations
 
 See [`supabase/migrations/README.md`](supabase/migrations/README.md) for the migration discipline.
 
-## Self-hosted TURN
+## TURN relay
 
-Screen share / video across different networks needs a TURN relay. A ready-to-deploy
-**coturn** package (Docker Compose + config + deploy guide) is in
-[`infra/coturn/`](infra/coturn/README.md) — runs fine on a free-tier VM.
+Screen share / video across different networks needs a TURN relay. blok uses
+**Cloudflare TURN**: the [`turn`](supabase/functions/turn) Edge Function mints
+short-lived credentials for authenticated users (the Cloudflare API token stays
+server-side — no static TURN secrets ship in the client). Set `CF_TURN_KEY_ID` /
+`CF_TURN_API_TOKEN` as function secrets. A self-hostable **coturn** package is also
+included in [`infra/coturn/`](infra/coturn/README.md) as an alternative.
 
 ## Tests
 
