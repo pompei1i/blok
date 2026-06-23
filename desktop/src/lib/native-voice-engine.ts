@@ -56,7 +56,36 @@ function buildIceServers(): RTCIceServer[] {
   return servers;
 }
 
-const ICE_CONFIG: RTCConfiguration = { iceServers: buildIceServers() };
+// Cloudflare TURN: the client fetches short-lived ICE credentials from our Supabase
+// Edge Function (`turn`) so the Cloudflare API token never ships in the binary.
+// Cached until the creds near expiry; falls back to env TURN / STUN (buildIceServers)
+// if the fetch fails (e.g. function not deployed, offline).
+let _iceCache: { config: RTCConfiguration; expiresAt: number } | null = null;
+
+async function getIceConfig(): Promise<RTCConfiguration> {
+  if (_iceCache && Date.now() < _iceCache.expiresAt) return _iceCache.config;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("no session");
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/turn`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`turn ${res.status}`);
+    const data = (await res.json()) as { iceServers: RTCIceServer | RTCIceServer[]; ttl?: number };
+    const cf = Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers];
+    const config: RTCConfiguration = {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }, ...cf],
+    };
+    const ttlMs = (data.ttl ?? 3600) * 1000;
+    _iceCache = { config, expiresAt: Date.now() + Math.max(60_000, ttlMs - 60_000) };
+    return config;
+  } catch (e) {
+    console.warn("[voice] TURN creds fetch failed; using STUN/env fallback:", e);
+    return { iceServers: buildIceServers() };
+  }
+}
 
 /**
  * Surface ICE/connection failures that would otherwise be silent (the symptom is
@@ -79,7 +108,7 @@ function attachPcDiagnostics(pc: RTCPeerConnection, label: string): void {
   pc.oniceconnectionstatechange = () => {
     const s = pc.iceConnectionState;
     if (s === "failed" || s === "disconnected") {
-      console.warn(`[voice] ${label}: ICE ${s} — media can't connect. Check TURN (set VITE_TURN_URLS/USERNAME/CREDENTIAL).`);
+      console.warn(`[voice] ${label}: ICE ${s} — media can't connect. Check the TURN relay (Cloudflare creds via the 'turn' Edge Function, or VITE_TURN_*).`);
       if (s === "failed") _notifyIceFailure();
     } else {
       console.info(`[voice] ${label}: ICE ${s}`);
@@ -389,7 +418,7 @@ export class NativeVoiceEngine {
 
   /** Viewer: initiate WebRTC connection to a sharer. */
   private async _setupViewerPc(sharerId: string): Promise<void> {
-    const pc = new RTCPeerConnection(ICE_CONFIG);
+    const pc = new RTCPeerConnection(await getIceConfig());
     this._viewerPcs.set(sharerId, pc);
     attachPcDiagnostics(pc, `screen-viewer→${sharerId.slice(0, 8)}`);
 
@@ -423,7 +452,7 @@ export class NativeVoiceEngine {
     if (!this.screenStream) return;
     this._closeShareePc(viewerId);
 
-    const pc = new RTCPeerConnection(ICE_CONFIG);
+    const pc = new RTCPeerConnection(await getIceConfig());
     this._shareePcs.set(viewerId, pc);
     attachPcDiagnostics(pc, `screen-sharer→${viewerId.slice(0, 8)}`);
 
@@ -479,7 +508,7 @@ export class NativeVoiceEngine {
   /** Receiver: create PC that requests video from a remote camera sender. */
   private async _setupVideoReceiverPc(senderId: string): Promise<void> {
     this._closeVideoReceiverPc(senderId);
-    const pc = new RTCPeerConnection(ICE_CONFIG);
+    const pc = new RTCPeerConnection(await getIceConfig());
     this._videoReceiverPcs.set(senderId, pc);
     attachPcDiagnostics(pc, `camera-receiver←${senderId.slice(0, 8)}`);
 
@@ -510,7 +539,7 @@ export class NativeVoiceEngine {
     if (!this._cameraStream) return;
     this._closeVideoSenderPc(viewerId);
 
-    const pc = new RTCPeerConnection(ICE_CONFIG);
+    const pc = new RTCPeerConnection(await getIceConfig());
     this._videoSenderPcs.set(viewerId, pc);
     attachPcDiagnostics(pc, `camera-sender→${viewerId.slice(0, 8)}`);
 
