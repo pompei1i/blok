@@ -53,3 +53,6 @@ installer/src-tauri/target/
 *.tsbuildinfo
 # one-time migration concatenations (generated, not source of truth)
 supabase/_apply_*.sql
+
+# Supabase CLI local cache
+supabase/.temp/
