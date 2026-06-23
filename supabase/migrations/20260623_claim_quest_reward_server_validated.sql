@@ -18,7 +18,9 @@ returns table (quest_type text, target integer, xp integer, coins integer)
 language sql
 immutable
 as $$
-  select * from (values
+  -- select only the 4 declared return columns (NOT quest_id) — `select *` here
+  -- returned 5 columns and shifted the types (text into `target integer`).
+  select t.quest_type, t.target, t.xp, t.coins from (values
     ('send_5',  'messages_sent',   5,  50,  50),
     ('send_15', 'messages_sent',  15, 100, 100),
     ('react_5', 'reactions_added', 5,  75,  75)
