@@ -69,6 +69,23 @@ fn close_app(window: tauri::Window) {
     window.close().ok();
 }
 
+/// Fetch the release manifest (latest.json) and return it as text. Uses the stable
+/// /releases/latest/download/latest.json URL via curl (not the GitHub API), so it
+/// avoids the API's 60/hour anonymous rate limit and webview CORS that previously
+/// left the installer with no download URL.
+#[tauri::command]
+fn fetch_latest_json() -> Result<String, String> {
+    let url = "https://github.com/pompei1i/blok-releases/releases/latest/download/latest.json";
+    let out = std::process::Command::new("curl")
+        .args(["-L", "--silent", "--show-error", "--fail", url])
+        .output()
+        .map_err(|e| format!("curl not available: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("fetch failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -77,6 +94,7 @@ fn main() {
             get_default_install_path,
             launch_blok,
             close_app,
+            fetch_latest_json,
         ])
         .run(tauri::generate_context!())
         .expect("error while running blok installer");

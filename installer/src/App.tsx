@@ -13,11 +13,9 @@ const ASCII = `\
  ██████╔╝███████╗╚██████╔╝██║  ██╗
  ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝`;
 
-const RELEASES_API = "https://api.github.com/repos/pompei1i/blok-releases/releases/latest";
-
 export default function App() {
   const [screen, setScreen]       = useState<Screen>("loading");
-  const [version, setVersion]     = useState("v0.4.0");
+  const [version, setVersion]     = useState("latest");
   const [downloadUrl, setUrl]     = useState("");
   const [installPath, setPath]    = useState("");
   const [error, setError]         = useState("");
@@ -28,14 +26,17 @@ export default function App() {
   useEffect(() => {
     invoke<string>("get_default_install_path").then(setPath).catch(() => {});
 
-    fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json" } })
-      .then((r) => r.json())
-      .then((data) => {
-        const tag   = data.tag_name ?? "v0.4.0";
-        const asset = (data.assets as { name: string; browser_download_url: string }[])
-          ?.find((a) => a.name.endsWith(".exe") && a.name.includes("x64"));
-        setVersion(tag);
-        if (asset) setUrl(asset.browser_download_url);
+    // Get the download URL from the release manifest via Rust (curl) — avoids the
+    // GitHub API's anonymous rate limit and webview CORS that broke this before.
+    invoke<string>("fetch_latest_json")
+      .then((text) => {
+        const data = JSON.parse(text) as {
+          version?: string;
+          platforms?: Record<string, { url?: string }>;
+        };
+        if (data.version) setVersion(`v${data.version}`);
+        const url = data.platforms?.["windows-x86_64"]?.url;
+        if (url) setUrl(url);
         setScreen("welcome");
       })
       .catch(() => setScreen("welcome"));
