@@ -46,6 +46,21 @@ let _dmMessagesChannel: ReturnType<typeof supabase.channel> | null = null;
 let _callInviteTimer: ReturnType<typeof setTimeout> | null = null;
 let _dmVoiceEngine: NativeVoiceEngine | null = null;
 
+// Outbound call signals are sent on the *recipient's* personal channel
+// (dm_calls:<userId>) rather than one shared channel everyone subscribed to —
+// the old global "dm_calls" channel let any authenticated client see every
+// call signal in the app. Lazily created per recipient, reused across sends,
+// torn down on the next initDMData (mirrors _callChannel/_dmMessagesChannel).
+const _outboundCallChannels = new Map<string, ReturnType<typeof supabase.channel>>();
+function outboundCallChannel(toUserId: string) {
+  let ch = _outboundCallChannels.get(toUserId);
+  if (!ch) {
+    ch = supabase.channel(`dm_calls:${toUserId}`, { config: { broadcast: { self: false } } }).subscribe();
+    _outboundCallChannels.set(toUserId, ch);
+  }
+  return ch;
+}
+
 function stopDMVoiceLocally() {
   if (_dmVoiceEngine) {
     void _dmVoiceEngine.leave();
@@ -243,13 +258,15 @@ export const useDMStore = create<DMState>((set, get) => ({
   initDMData: async (userId) => {
     try {
       // Persistent call-signaling channel — lives for the entire session.
-      // All call signals are routed through one shared broadcast channel;
-      // each client filters by `payload.to === myUserId`.
+      // Scoped to our own user id so only signals addressed to us arrive here
+      // (the old shared "dm_calls" channel let any client see every signal).
       if (_callChannel) {
         await supabase.removeChannel(_callChannel);
       }
+      for (const ch of _outboundCallChannels.values()) await supabase.removeChannel(ch);
+      _outboundCallChannels.clear();
       _callChannel = supabase
-        .channel("dm_calls", { config: { broadcast: { self: false } } })
+        .channel(`dm_calls:${userId}`, { config: { broadcast: { self: false } } })
         .on("broadcast", { event: "call" }, ({ payload }) => {
           const sig = payload as CallSignal;
           if (sig.to !== userId) return;
@@ -586,7 +603,7 @@ export const useDMStore = create<DMState>((set, get) => ({
 
     set({ outgoingCall: { toUserId: targetUserId, toUsername: targetUsername, dmChannelId } });
 
-    _callChannel?.send({
+    outboundCallChannel(targetUserId).send({
       type: "broadcast",
       event: "call",
       payload: { type: "call_invite", to: targetUserId, from: currentUserId, fromUsername: currentUsername, dmChannelId } satisfies CallSignal,
@@ -605,7 +622,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     const { outgoingCall } = get();
     if (!outgoingCall || !currentUserId) return;
     if (_callInviteTimer) { clearTimeout(_callInviteTimer); _callInviteTimer = null; }
-    _callChannel?.send({
+    outboundCallChannel(outgoingCall.toUserId).send({
       type: "broadcast",
       event: "call",
       payload: { type: "call_cancel", to: outgoingCall.toUserId, from: currentUserId } satisfies CallSignal,
@@ -618,7 +635,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     const { incomingCall } = get();
     if (!incomingCall || !currentUserId) return;
 
-    await _callChannel?.send({
+    await outboundCallChannel(incomingCall.fromUserId).send({
       type: "broadcast",
       event: "call",
       payload: { type: "call_accept", to: incomingCall.fromUserId, from: currentUserId } satisfies CallSignal,
@@ -648,7 +665,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     const currentUserId = useAuthStore.getState().user?.id;
     const { incomingCall } = get();
     if (!incomingCall || !currentUserId) return;
-    _callChannel?.send({
+    outboundCallChannel(incomingCall.fromUserId).send({
       type: "broadcast",
       event: "call",
       payload: { type: "call_decline", to: incomingCall.fromUserId, from: currentUserId } satisfies CallSignal,
@@ -660,7 +677,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     const currentUserId = useAuthStore.getState().user?.id;
     const { activeCall } = get();
     if (!activeCall || !currentUserId) return;
-    _callChannel?.send({
+    outboundCallChannel(activeCall.peerUserId).send({
       type: "broadcast",
       event: "call",
       payload: { type: "call_end", to: activeCall.peerUserId, from: currentUserId } satisfies CallSignal,
