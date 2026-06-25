@@ -135,3 +135,62 @@ describe("trackPresenceFor", () => {
     expect(q().in.mock.calls.length).toBe(callsBefore);
   });
 });
+
+// ── applyRelationshipEvent (incremental friends updates) ─────────────────────
+
+describe("applyRelationshipEvent", () => {
+  const me = "me";
+  const row = (over: Record<string, any>) => ({
+    id: "rel-1", requester_id: me, target_id: "other", status: "pending",
+    created_at: "2024-01-01", ...over,
+  });
+
+  beforeEach(() => {
+    useFriendsStore.setState({ currentUserId: me });
+  });
+
+  it("adds an incoming pending request (target = me)", async () => {
+    await useFriendsStore.getState().applyRelationshipEvent(
+      "INSERT", row({ requester_id: "other", target_id: me }),
+    );
+    const s = useFriendsStore.getState();
+    expect(s.pendingRequests.map((r) => r.id)).toContain("rel-1");
+    expect(s.outgoingRequests).toHaveLength(0);
+  });
+
+  it("adds an outgoing pending request (requester = me)", async () => {
+    await useFriendsStore.getState().applyRelationshipEvent("INSERT", row({}));
+    const s = useFriendsStore.getState();
+    expect(s.outgoingRequests.map((r) => r.id)).toContain("rel-1");
+    expect(s.pendingRequests).toHaveLength(0);
+  });
+
+  it("moves pending → friends on UPDATE to accepted (no duplicate)", async () => {
+    await useFriendsStore.getState().applyRelationshipEvent(
+      "INSERT", row({ requester_id: "other", target_id: me }),
+    );
+    await useFriendsStore.getState().applyRelationshipEvent(
+      "UPDATE", row({ requester_id: "other", target_id: me, status: "accepted" }),
+    );
+    const s = useFriendsStore.getState();
+    expect(s.friends.map((r) => r.id)).toEqual(["rel-1"]);
+    expect(s.pendingRequests).toHaveLength(0);
+  });
+
+  it("removes from every bucket on DELETE (by id only)", async () => {
+    useFriendsStore.setState({
+      friends: [{ id: "rel-1", requesterId: "other", targetId: me, status: "accepted", createdAt: "" }],
+    });
+    await useFriendsStore.getState().applyRelationshipEvent("DELETE", { id: "rel-1" });
+    expect(useFriendsStore.getState().friends).toHaveLength(0);
+  });
+
+  it("ignores events that don't involve the current user", async () => {
+    await useFriendsStore.getState().applyRelationshipEvent(
+      "INSERT", row({ requester_id: "x", target_id: "y" }),
+    );
+    const s = useFriendsStore.getState();
+    expect(s.pendingRequests).toHaveLength(0);
+    expect(s.outgoingRequests).toHaveLength(0);
+  });
+});

@@ -3,6 +3,7 @@ import { X, ChevronDown } from "lucide-react";
 import { FishHookIcon } from "./fish-hook-icon";
 import { CreateServerModal } from "./create-server-modal";
 import { useServerStore } from "@/lib/store/server-store";
+import { useShallow } from "zustand/react/shallow";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -10,7 +11,20 @@ import { useBaitStore } from "@/lib/store/bait-store";
 
 export function TopBar() {
   const { servers, openTabs, activeServerId, setActiveServer, closeTab, openTab, channels, unreadCounts, serverAccessOrder, joinByInviteCode } =
-    useServerStore();
+    useServerStore(
+      useShallow((s) => ({
+        servers: s.servers,
+        openTabs: s.openTabs,
+        activeServerId: s.activeServerId,
+        setActiveServer: s.setActiveServer,
+        closeTab: s.closeTab,
+        openTab: s.openTab,
+        channels: s.channels,
+        unreadCounts: s.unreadCounts,
+        serverAccessOrder: s.serverAccessOrder,
+        joinByInviteCode: s.joinByInviteCode,
+      })),
+    );
   const { user } = useAuthStore();
   const [showServersDropdown, setShowServersDropdown] = useState(false);
   const [showCreateServer, setShowCreateServer] = useState(false);

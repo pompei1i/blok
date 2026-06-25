@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Headphones, HeadphoneOff, VolumeX, Monitor, Video, VideoOff, PhoneOff } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
+import { useShallow } from "zustand/react/shallow";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { UserAvatar } from "./user-avatar";
@@ -60,7 +61,26 @@ export function VoiceView() {
     toggleScreenShare,
     toggleCamera,
     leaveVoiceChannel,
-  } = useServerStore();
+  } = useServerStore(
+    useShallow((s) => ({
+      activeVoiceChannelId: s.activeVoiceChannelId,
+      voiceParticipants: s.voiceParticipants,
+      members: s.members,
+      activeServerId: s.activeServerId,
+      channels: s.channels,
+      isMuted: s.isMuted,
+      isDeafened: s.isDeafened,
+      isScreenSharing: s.isScreenSharing,
+      isCameraOn: s.isCameraOn,
+      localCameraStream: s.localCameraStream,
+      cameraUsers: s.cameraUsers,
+      toggleMute: s.toggleMute,
+      toggleDeafen: s.toggleDeafen,
+      toggleScreenShare: s.toggleScreenShare,
+      toggleCamera: s.toggleCamera,
+      leaveVoiceChannel: s.leaveVoiceChannel,
+    })),
+  );
   const { user } = useAuthStore();
   const mirrorCamera = useUiSettingsStore((s) => s.mirrorCamera);
   const [ctxMenu, setCtxMenu] = useState<VoiceUserCtx | null>(null);

@@ -37,6 +37,9 @@ interface FriendsState {
   /** Idempotently fetch + merge presence for a set of users (called by both
    *  friends-store and server-store as relationships/members load). */
   trackPresenceFor: (userIds: string[]) => Promise<void>;
+  /** Apply a single user_relationships realtime change incrementally instead of
+   *  re-fetching the whole friends graph. */
+  applyRelationshipEvent: (eventType: "INSERT" | "UPDATE" | "DELETE", row: any) => Promise<void>;
   removeFriend: (relationshipId: string) => Promise<void>;
   updatePresence: (userId: string, status: PresenceStatus) => Promise<void>;
   setActivity: (userId: string, activity: string | null) => Promise<void>;
@@ -88,6 +91,61 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
       }
       return { presence, presenceLastSeen, activity };
     });
+  },
+
+  applyRelationshipEvent: async (eventType, row) => {
+    if (!row?.id) return;
+
+    // DELETE payloads carry only the primary key (no requester/target), so
+    // remove by id across every bucket — a no-op if we never had it.
+    if (eventType === "DELETE") {
+      set((state) => ({
+        friends: state.friends.filter((r) => r.id !== row.id),
+        pendingRequests: state.pendingRequests.filter((r) => r.id !== row.id),
+        outgoingRequests: state.outgoingRequests.filter((r) => r.id !== row.id),
+      }));
+      return;
+    }
+
+    const me = get().currentUserId;
+    if (!me || (row.requester_id !== me && row.target_id !== me)) return;
+    const counterpartyId = row.requester_id === me ? row.target_id : row.requester_id;
+
+    // Reuse a counterparty profile we already hold; otherwise fetch just that
+    // one row instead of re-loading the entire friends graph.
+    let counterpartyUser = [...get().friends, ...get().pendingRequests, ...get().outgoingRequests]
+      .map((r) => (r.requesterId === counterpartyId ? r.requesterUser
+                 : r.targetId === counterpartyId ? r.targetUser : undefined))
+      .find(Boolean);
+    if (!counterpartyUser) {
+      const { data } = await supabase.from("profiles").select("*").eq("id", counterpartyId).single();
+      if (data) counterpartyUser = mapProfile(data);
+    }
+
+    const rel: UserRelationship = {
+      id: row.id,
+      requesterId: row.requester_id,
+      targetId: row.target_id,
+      status: row.status,
+      createdAt: row.created_at,
+      requesterUser: row.requester_id === counterpartyId ? counterpartyUser : undefined,
+      targetUser: row.target_id === counterpartyId ? counterpartyUser : undefined,
+    };
+
+    // Re-bucket by (status, direction), removing any stale copy by id first.
+    set((state) => {
+      const friends = state.friends.filter((r) => r.id !== row.id);
+      const pendingRequests = state.pendingRequests.filter((r) => r.id !== row.id);
+      const outgoingRequests = state.outgoingRequests.filter((r) => r.id !== row.id);
+      if (rel.status === "accepted") friends.push(rel);
+      else if (rel.status === "pending") {
+        if (rel.requesterId === me) outgoingRequests.push(rel);
+        else pendingRequests.push(rel);
+      }
+      return { friends, pendingRequests, outgoingRequests };
+    });
+
+    void get().trackPresenceFor([counterpartyId]);
   },
 
   initFriendsData: async (userId) => {
@@ -240,10 +298,7 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
           { event: "*", schema: "public", table: "user_relationships" },
           (payload) => {
             const row = (payload.new ?? payload.old) as any;
-            if (!row) return;
-            if (row.requester_id === userId || row.target_id === userId) {
-              get().initFriendsData(userId);
-            }
+            void get().applyRelationshipEvent(payload.eventType as "INSERT" | "UPDATE" | "DELETE", row);
           },
         )
         .on(
@@ -327,33 +382,30 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
   acceptRequest: async (relationshipId) => {
     const { error } = await supabase.from("user_relationships").update({ status: "accepted" }).eq("id", relationshipId);
     if (!error) {
+       // Optimistic move pending → friends; the realtime UPDATE re-buckets by id
+       // (idempotent) and tracks the new friend's presence.
+       const me = get().currentUserId;
+       const req = get().pendingRequests.find(r => r.id === relationshipId);
        set((state) => {
-         const req = state.pendingRequests.find(r => r.id === relationshipId);
          if (!req) return state;
          return {
            pendingRequests: state.pendingRequests.filter(r => r.id !== relationshipId),
-           friends: [...state.friends, { ...req, status: "accepted" }]
+           friends: [...state.friends, { ...req, status: "accepted" as const }]
          };
        });
-
-      const currentUserId = get().currentUserId;
-      if (currentUserId) {
-        await get().initFriendsData(currentUserId);
-      }
+       if (req) {
+         void get().trackPresenceFor([req.requesterId === me ? req.targetId : req.requesterId]);
+       }
     }
   },
 
   declineRequest: async (relationshipId) => {
     const { error } = await supabase.from("user_relationships").delete().eq("id", relationshipId);
     if (!error) {
+       // Optimistic remove; the realtime DELETE removes by id (idempotent).
        set((state) => ({
          pendingRequests: state.pendingRequests.filter(r => r.id !== relationshipId),
        }));
-
-      const currentUserId = get().currentUserId;
-      if (currentUserId) {
-        await get().initFriendsData(currentUserId);
-      }
     }
   },
 
@@ -421,22 +473,18 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
        };
     }
 
-    await get().initFriendsData(currentUserId);
-    
+    // The outgoing request appears via the realtime INSERT (applyRelationshipEvent),
+    // no full re-fetch needed.
     return { success: true, message: `Friend request sent to ${username}` };
   },
 
   cancelRequest: async (relationshipId) => {
     const { error } = await supabase.from("user_relationships").delete().eq("id", relationshipId);
     if (!error) {
+       // Optimistic remove; the realtime DELETE removes by id (idempotent).
        set((state) => ({
          outgoingRequests: state.outgoingRequests.filter(r => r.id !== relationshipId),
        }));
-
-      const currentUserId = get().currentUserId;
-      if (currentUserId) {
-        await get().initFriendsData(currentUserId);
-      }
     }
   },
 

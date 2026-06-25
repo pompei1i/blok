@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useServerStore } from "@/lib/store/server-store";
+import { useShallow } from "zustand/react/shallow";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { MessageBubble } from "./message-bubble";
 import { EmojiPicker } from "./emoji-picker";
@@ -63,7 +64,32 @@ export function ChatArea() {
     votePoll,
     setActiveChannel,
     activeVoiceChannelId,
-  } = useServerStore();
+  } = useServerStore(
+    useShallow((s) => ({
+      activeServerId: s.activeServerId,
+      activeChannelId: s.activeChannelId,
+      channels: s.channels,
+      messages: s.messages,
+      messagesLoading: s.messagesLoading,
+      typingUsers: s.typingUsers,
+      members: s.members,
+      roles: s.roles,
+      servers: s.servers,
+      userProfileCache: s.userProfileCache,
+      deleteMessage: s.deleteMessage,
+      editMessage: s.editMessage,
+      pinMessage: s.pinMessage,
+      addReaction: s.addReaction,
+      removeReaction: s.removeReaction,
+      loadMoreMessages: s.loadMoreMessages,
+      messagesAtStart: s.messagesAtStart,
+      polls: s.polls,
+      createPoll: s.createPoll,
+      votePoll: s.votePoll,
+      setActiveChannel: s.setActiveChannel,
+      activeVoiceChannelId: s.activeVoiceChannelId,
+    })),
+  );
   const { user } = useAuthStore();
 
   const isBaitActive = useBaitStore((s) => s.isActive);

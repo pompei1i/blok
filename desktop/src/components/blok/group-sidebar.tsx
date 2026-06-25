@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { SLOWMODE_PRESETS, formatSlowmode } from "@/lib/moderation";
 import { useServerStore } from "@/lib/store/server-store";
+import { useShallow } from "zustand/react/shallow";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
@@ -56,7 +57,35 @@ export function GroupSidebar() {
     deleteCategory,
     reorderCategories,
     reorderChannels,
-  } = useServerStore();
+  } = useServerStore(
+    useShallow((s) => ({
+      servers: s.servers,
+      activeServerId: s.activeServerId,
+      channels: s.channels,
+      categories: s.categories,
+      activeChannelId: s.activeChannelId,
+      setActiveChannel: s.setActiveChannel,
+      activeVoiceChannelId: s.activeVoiceChannelId,
+      voiceParticipants: s.voiceParticipants,
+      joinVoiceChannel: s.joinVoiceChannel,
+      leaveVoiceChannel: s.leaveVoiceChannel,
+      unreadCounts: s.unreadCounts,
+      deleteChannel: s.deleteChannel,
+      members: s.members,
+      roles: s.roles,
+      isCameraOn: s.isCameraOn,
+      cameraUsers: s.cameraUsers,
+      updateServerIcon: s.updateServerIcon,
+      renameChannel: s.renameChannel,
+      renameServer: s.renameServer,
+      setChannelSlowmode: s.setChannelSlowmode,
+      createCategory: s.createCategory,
+      renameCategory: s.renameCategory,
+      deleteCategory: s.deleteCategory,
+      reorderCategories: s.reorderCategories,
+      reorderChannels: s.reorderChannels,
+    })),
+  );
   const { user } = useAuthStore();
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const toggleCategory = (id: string) => setCollapsedCategories((s) => ({ ...s, [id]: !s[id] }));

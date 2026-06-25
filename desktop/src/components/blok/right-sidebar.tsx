@@ -7,6 +7,7 @@ import { FishHookIcon } from "./fish-hook-icon";
 import { useI18n } from "@/lib/i18n";
 import { useBaitStore } from "@/lib/store/bait-store";
 import { useServerStore } from "@/lib/store/server-store";
+import { useShallow } from "zustand/react/shallow";
 import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -58,7 +59,20 @@ function TabBtn({ label, active, count, onClick }: { label: string; active?: boo
 // ─── Members view ─────────────────────────────────────────────────────────────
 
 function MembersView() {
-  const { activeServerId, members, channels, voiceParticipants, servers, roles, kickMember, banMember, timeoutMember, generateInviteCode } = useServerStore();
+  const { activeServerId, members, channels, voiceParticipants, servers, roles, kickMember, banMember, timeoutMember, generateInviteCode } = useServerStore(
+    useShallow((s) => ({
+      activeServerId: s.activeServerId,
+      members: s.members,
+      channels: s.channels,
+      voiceParticipants: s.voiceParticipants,
+      servers: s.servers,
+      roles: s.roles,
+      kickMember: s.kickMember,
+      banMember: s.banMember,
+      timeoutMember: s.timeoutMember,
+      generateInviteCode: s.generateInviteCode,
+    })),
+  );
   const { presence, presenceLastSeen, activity, friends, sendFriendRequest, removeFriend } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
@@ -463,7 +477,9 @@ function FriendsView() {
   const { user } = useAuthStore();
   const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, activity, acceptRequest, declineRequest, cancelRequest, removeFriend, loadError } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
-  const { activeServerId, generateInviteCode } = useServerStore();
+  const { activeServerId, generateInviteCode } = useServerStore(
+    useShallow((s) => ({ activeServerId: s.activeServerId, generateInviteCode: s.generateInviteCode })),
+  );
   const showToast = useToastStore((s) => s.showToast);
   const { t } = useI18n();
   const [search, setSearch] = useState("");
@@ -743,7 +759,7 @@ function FriendsView() {
 
 export function QuestsView() {
   const { user } = useAuthStore();
-  const { activeServerId } = useServerStore();
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const { progress, loading, loadQuests, claimQuest } = useQuestsStore();
 
   useEffect(() => {
@@ -817,7 +833,9 @@ export function QuestsView() {
 // ─── Unified sidebar ──────────────────────────────────────────────────────────
 
 export function RightSidebar() {
-  const { activeServerId, members } = useServerStore();
+  const { activeServerId, members } = useServerStore(
+    useShallow((s) => ({ activeServerId: s.activeServerId, members: s.members })),
+  );
   const { friends } = useFriendsStore();
   const memberCount = activeServerId ? (members[activeServerId]?.length ?? 0) : 0;
   const friendCount = friends.length;

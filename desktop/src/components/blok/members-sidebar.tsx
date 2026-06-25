@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MessageCircle, ChevronDown, Search } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
+import { useShallow } from "zustand/react/shallow";
 import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -11,7 +12,9 @@ import { xpToLevel, levelColor } from "@/lib/levels";
 import type { ServerMember } from "@/lib/store/types";
 
 export function MembersSidebar() {
-  const { activeServerId, members, voiceParticipants } = useServerStore();
+  const { activeServerId, members, voiceParticipants } = useServerStore(
+    useShallow((s) => ({ activeServerId: s.activeServerId, members: s.members, voiceParticipants: s.voiceParticipants })),
+  );
   const { presence, presenceLastSeen, activity } = useFriendsStore();
   const { openDM } = useDMStore();
   const { user } = useAuthStore();
