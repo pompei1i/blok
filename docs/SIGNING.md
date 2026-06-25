@@ -8,23 +8,21 @@ blok's auto-updater (Tauri's updater plugin) verifies every downloaded installer
 - `desktop/.tauri-key.pub` — public key, same value as `tauri.conf.json#plugins.updater.pubkey`.
 - `desktop/src-tauri/tauri.conf.json` — `plugins.updater.pubkey` must match the private key used in CI.
 
-## What was broken
+## v0.9.27 incident: an unnecessary, irreversible key rotation
 
-The public key committed in `tauri.conf.json` did not correspond to any private key available in CI (`TAURI_SIGNING_PRIVATE_KEY` secret was unset/stale). Every release built and published successfully, but installed clients could never verify `latest.json`'s signature, so the in-app updater silently did nothing.
+The key pair shipped since v0.2.17 (commit `92b145f`) was correctly set up and had been signing every release fine through v0.9.26 — `TAURI_SIGNING_PRIVATE_KEY` lived only as a GitHub Actions secret (correctly; private keys are never committed).
 
-## Fix
+During a v0.9.27 changeset, a *local* `npm run tauri build` printed the routine warning `"A public key has been found, but no private key"` — expected on a machine without the CI secret available locally. This was misdiagnosed as evidence the CI secret itself was broken. Without verifying that assumption (e.g. checking recent release run logs, or that `latest.json` already had valid signatures from prior releases), a new key pair was generated and `gh secret set TAURI_SIGNING_PRIVATE_KEY` **overwrote the working secret**. GitHub Secrets have no version history — the old private key is gone.
 
-Regenerated the key pair and synced all three places:
+**Effect:** anyone running v0.9.26 or earlier cannot auto-update past v0.9.27; they need one manual reinstall. From v0.9.27 onward, the new key is consistent between `tauri.conf.json` and the CI secret, so auto-update resumes normally. This is the identical failure mode (and identical fix) as the original v0.2.17 incident.
 
-```bash
-cd desktop
-npx tauri signer generate --ci --write-keys .tauri-key --force
-```
+**Lesson:** never rotate `TAURI_SIGNING_PRIVATE_KEY` without first confirming the *current* key is actually broken — e.g. check that the latest published `latest.json` already has a non-empty `signature` field, or look at whether recent CI release runs succeeded without warnings. A local-build-only warning about a missing private key is normal and does not imply anything about the CI secret.
 
-Then:
-1. Copied the new public key into `desktop/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`).
-2. Set the GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY` to the contents of `desktop/.tauri-key`.
-3. Left `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` unset (key has no password).
+## Current keys
+
+- `desktop/.tauri-key` — private key (gitignored, never commit). No passphrase.
+- `desktop/.tauri-key.pub` — public key, same value as `tauri.conf.json#plugins.updater.pubkey`.
+- `desktop/src-tauri/tauri.conf.json` — `plugins.updater.pubkey` must match the private key used in CI.
 
 ## Rotating the key in future
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.27] — 2026-06-25
+
+### Fixed
+- Voice channels can now be deleted (gated by manage permission).
+- Right-click a voice participant or a screen share to set per-user/per-share volume (0–200%).
+- Sidebar member context menu actions (mention, invite) now actually work.
+- Screen-share overlay supports a grid view for multiple concurrent shares, and resumes video correctly after window minimize/restore.
+- Join/leave/watching sounds are synthesized via Web Audio instead of shipped mp3s.
+- Removed dead screen-share source-picker code (UI + native Rust scaffolding) that was never wired up.
+
+### Security
+- **`servers` table RLS** — non-members could see metadata for every server in the database (not just ones they belonged to). Reads are now scoped to membership.
+
+### Known issue — signing key rotation
+The updater's signing key pair was rotated in this release. **This was a mistake born from an incorrect diagnosis**: the previous key (set up correctly back in v0.2.17) was assumed broken based on a local-build-only warning, and was overwritten in GitHub Secrets without verifying that assumption — the old private key is now unrecoverable.
+
+Practical effect: anyone running v0.9.26 or earlier cannot auto-update past this point; one **manual** download+install of v0.9.27 is required. From v0.9.27 onward, auto-update works normally again (same situation, and same fix, as the v0.2.17 incident). See [docs/SIGNING.md](docs/SIGNING.md).
+
 ## [0.9.26] — 2026-06-23
 
 ### Security
