@@ -1,62 +1,60 @@
 /**
- * Sound effects manager for Blok
+ * Sound effects for Blok — all fully synthesized with the Web Audio API.
+ *
+ * There are no audio files: every cue is generated on the fly so the bundle
+ * carries no binary assets and the sounds stay consistent with the app's
+ * minimal, terminal aesthetic.
  *
  * Usage:
- *   import { playSound } from "@/lib/sounds";
- *   playSound("join");
+ *   import { playJoinSound } from "@/lib/sounds";
+ *   playJoinSound();
  */
 
-const SOUND_FILES = {
-  join: "/sounds/join.mp3",
-  leave: "/sounds/leave.mp3",
-  ringtone: "/sounds/ringtone.mp3",
-} as const;
+// ── Web Audio helpers ─────────────────────────────────────────────────────────
 
-export type SoundName = keyof typeof SOUND_FILES;
-
-const VOLUME = 0.4;
-
-// One Audio element per sound — reused to prevent overlapping
-const audioCache = new Map<SoundName, HTMLAudioElement>();
-
-function getAudio(name: SoundName): HTMLAudioElement {
-  let audio = audioCache.get(name);
-  if (!audio) {
-    audio = new Audio(SOUND_FILES[name]);
-    audio.volume = VOLUME;
-    audioCache.set(name, audio);
-  }
-  return audio;
-}
-
-/** Play a sound effect. Stops any previous instance of the same sound first. */
-export function playSound(name: SoundName, loop = false): HTMLAudioElement | null {
+function _getAudioCtx(): AudioContext | null {
   try {
-    const audio = getAudio(name);
-
-    // Stop current playback so sounds never layer on top of each other
-    audio.pause();
-    audio.currentTime = 0;
-    audio.loop = loop;
-    audio.volume = VOLUME;
-
-    audio.play().catch((err) => {
-      // eslint-disable-next-line no-console
-      console.warn(`Failed to play sound "${name}":`, err);
-    });
-
-    return audio;
-  } catch {
-    return null;
-  }
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    return Ctor ? new Ctor() : null;
+  } catch { return null; }
 }
+
+/**
+ * Play a sequence of tones. Each frequency starts `gapSec` after the previous
+ * one and decays exponentially over `duration` seconds.
+ */
+function _synthTones(
+  freqs: number[],
+  duration: number,
+  gapSec: number,
+  volume = 0.18,
+  type: OscillatorType = "sine",
+): void {
+  const ctx = _getAudioCtx();
+  if (!ctx) return;
+  freqs.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = type;
+    const t = ctx.currentTime + i * gapSec;
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t);
+    osc.stop(t + duration);
+  });
+  setTimeout(() => ctx.close(), (freqs.length * gapSec + duration) * 1000 + 200);
+}
+
+// ── Notification ──────────────────────────────────────────────────────────────
 
 /** Short synthesized beep for incoming message notifications. */
 export function playNotificationBeep() {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx() as AudioContext;
+    const ctx = _getAudioCtx();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -72,42 +70,18 @@ export function playNotificationBeep() {
   } catch {}
 }
 
-/** Stop a sound (e.g. ringtone loop). */
-export function stopSound(name: SoundName) {
-  const audio = audioCache.get(name);
-  if (audio) {
-    audio.pause();
-    audio.currentTime = 0;
-  }
-}
+// ── Voice presence cues ───────────────────────────────────────────────────────
 
-// ── Synthesized UI sounds ─────────────────────────────────────────────────────
+/** Someone (or you) joined a voice channel — warm ascending two-tone. */
+export function playJoinSound(): void { _synthTones([523.25, 783.99], 0.13, 0.12, 0.16, "triangle"); }
 
-function _getAudioCtx(): AudioContext | null {
-  try {
-    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    return Ctor ? new Ctor() : null;
-  } catch { return null; }
-}
+/** Someone (or you) left a voice channel — gentle descending two-tone. */
+export function playLeaveSound(): void { _synthTones([659.25, 392.0], 0.14, 0.12, 0.16, "triangle"); }
 
-function _synthTones(freqs: number[], duration: number, gapSec: number, volume = 0.18): void {
-  const ctx = _getAudioCtx();
-  if (!ctx) return;
-  freqs.forEach((freq, i) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    const t = ctx.currentTime + i * gapSec;
-    osc.frequency.setValueAtTime(freq, t);
-    gain.gain.setValueAtTime(volume, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-    osc.start(t);
-    osc.stop(t + duration);
-  });
-  setTimeout(() => ctx.close(), (freqs.length * gapSec + duration) * 1000 + 200);
-}
+/** Someone started watching your screen share — soft rising double-blip. */
+export function playWatchSound(): void { _synthTones([880, 1318.51], 0.08, 0.09, 0.13, "sine"); }
+
+// ── Mic / capture toggles ─────────────────────────────────────────────────────
 
 /** Mic muted — two descending tones. */
 export function playMuteSound(): void { _synthTones([660, 440], 0.09, 0.11); }
@@ -125,24 +99,30 @@ export function playCaptureStopSound(): void { _synthTones([880, 550], 0.07, 0.0
 
 let _ringtoneTimer: ReturnType<typeof setInterval> | null = null;
 
+/** A single "bdring" — two quick rising notes, like a friendly call. */
 function _ringBurst(): void {
   const ctx = _getAudioCtx();
   if (!ctx) return;
-  [0, 0.5].forEach((offset) => {
+  const notes = [
+    { f: 587.33, at: 0.0 },  // D5
+    { f: 880.0,  at: 0.18 }, // A5
+  ];
+  notes.forEach(({ f, at }) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(480, ctx.currentTime + offset);
-    gain.gain.setValueAtTime(0, ctx.currentTime + offset);
-    gain.gain.linearRampToValueAtTime(0.28, ctx.currentTime + offset + 0.02);
-    gain.gain.setValueAtTime(0.28, ctx.currentTime + offset + 0.32);
-    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.4);
-    osc.start(ctx.currentTime + offset);
-    osc.stop(ctx.currentTime + offset + 0.4);
+    osc.type = "triangle";
+    const start = ctx.currentTime + at;
+    osc.frequency.setValueAtTime(f, start);
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.26, start + 0.02);
+    gain.gain.setValueAtTime(0.26, start + 0.16);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.34);
+    osc.start(start);
+    osc.stop(start + 0.36);
   });
-  setTimeout(() => ctx.close(), 1600);
+  setTimeout(() => ctx.close(), 1200);
 }
 
 /** Start looping phone ringtone (incoming / outgoing call). */
@@ -158,9 +138,4 @@ export function stopRingtone(): void {
     clearInterval(_ringtoneTimer);
     _ringtoneTimer = null;
   }
-}
-
-/** Exposed for unit tests only — clears the internal audio element cache. */
-export function _clearSoundCacheForTesting(): void {
-  audioCache.clear();
 }

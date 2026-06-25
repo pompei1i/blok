@@ -1,21 +1,24 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Headphones, HeadphoneOff, VolumeX, Monitor, Video, VideoOff, PhoneOff } from "lucide-react";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useUiSettingsStore } from "@/lib/store/ui-settings-store";
 import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
+import { VoiceUserContextMenu, type VoiceUserCtx } from "./voice-user-context-menu";
 
 function VideoTile({
   stream,
   label,
   muted,
   mirror,
+  onContextMenu,
 }: {
   stream: MediaStream;
   label: string;
   muted?: boolean;
   mirror?: boolean;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -24,7 +27,7 @@ function VideoTile({
     ref.current.play().catch(() => {});
   }, [stream]);
   return (
-    <div className="relative bg-black rounded overflow-hidden aspect-video">
+    <div className="relative bg-black rounded overflow-hidden aspect-video" onContextMenu={onContextMenu}>
       <video
         ref={ref}
         autoPlay
@@ -60,6 +63,7 @@ export function VoiceView() {
   } = useServerStore();
   const { user } = useAuthStore();
   const mirrorCamera = useUiSettingsStore((s) => s.mirrorCamera);
+  const [ctxMenu, setCtxMenu] = useState<VoiceUserCtx | null>(null);
 
   if (!activeVoiceChannelId) return null;
 
@@ -71,6 +75,12 @@ export function VoiceView() {
   const getDisplayName = (userId: string) => {
     const m = serverMembers.find((x) => x.userId === userId);
     return m?.user?.displayName || m?.user?.username || userId.slice(0, 8);
+  };
+
+  const openCtxMenu = (userId: string) => (e: React.MouseEvent) => {
+    if (userId === user?.id) return; // no volume control over yourself
+    e.preventDefault();
+    setCtxMenu({ userId, name: getDisplayName(userId), x: e.clientX, y: e.clientY });
   };
 
   const tiles: { id: string; stream: MediaStream; label: string; muted: boolean; mirror?: boolean }[] = [];
@@ -120,6 +130,7 @@ export function VoiceView() {
                 label={tile.label}
                 muted={tile.muted}
                 mirror={tile.mirror}
+                onContextMenu={openCtxMenu(tile.id === "local" ? (user?.id ?? "") : tile.id)}
               />
             ))}
           </div>
@@ -139,8 +150,10 @@ export function VoiceView() {
                 return (
                   <div
                     key={p.userId}
+                    onContextMenu={openCtxMenu(p.userId)}
                     className={cn(
                       "flex flex-col items-center gap-2 p-3 rounded bg-[var(--bg-surface)] border min-w-[80px]",
+                      p.userId !== user?.id && "cursor-context-menu",
                       p.isSpeaking
                         ? "border-[var(--online)] shadow-[0_0_0_1px_var(--online)]"
                         : "border-[var(--border)]",
@@ -233,6 +246,10 @@ export function VoiceView() {
           <PhoneOff className="w-4 h-4" />
         </button>
       </div>
+
+      {ctxMenu && (
+        <VoiceUserContextMenu ctx={ctxMenu} onClose={() => setCtxMenu(null)} />
+      )}
     </div>
   );
 }

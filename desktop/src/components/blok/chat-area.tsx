@@ -244,6 +244,20 @@ export function ChatArea() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [chat.inputValue]);
 
+  // "Mention" from a member/friend context menu inserts @username into the composer.
+  const insertMentionRef = useRef(chat.insertMention);
+  insertMentionRef.current = chat.insertMention;
+  useEffect(() => {
+    const onMention = (e: Event) => {
+      const username = (e as CustomEvent<string>).detail;
+      if (!username) return;
+      insertMentionRef.current(username);
+      inputRef.current?.focus();
+    };
+    window.addEventListener("blok:mention-user", onMention);
+    return () => window.removeEventListener("blok:mention-user", onMention);
+  }, []);
+
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     dragCounter.current++;

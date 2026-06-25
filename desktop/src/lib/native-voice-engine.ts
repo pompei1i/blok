@@ -304,7 +304,7 @@ export class NativeVoiceEngine {
     return this.screenStream !== null;
   }
 
-  async startScreenShare(_sourceId?: string): Promise<void> {
+  async startScreenShare(): Promise<void> {
     if (this.screenStream) return;
 
     const { screenShareFps } = useUiSettingsStore.getState();
@@ -450,7 +450,11 @@ export class NativeVoiceEngine {
   /** Sharer: handle an offer from a viewer, send back an answer. */
   private async _handleShareeOffer(viewerId: string, sdp: string): Promise<void> {
     if (!this.screenStream) return;
+    // Notify only on a genuinely new viewer — renegotiation re-sends an offer for
+    // a viewer we already have a connection to, and shouldn't re-chime.
+    const isNewViewer = !this._shareePcs.has(viewerId);
     this._closeShareePc(viewerId);
+    if (isNewViewer) this.cb.onScreenWatched?.(viewerId);
 
     const pc = new RTCPeerConnection(await getIceConfig());
     this._shareePcs.set(viewerId, pc);
@@ -586,7 +590,7 @@ export class NativeVoiceEngine {
 
     switch (msg.type) {
       case "join":
-        this.cb.onParticipantJoin(msg.from);
+        this.cb.onParticipantJoin(msg.from, true);
         await this.broadcast({ type: "hello", from: this.userId });
         if (this.isScreenSharing()) {
           await this.broadcast({ type: "screenshare_start", from: this.userId });
@@ -596,7 +600,7 @@ export class NativeVoiceEngine {
         }
         break;
       case "hello":
-        this.cb.onParticipantJoin(msg.from);
+        this.cb.onParticipantJoin(msg.from, false);
         break;
       case "leave":
         this.cb.onParticipantLeave(msg.from);

@@ -18,19 +18,41 @@ interface RoleManagerModalProps {
 
 type Tab = "roles" | "members" | "bans" | "audit";
 
-const PERM_LABELS: { flag: number; labelKey: TranslationKey }[] = [
-  { flag: Perm.INVITE_MEMBER,      labelKey: "roles.perm.inviteMembers" },
-  { flag: Perm.CREATE_CHANNEL,     labelKey: "roles.perm.createChannels" },
-  { flag: Perm.DELETE_CHANNEL,     labelKey: "roles.perm.deleteChannels" },
-  { flag: Perm.RENAME_CHANNEL,     labelKey: "roles.perm.renameChannels" },
-  { flag: Perm.RENAME_SERVER,      labelKey: "roles.perm.renameServer" },
-  { flag: Perm.MANAGE_SERVER_ICON, labelKey: "roles.perm.manageServerIcon" },
-  { flag: Perm.MANAGE_CHANNELS,    labelKey: "roles.perm.manageChannels" },
-  { flag: Perm.MODERATE_MEMBERS,   labelKey: "roles.perm.moderateMembers" },
-  { flag: Perm.BAN_MEMBER,         labelKey: "roles.perm.banMembers" },
-  { flag: Perm.MANAGE_SERVER,      labelKey: "roles.perm.manageServer" },
-  { flag: Perm.MANAGE_ROLES,       labelKey: "roles.perm.manageRoles" },
+const PERM_GROUPS: { titleKey: TranslationKey; perms: { flag: number; labelKey: TranslationKey }[] }[] = [
+  {
+    titleKey: "roles.permGroup.general",
+    perms: [
+      { flag: Perm.MANAGE_SERVER,      labelKey: "roles.perm.manageServer" },
+      { flag: Perm.RENAME_SERVER,      labelKey: "roles.perm.renameServer" },
+      { flag: Perm.MANAGE_SERVER_ICON, labelKey: "roles.perm.manageServerIcon" },
+      { flag: Perm.INVITE_MEMBER,      labelKey: "roles.perm.inviteMembers" },
+    ],
+  },
+  {
+    titleKey: "roles.permGroup.channels",
+    perms: [
+      { flag: Perm.CREATE_CHANNEL,  labelKey: "roles.perm.createChannels" },
+      { flag: Perm.DELETE_CHANNEL,  labelKey: "roles.perm.deleteChannels" },
+      { flag: Perm.RENAME_CHANNEL,  labelKey: "roles.perm.renameChannels" },
+      { flag: Perm.MANAGE_CHANNELS, labelKey: "roles.perm.manageChannels" },
+    ],
+  },
+  {
+    titleKey: "roles.permGroup.moderation",
+    perms: [
+      { flag: Perm.MODERATE_MEMBERS, labelKey: "roles.perm.moderateMembers" },
+      { flag: Perm.BAN_MEMBER,       labelKey: "roles.perm.banMembers" },
+    ],
+  },
+  {
+    titleKey: "roles.permGroup.roles",
+    perms: [
+      { flag: Perm.MANAGE_ROLES, labelKey: "roles.perm.manageRoles" },
+    ],
+  },
 ];
+
+const ALL_PERMS = PERM_GROUPS.flatMap((g) => g.perms);
 
 const PRESET_COLORS = [
   "#ef4444", "#f97316", "#eab308", "#22c55e",
@@ -154,21 +176,28 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center"
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl bg-[var(--bg-elevated)] border border-[var(--border)] shadow-2xl flex flex-col"
-        style={{ maxHeight: "80vh" }}
+        className="w-full max-w-2xl bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ maxHeight: "82vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4 text-[var(--accent-red)]" />
-            <span className="text-sm font-semibold text-[var(--text-primary)]">{t("roles.title")}</span>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0 bg-[var(--bg-surface)]/40">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[var(--accent-red)]/12 border border-[var(--accent-red)]/25">
+              <Shield className="w-4 h-4 text-[var(--accent-red)]" />
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-sm font-semibold text-[var(--text-primary)]">{t("roles.title")}</span>
+              <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                {serverRoles.length} {serverRoles.length === 1 ? t("roles.roleSingular") : t("roles.rolePlural")} · {serverMembers.length} {t("roles.membersLower")}
+              </span>
+            </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -207,30 +236,40 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
             {/* Role list */}
             <div className="w-44 flex-shrink-0 border-r border-[var(--border)] flex flex-col">
               <div className="flex-1 overflow-y-auto py-2">
-                {serverRoles.map((role) => (
-                  <button
-                    key={role.id}
-                    onClick={() => openRole(role)}
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left group",
-                      selectedRoleId === role.id
-                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)]"
-                        : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                    )}
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: role.color ?? "#6b7280" }}
-                    />
-                    <span className="flex-1 truncate">{role.name}</span>
+                {serverRoles.map((role) => {
+                  const memberCount = serverMembers.filter((m) => m.roleId === role.id).length;
+                  return (
                     <button
-                      onClick={(e) => { e.stopPropagation(); void handleDeleteRole(role.id); }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+                      key={role.id}
+                      onClick={() => openRole(role)}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left group relative",
+                        selectedRoleId === role.id
+                          ? "bg-[var(--bg-hover)] text-[var(--text-primary)] before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:bg-[var(--accent-red)]"
+                          : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                      )}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <span
+                        className="w-3 h-3 rounded-full flex-shrink-0 ring-1 ring-inset ring-black/20"
+                        style={{ backgroundColor: role.color ?? "#6b7280" }}
+                      />
+                      <span className="flex-1 truncate">{role.name}</span>
+                      {memberCount > 0 && (
+                        <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)] opacity-70 group-hover:opacity-0 transition-opacity flex-shrink-0">
+                          <Users className="w-2.5 h-2.5" />
+                          {memberCount}
+                        </span>
+                      )}
+                      <span
+                        role="button"
+                        onClick={(e) => { e.stopPropagation(); void handleDeleteRole(role.id); }}
+                        className="absolute right-2 opacity-0 group-hover:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </span>
                     </button>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
               <div className="p-2 border-t border-[var(--border)]">
                 {creating ? (
@@ -279,6 +318,22 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                 </div>
               ) : (
                 <div className="space-y-5">
+                  {/* Live preview chip */}
+                  <div className="flex items-center gap-2 pb-1">
+                    <span className="text-[11px] text-[var(--text-muted)] font-mono">{t("roles.preview")}</span>
+                    <span
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium max-w-[200px]"
+                      style={{
+                        backgroundColor: (editColor || "#6b7280") + "22",
+                        color: editColor || "#6b7280",
+                        border: `1px solid ${(editColor || "#6b7280")}55`,
+                      }}
+                    >
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: editColor || "#6b7280" }} />
+                      <span className="truncate">{editName || t("roles.roleName")}</span>
+                    </span>
+                  </div>
+
                   <div>
                     <label className="block text-[12px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
                       {t("roles.roleName")}
@@ -286,7 +341,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                     <input
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent-red)]"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent-red)] transition-colors"
                     />
                   </div>
 
@@ -300,60 +355,91 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                           key={c}
                           onClick={() => setEditColor(c)}
                           className={cn(
-                            "w-6 h-6 rounded-full transition-transform",
+                            "w-6 h-6 rounded-full transition-transform hover:scale-110",
                             editColor === c && "ring-2 ring-white ring-offset-1 ring-offset-[var(--bg-elevated)] scale-110"
                           )}
                           style={{ backgroundColor: c }}
                         />
                       ))}
-                      <input
-                        type="color"
-                        value={editColor}
-                        onChange={(e) => setEditColor(e.target.value)}
-                        className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0"
-                        title="Custom color"
-                      />
+                      <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-1 ring-[var(--border)] flex items-center justify-center" title={t("roles.customColor")}>
+                        <input
+                          type="color"
+                          value={editColor}
+                          onChange={(e) => setEditColor(e.target.value)}
+                          className="absolute inset-0 w-[150%] h-[150%] -translate-x-2 -translate-y-2 cursor-pointer border-0 p-0 bg-transparent"
+                        />
+                        <Plus className="w-3 h-3 text-white mix-blend-difference pointer-events-none" />
+                      </label>
+                      <span className="ml-1 text-[11px] font-mono text-[var(--text-muted)] uppercase">{editColor}</span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[12px] text-[var(--text-muted)] uppercase tracking-wider mb-1.5">
-                      {t("roles.permissions")}
-                    </label>
-                    <div className="space-y-1.5">
-                      {PERM_LABELS.map(({ flag, labelKey }) => {
-                        const has = !!(editPerms & flag);
-                        return (
-                          <label key={flag} className="flex items-center gap-2.5 cursor-pointer group">
-                            <button
-                              role="checkbox"
-                              aria-checked={has}
-                              onClick={() => togglePerm(flag)}
-                              className={cn(
-                                "w-4 h-4 rounded border transition-colors flex-shrink-0 flex items-center justify-center",
-                                has
-                                  ? "bg-[var(--accent-red)] border-[var(--accent-red)]"
-                                  : "border-[var(--border)] bg-[var(--bg-surface)] group-hover:border-[var(--text-muted)]"
-                              )}
-                            >
-                              {has && <span className="text-white text-[12px] leading-none">✓</span>}
-                            </button>
-                            <span className="text-xs text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">
-                              {t(labelKey)}
-                            </span>
-                          </label>
-                        );
-                      })}
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-[12px] text-[var(--text-muted)] uppercase tracking-wider">
+                        {t("roles.permissions")}
+                      </label>
+                      <span className="text-[11px] font-mono text-[var(--text-muted)]">
+                        {ALL_PERMS.filter((p) => editPerms & p.flag).length}/{ALL_PERMS.length}
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {PERM_GROUPS.map((group) => (
+                        <div key={group.titleKey}>
+                          <p className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] opacity-60 mb-1 px-1">
+                            {t(group.titleKey)}
+                          </p>
+                          <div className="rounded-lg border border-[var(--border)] overflow-hidden divide-y divide-[var(--border)]/50">
+                            {group.perms.map(({ flag, labelKey }) => {
+                              const has = !!(editPerms & flag);
+                              return (
+                                <button
+                                  key={flag}
+                                  role="checkbox"
+                                  aria-checked={has}
+                                  onClick={() => togglePerm(flag)}
+                                  className={cn(
+                                    "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors group",
+                                    has ? "bg-[var(--accent-red)]/5" : "hover:bg-[var(--bg-hover)]"
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      "w-4 h-4 rounded border transition-colors flex-shrink-0 flex items-center justify-center",
+                                      has
+                                        ? "bg-[var(--accent-red)] border-[var(--accent-red)]"
+                                        : "border-[var(--border)] bg-[var(--bg-surface)] group-hover:border-[var(--text-muted)]"
+                                    )}
+                                  >
+                                    {has && <span className="text-white text-[12px] leading-none">✓</span>}
+                                  </span>
+                                  <span className={cn(
+                                    "text-xs transition-colors",
+                                    has ? "text-[var(--text-primary)]" : "text-[var(--text-muted)] group-hover:text-[var(--text-primary)]"
+                                  )}>
+                                    {t(labelKey)}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => void handleSaveRole()}
-                    disabled={saving || !isDirty}
-                    className="px-4 py-2 text-xs bg-[var(--accent-red)] text-white rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {saving ? t("roles.saving") : t("roles.saveChanges")}
-                  </button>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={() => void handleSaveRole()}
+                      disabled={saving || !isDirty}
+                      className="px-4 py-2 text-xs bg-[var(--accent-red)] text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {saving ? t("roles.saving") : t("roles.saveChanges")}
+                    </button>
+                    {isDirty && (
+                      <span className="text-[11px] text-[var(--text-muted)] font-mono">{t("roles.unsaved")}</span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

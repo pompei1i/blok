@@ -16,7 +16,7 @@ import { PresenceDot } from "./presence-dot";
 import { AccountEditModal } from "./account-edit-modal";
 import { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { playSound } from "@/lib/sounds";
+import { playLeaveSound } from "@/lib/sounds";
 import { useI18n } from "@/lib/i18n";
 import { levelProgress, levelColor } from "@/lib/levels";
 import { useFriendsStore } from "@/lib/store/friends-store";
@@ -77,7 +77,7 @@ export function UserBar() {
             <button
               onClick={async () => {
                 await leaveVoiceChannel();
-                playSound("leave");
+                playLeaveSound();
               }}
               className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
               title={t("userBar.leaveVoice")}

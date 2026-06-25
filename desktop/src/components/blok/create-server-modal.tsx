@@ -29,8 +29,7 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
  try {
  await createServer({
  name: name.trim(),
- description: description.trim() || undefined,
- ownerId: user.id
+ description: description.trim() || undefined
  });
  onClose();
  } catch (err: any) {

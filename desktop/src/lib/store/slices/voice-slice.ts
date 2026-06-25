@@ -1,7 +1,7 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
-import { playMuteSound, playUnmuteSound, playCaptureStartSound, playCaptureStopSound } from "../../sounds";
+import { playMuteSound, playUnmuteSound, playCaptureStartSound, playCaptureStopSound, playJoinSound, playLeaveSound, playWatchSound } from "../../sounds";
 import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngine } from "../../native-voice-engine";
 import { useToastStore } from "../toast-store";
 import type { User, VoiceParticipant } from "../types";
@@ -32,7 +32,7 @@ export interface VoiceSlice {
   leaveVoiceChannel: () => Promise<void>;
   toggleMute: () => void;
   toggleDeafen: () => void;
-  toggleScreenShare: (sourceId?: string) => Promise<void>;
+  toggleScreenShare: () => Promise<void>;
   setWatchingUserId: (userId: string) => void;
   toggleCamera: () => Promise<void>;
   setUserVolume: (userId: string, volume: number) => void;
@@ -69,7 +69,8 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
     }));
 
     const engine = new NativeVoiceEngine(channelId, user.id, {
-      onParticipantJoin: (userId) => {
+      onParticipantJoin: (userId, isFreshJoin) => {
+        if (isFreshJoin) playJoinSound();
         set((state) => {
           const existing = state.voiceParticipants[channelId] ?? [];
           if (existing.some((p) => p.userId === userId)) return state;
@@ -97,6 +98,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         });
       },
       onParticipantLeave: (userId) => {
+        playLeaveSound();
         set((state) => ({
           voiceParticipants: {
             ...state.voiceParticipants,
@@ -122,6 +124,10 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
           const watching = state.watchingUserId ?? userId;
           return { screenSharers: next, watchingUserId: watching };
         });
+      },
+      onScreenWatched: () => {
+        // Someone connected to watch our screen share.
+        playWatchSound();
       },
       onScreenShareStop: (userId) => {
         // Self: sharing can end outside the toggle path (browser "Stop sharing",
@@ -264,7 +270,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
     }
   },
 
-  toggleScreenShare: async (sourceId?: string) => {
+  toggleScreenShare: async () => {
     const engine = getActiveNativeVoiceEngine();
     if (!engine) return;
     const { isScreenSharing, activeVoiceChannelId, isMuted, isDeafened, _currentUserId } = get();
@@ -288,7 +294,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
     } else {
       try {
         playCaptureStartSound();
-        await engine.startScreenShare(sourceId);
+        await engine.startScreenShare();
         if (activeVoiceChannelId && _currentUserId) {
           voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: true });
           set((state) => ({

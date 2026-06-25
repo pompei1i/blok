@@ -129,7 +129,7 @@ export async function executeTool(
   switch (name) {
     case "create_server": {
       const serverName = input.name as string;
-      await useServerStore.getState().createServer({ name: serverName, ownerId: ctx.userId });
+      await useServerStore.getState().createServer({ name: serverName });
       return { content: `Server "${serverName}" created.`, label: `✓ server "${serverName}" created` };
     }
 

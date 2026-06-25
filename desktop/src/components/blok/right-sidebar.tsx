@@ -10,6 +10,7 @@ import { useServerStore } from "@/lib/store/server-store";
 import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { useToastStore } from "@/lib/store/toast-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
 import { AddFriendModal } from "./add-friend-modal";
@@ -61,6 +62,7 @@ function MembersView() {
   const { presence, presenceLastSeen, activity, friends, sendFriendRequest, removeFriend } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
+  const showToast = useToastStore((s) => s.showToast);
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [onlineOpen, setOnlineOpen] = useState(true);
@@ -320,7 +322,10 @@ function MembersView() {
               <button
                 onClick={() => {
                   void generateInviteCode(activeServerId).then((code) => {
-                    if (code) navigator.clipboard.writeText(code).catch(() => {});
+                    if (code) {
+                      navigator.clipboard.writeText(code).catch(() => {});
+                      showToast({ emoji: "🔗", title: t("member.ctx.inviteCopied"), message: code });
+                    }
                   });
                   close();
                 }}
@@ -459,6 +464,7 @@ function FriendsView() {
   const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, activity, acceptRequest, declineRequest, cancelRequest, removeFriend, loadError } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { activeServerId, generateInviteCode } = useServerStore();
+  const showToast = useToastStore((s) => s.showToast);
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -696,7 +702,10 @@ function FriendsView() {
               <button
                 onClick={() => {
                   void generateInviteCode(activeServerId).then((code) => {
-                    if (code) navigator.clipboard.writeText(code).catch(() => {});
+                    if (code) {
+                      navigator.clipboard.writeText(code).catch(() => {});
+                      showToast({ emoji: "🔗", title: t("member.ctx.inviteCopied"), message: code });
+                    }
                   });
                   close();
                 }}

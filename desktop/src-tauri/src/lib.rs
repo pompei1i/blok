@@ -233,14 +233,6 @@ fn autostart_set_impl(_enabled: bool) -> Result<(), String> {
     Err("Autostart is only supported on Windows".to_string())
 }
 
-// ── screen source enumeration ─────────────────────────────────────────────────
-
-#[derive(serde::Serialize)]
-struct ScreenSource {
-    id: String,
-    name: String,
-}
-
 // ── screen frame capture ──────────────────────────────────────────────────────
 
 #[derive(serde::Serialize)]
@@ -433,103 +425,6 @@ fn capture_raw_monitor(_: u32) -> Option<RawFrame> { None }
 #[cfg(not(target_os = "windows"))]
 fn capture_raw_window(_: isize) -> Option<RawFrame> { None }
 
-/// Returns one entry per monitor. IDs use the Chromium desktop-capture format
-/// ("screen:INDEX:0") so they can be passed directly to getUserMedia with
-/// chromeMediaSource: 'desktop'.
-#[tauri::command]
-fn get_screen_sources() -> Vec<ScreenSource> {
-    get_screen_sources_impl()
-}
-
-#[cfg(target_os = "windows")]
-fn get_screen_sources_impl() -> Vec<ScreenSource> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CMONITORS};
-    let count = unsafe { GetSystemMetrics(SM_CMONITORS).max(1) } as u32;
-    (0..count)
-        .map(|i| ScreenSource {
-            id: format!("screen:{}:0", i),
-            name: if i == 0 {
-                "Primary Display".to_string()
-            } else {
-                format!("Display {}", i + 1)
-            },
-        })
-        .collect()
-}
-
-#[cfg(not(target_os = "windows"))]
-fn get_screen_sources_impl() -> Vec<ScreenSource> {
-    vec![ScreenSource {
-        id: "screen:0:0".to_string(),
-        name: "Display".to_string(),
-    }]
-}
-
-// ── window source enumeration ─────────────────────────────────────────────────
-
-#[derive(serde::Serialize)]
-struct WindowSource {
-    id: String,
-    title: String,
-}
-
-#[tauri::command]
-fn get_window_sources() -> Vec<WindowSource> {
-    get_window_sources_impl()
-}
-
-#[cfg(target_os = "windows")]
-fn get_window_sources_impl() -> Vec<WindowSource> {
-    use windows::Win32::Foundation::{HWND, LPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
-    use windows::core::BOOL;
-
-    let mut list: Vec<WindowSource> = Vec::new();
-
-    unsafe extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetWindowLongW, GetWindowTextLengthW, GetWindowTextW,
-            IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
-        };
-        use windows::core::BOOL;
-
-        if !IsWindowVisible(hwnd).as_bool() {
-            return BOOL(1);
-        }
-        let len = GetWindowTextLengthW(hwnd);
-        if len == 0 {
-            return BOOL(1);
-        }
-        // Skip floating toolbars, notification popups, etc.
-        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
-            return BOOL(1);
-        }
-        let mut buf = vec![0u16; (len + 1) as usize];
-        GetWindowTextW(hwnd, &mut buf);
-        let title = String::from_utf16_lossy(&buf[..len as usize]);
-        if title.is_empty() {
-            return BOOL(1);
-        }
-        let list = &mut *(lparam.0 as *mut Vec<WindowSource>);
-        list.push(WindowSource {
-            id: format!("window:{}:0", hwnd.0 as isize),
-            title,
-        });
-        BOOL(1)
-    }
-
-    unsafe {
-        let _ = EnumWindows(Some(callback), LPARAM(&mut list as *mut _ as isize));
-    }
-    list
-}
-
-#[cfg(not(target_os = "windows"))]
-fn get_window_sources_impl() -> Vec<WindowSource> {
-    vec![]
-}
-
 // ── app entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -632,8 +527,6 @@ pub fn run() {
             audio_remove_peer,
             audio_list_input_devices,
             audio_list_output_devices,
-            get_screen_sources,
-            get_window_sources,
             capture_screen_frame,
             autostart_is_enabled,
             autostart_set,

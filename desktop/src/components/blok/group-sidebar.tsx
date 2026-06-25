@@ -18,13 +18,13 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { UserAvatar } from "./user-avatar";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { playSound } from "@/lib/sounds";
+import { playJoinSound, playLeaveSound } from "@/lib/sounds";
 import { UserBar } from "./user-bar";
 import { useI18n } from "@/lib/i18n";
 import { CreateChannelModal } from "./create-channel-modal";
 import { InviteUserModal } from "./invite-user-modal";
 import { RoleManagerModal } from "./role-manager-modal";
+import { VoiceUserContextMenu, type VoiceUserCtx } from "./voice-user-context-menu";
 import { can } from "@/lib/permission";
 
 export function GroupSidebar() {
@@ -43,10 +43,6 @@ export function GroupSidebar() {
     deleteChannel,
     members,
     roles,
-    userVolumes,
-    locallyMuted,
-    setUserVolume,
-    setLocalMute,
     isCameraOn,
     cameraUsers,
     updateServerIcon,
@@ -117,20 +113,7 @@ export function GroupSidebar() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const serverRenameInputRef = useRef<HTMLInputElement>(null);
 
-  type CtxMenu = { userId: string; name: string; x: number; y: number };
-  const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
-  const ctxMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = (e: MouseEvent) => {
-      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) {
-        setCtxMenu(null);
-      }
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [ctxMenu]);
+  const [ctxMenu, setCtxMenu] = useState<VoiceUserCtx | null>(null);
 
   useEffect(() => {
     if (renamingChannelId) renameInputRef.current?.focus();
@@ -168,7 +151,7 @@ export function GroupSidebar() {
         const error = await joinVoiceChannel(channelId, user);
         if (error) setVoiceError(error);
         else {
-          playSound("join");
+          playJoinSound();
           setActiveChannel(null);
         }
       } finally {
@@ -180,7 +163,7 @@ export function GroupSidebar() {
   const handleLeaveVoice = async (e: React.MouseEvent) => {
     e.stopPropagation();
     await leaveVoiceChannel();
-    playSound("leave");
+    playLeaveSound();
   };
 
   if (!activeServer) {
@@ -484,7 +467,25 @@ export function GroupSidebar() {
 
                 return (
                   <div key={channel.id}>
-                    {renamingChannelId === channel.id ? (
+                    {confirmDeleteChannelId === channel.id ? (
+                      <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--destructive)]/40 text-xs">
+                        <span className="text-[var(--destructive)] truncate flex-1">
+                          {t("channel.deleteConfirm").replace("{name}", channel.name)}
+                        </span>
+                        <button
+                          onClick={() => { void deleteChannel(channel.id); setConfirmDeleteChannelId(null); }}
+                          className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
+                        >
+                          {t("message.delete")}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteChannelId(null)}
+                          className="p-0.5 hover:text-[var(--text-primary)] transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : renamingChannelId === channel.id ? (
                       <div className="flex items-center gap-1.5 w-full px-2 py-1.5 border border-[var(--online)]/60 bg-[var(--bg-elevated)]">
                         <span className="flex-shrink-0 font-mono text-xs text-[var(--text-muted)]">♪</span>
                         <input
@@ -509,7 +510,7 @@ export function GroupSidebar() {
                       } : undefined}
                       disabled={joiningChannel === channel.id}
                       className={cn(
-                        "flex items-center gap-2 w-full px-2 py-1.5 text-sm transition-all duration-150 border",
+                        "group/ch flex items-center gap-2 w-full px-2 py-1.5 text-sm transition-all duration-150 border",
                         isInChannel
                           ? "border-[var(--online)]/40 bg-[var(--bg-elevated)] text-[var(--online)] shadow-[inset_2px_0_0_var(--online)]"
                           : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
@@ -531,6 +532,15 @@ export function GroupSidebar() {
                           className="p-0.5 hover:text-[var(--destructive)] transition-colors"
                         >
                           <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
+                        </span>
+                      )}
+                      {canManage && (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
+                          className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+                        >
+                          <Trash2 className="w-3 h-3" />
                         </span>
                       )}
                     </button>
@@ -628,54 +638,8 @@ export function GroupSidebar() {
         />
       )}
 
-      {ctxMenu && createPortal(
-        <div
-          ref={ctxMenuRef}
-          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
-          className="w-52 bg-[var(--bg-elevated)] border border-[var(--border)] shadow-xl py-2 px-3 space-y-3"
-        >
-          <p className="text-[11px] font-semibold text-[var(--text-muted)] truncate">{ctxMenu.name}</p>
-
-          {/* Volume slider */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[var(--text-muted)]">{t("voice.ctx.volume")}</span>
-              <span className="text-[11px] font-mono text-[var(--text-primary)]">
-                {userVolumes[ctxMenu.userId] ?? 100}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={200}
-              step={5}
-              value={userVolumes[ctxMenu.userId] ?? 100}
-              onChange={(e) => setUserVolume(ctxMenu.userId, Number(e.target.value))}
-              className="w-full h-1 accent-[var(--online)] cursor-pointer"
-            />
-            <div className="flex justify-between text-[9px] text-[var(--text-muted)] opacity-50">
-              <span>0</span><span>100</span><span>200</span>
-            </div>
-          </div>
-
-          {/* Local mute toggle */}
-          <button
-            onClick={() => {
-              setLocalMute(ctxMenu.userId, !locallyMuted[ctxMenu.userId]);
-              setCtxMenu(null);
-            }}
-            className={cn(
-              "w-full flex items-center gap-2 px-2 py-1.5 text-[12px] transition-colors",
-              locallyMuted[ctxMenu.userId]
-                ? "bg-[var(--destructive)] bg-opacity-15 text-[var(--destructive)] hover:bg-opacity-25"
-                : "hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
-            )}
-          >
-            <VolumeX className="w-3.5 h-3.5 flex-shrink-0" />
-            {locallyMuted[ctxMenu.userId] ? t("voice.ctx.unmute") : t("voice.ctx.mute")}
-          </button>
-        </div>,
-        document.body,
+      {ctxMenu && (
+        <VoiceUserContextMenu ctx={ctxMenu} onClose={() => setCtxMenu(null)} />
       )}
     </div>
   );

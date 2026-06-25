@@ -49,7 +49,7 @@ export interface ServerSlice {
   initData: (userId: string) => Promise<void>;
   setActiveServer: (serverId: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
-  createServer: (data: { name: string; description?: string; ownerId: string }) => Promise<void>;
+  createServer: (data: { name: string; description?: string }) => Promise<void>;
   createChannel: (data: { serverId: string; name: string; type: "text" | "voice"; categoryId?: string }) => Promise<void>;
   deleteChannel: (channelId: string) => Promise<void>;
   renameChannel: (channelId: string, name: string) => Promise<void>;
@@ -496,12 +496,12 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   createServer: async (data) => {
-    const { data: serverResult, error } = await supabase
-      .from("servers").insert({ name: data.name, description: data.description, owner_id: data.ownerId })
-      .select().single();
+    const { data: result, error } = await supabase.rpc("create_server", {
+      p_name: data.name,
+      p_description: data.description ?? null,
+    });
     if (error) { console.error("Create server failed", error); throw error; }
-    await supabase
-      .from("channels").insert({ server_id: serverResult.id, name: "general", type: "text", position: 0 });
+    if (!result?.ok) { const e = new Error(result?.reason ?? "create_server failed"); console.error(e); throw e; }
     // State update handled by the realtime INSERT subscription to avoid duplicates.
   },
 
