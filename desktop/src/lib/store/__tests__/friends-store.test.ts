@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useFriendsStore } from "../friends-store";
+import { useFriendsStore, effectiveStatus, ONLINE_THRESHOLD_MS } from "../friends-store";
 import type { User, UserRelationship } from "../types";
 
 function makeUser(id: string, name = "User"): User {
@@ -70,5 +70,35 @@ describe("patchUser (friends-store)", () => {
     // alice and bob should be unchanged
     expect(useFriendsStore.getState().friends[0].requesterUser?.displayName).toBe("Alice");
     expect(useFriendsStore.getState().friends[0].targetUser?.displayName).toBe("Bob");
+  });
+});
+
+// ── effectiveStatus ──────────────────────────────────────────────────────────
+
+describe("effectiveStatus", () => {
+  const fresh = new Date().toISOString();
+  const stale = new Date(Date.now() - ONLINE_THRESHOLD_MS - 1000).toISOString();
+
+  it("returns offline immediately when status is explicitly offline, even with a fresh heartbeat", () => {
+    // A clean app close/logout writes status: "offline" without touching online_at,
+    // so this must not fall through to the staleness check below.
+    expect(effectiveStatus("offline", fresh)).toBe("offline");
+  });
+
+  it("returns offline when last_seen is missing", () => {
+    expect(effectiveStatus("online", undefined)).toBe("offline");
+  });
+
+  it("returns offline when last_seen is stale, even if status is online", () => {
+    expect(effectiveStatus("online", stale)).toBe("offline");
+  });
+
+  it("returns dnd/afk when fresh and set", () => {
+    expect(effectiveStatus("dnd", fresh)).toBe("dnd");
+    expect(effectiveStatus("afk", fresh)).toBe("afk");
+  });
+
+  it("returns online when fresh and status is online", () => {
+    expect(effectiveStatus("online", fresh)).toBe("online");
   });
 });

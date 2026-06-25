@@ -80,7 +80,7 @@ export function FriendsSidebar() {
               @{user?.username}
             </p>
             <div className="flex items-center gap-1">
-              <PresenceDot status="online" size="sm" />
+              <PresenceDot status={effectiveStatus(presence[user?.id ?? ""], presenceLastSeen[user?.id ?? ""])} size="sm" />
               <span className="text-xs text-[var(--text-muted)]">{t("friends.online")}</span>
             </div>
           </div>

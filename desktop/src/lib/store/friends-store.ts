@@ -14,6 +14,7 @@ export function effectiveStatus(
   status: PresenceStatus | undefined,
   lastSeen: string | undefined,
 ): PresenceStatus {
+  if (status === "offline") return "offline";
   if (!lastSeen || Date.now() - new Date(lastSeen).getTime() > ONLINE_THRESHOLD_MS) return "offline";
   if (status === "dnd" || status === "afk") return status;
   return "online";
