@@ -91,6 +91,8 @@
   "createChannel.channelName": "Nazwa kanału",
   "createChannel.creating": "Tworzenie...",
   "createChannel.create": "Utwórz kanał",
+  "category.create": "Utwórz kategorię",
+  "category.namePlaceholder": "Nowa kategoria",
   "createServer.title": "Utwórz serwer",
   "createServer.serverName": "Nazwa serwera",
   "createServer.serverNamePlaceholder": "np. Mój super serwer",

@@ -223,7 +223,7 @@ async function resolveOrCreateDMChannel(
   return created.id;
 }
 
-function buildDMVideoCallbacks(currentUserId: string): Pick<import("../voice-engine").VoiceCallbacks, "onVideoStart" | "onVideoStop"> {
+function buildDMVideoCallbacks(currentUserId: string): Pick<import("../voice-types").VoiceCallbacks, "onVideoStart" | "onVideoStop"> {
   return {
     onVideoStart: (userId, stream) => {
       if (userId === currentUserId) {

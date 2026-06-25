@@ -54,6 +54,11 @@ export interface ServerSlice {
   deleteChannel: (channelId: string) => Promise<void>;
   renameChannel: (channelId: string, name: string) => Promise<void>;
   renameServer: (serverId: string, name: string) => Promise<void>;
+  createCategory: (serverId: string, name: string) => Promise<void>;
+  renameCategory: (categoryId: string, name: string) => Promise<void>;
+  deleteCategory: (categoryId: string) => Promise<void>;
+  reorderCategories: (serverId: string, items: { id: string; position: number }[]) => Promise<void>;
+  reorderChannels: (serverId: string, items: { id: string; categoryId: string | null; position: number }[]) => Promise<void>;
   removeServer: (serverId: string) => void;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
   generateInviteCode: (serverId: string, opts?: { expiresAt?: string | null; maxUses?: number | null }) => Promise<string | null>;
@@ -193,6 +198,12 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       });
 
       if (targetChannel) void get().loadMessages(targetChannel.id);
+
+      // Track presence for every co-server-member (friends-store fetches friends
+      // separately; trackPresenceFor is idempotent so the union is race-free).
+      void import("../friends-store").then(({ useFriendsStore }) =>
+        useFriendsStore.getState().trackPresenceFor(Object.keys(memberUserIndex)),
+      );
 
       set({ _currentUserId: _userId });
       // Clean up channels from any previous initData call BEFORE creating new
@@ -435,11 +446,14 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
               const list = state.channels[c.server_id];
               if (!list) return {};
               const patch = (ch: Channel): Channel => ch.id === c.id
-                ? { ...ch, name: c.name, topic: c.topic, slowModeSeconds: c.slow_mode_seconds ?? 0 }
+                ? {
+                    ...ch, name: c.name, topic: c.topic, slowModeSeconds: c.slow_mode_seconds ?? 0,
+                    categoryId: c.category_id ?? undefined, position: c.position,
+                  }
                 : ch;
               const existing = state.channelIndex[c.id];
               return {
-                channels: { ...state.channels, [c.server_id]: list.map(patch) },
+                channels: { ...state.channels, [c.server_id]: list.map(patch).sort((a, b) => a.position - b.position) },
                 channelIndex: existing
                   ? { ...state.channelIndex, [c.id]: patch(existing) }
                   : state.channelIndex,
@@ -456,6 +470,60 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
           (payload) => {
             const channelId = payload.old.id;
             set((state) => removeChannelFromState(state, channelId));
+          }
+        ).subscribe()
+      );
+
+      trackDataChannel(
+        supabase.channel("public:categories").on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "categories" },
+          (payload) => {
+            const c = payload.new;
+            const newCategory: Category = {
+              id: c.id, serverId: c.server_id, name: c.name,
+              position: c.position, createdAt: c.created_at,
+            };
+            set((state) => {
+              const existing = state.categories[c.server_id] || [];
+              if (existing.some((cat) => cat.id === c.id)) return {};
+              return {
+                categories: { ...state.categories, [c.server_id]: [...existing, newCategory].sort((a, b) => a.position - b.position) },
+              };
+            });
+          }
+        ).on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "categories" },
+          (payload) => {
+            const c = payload.new;
+            set((state) => {
+              const list = state.categories[c.server_id];
+              if (!list) return {};
+              const next = list
+                .map((cat) => cat.id === c.id ? { ...cat, name: c.name, position: c.position } : cat)
+                .sort((a, b) => a.position - b.position);
+              return { categories: { ...state.categories, [c.server_id]: next } };
+            });
+          }
+        ).on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "categories" },
+          (payload) => {
+            const categoryId = payload.old.id;
+            set((state) => {
+              const updatedCategories: Record<string, Category[]> = {};
+              for (const sid of Object.keys(state.categories)) {
+                updatedCategories[sid] = state.categories[sid].filter((c) => c.id !== categoryId);
+              }
+              const updatedChannels: Record<string, Channel[]> = {};
+              for (const sid of Object.keys(state.channels)) {
+                updatedChannels[sid] = state.channels[sid].map((c) =>
+                  c.categoryId === categoryId ? { ...c, categoryId: undefined } : c
+                );
+              }
+              return { categories: updatedCategories, channels: updatedChannels };
+            });
           }
         ).subscribe()
       );
@@ -507,7 +575,11 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
   createChannel: async (data) => {
     const currentChannels = get().channels[data.serverId] || [];
-    const pos = currentChannels.filter((c) => c.type === data.type).reduce((max, c) => Math.max(max, c.position), -1) + 1;
+    // Position is scoped per category (mixing text + voice in one ordered list,
+    // same as a Discord category), not per channel type.
+    const pos = currentChannels
+      .filter((c) => (c.categoryId ?? null) === (data.categoryId ?? null))
+      .reduce((max, c) => Math.max(max, c.position), -1) + 1;
     const { error } = await supabase.from("channels").insert({
       server_id: data.serverId, category_id: data.categoryId || null,
       name: data.name, type: data.type, position: pos,
@@ -551,6 +623,82 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       openTabs: state.openTabs.filter((id) => id !== serverId),
       activeServerId: state.activeServerId === serverId ? null : state.activeServerId,
     })),
+
+  createCategory: async (serverId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { error } = await supabase.rpc("create_category", { p_server_id: serverId, p_name: trimmed });
+    if (error) { console.error("Create category failed", error); throw error; }
+    // State update handled by the realtime INSERT subscription to avoid duplicates.
+  },
+
+  renameCategory: async (categoryId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { error } = await supabase.rpc("rename_category", { p_category_id: categoryId, p_name: trimmed });
+    if (error) { console.error("Rename category failed", error); return; }
+    set((state) => {
+      const updated: Record<string, Category[]> = {};
+      for (const sid of Object.keys(state.categories)) {
+        updated[sid] = state.categories[sid].map((c) => c.id === categoryId ? { ...c, name: trimmed } : c);
+      }
+      return { categories: updated };
+    });
+  },
+
+  deleteCategory: async (categoryId) => {
+    const { error } = await supabase.rpc("delete_category", { p_category_id: categoryId });
+    if (error) { console.error("Delete category failed", error); return; }
+    set((state) => {
+      const updatedCategories: Record<string, Category[]> = {};
+      for (const sid of Object.keys(state.categories)) {
+        updatedCategories[sid] = state.categories[sid].filter((c) => c.id !== categoryId);
+      }
+      const updatedChannels: Record<string, Channel[]> = {};
+      for (const sid of Object.keys(state.channels)) {
+        updatedChannels[sid] = state.channels[sid].map((c) =>
+          c.categoryId === categoryId ? { ...c, categoryId: undefined } : c
+        );
+      }
+      return { categories: updatedCategories, channels: updatedChannels };
+    });
+  },
+
+  reorderCategories: async (serverId, items) => {
+    set((state) => {
+      const list = state.categories[serverId];
+      if (!list) return {};
+      const byId = new Map(items.map((it) => [it.id, it.position]));
+      const next = list
+        .map((c) => (byId.has(c.id) ? { ...c, position: byId.get(c.id)! } : c))
+        .sort((a, b) => a.position - b.position);
+      return { categories: { ...state.categories, [serverId]: next } };
+    });
+    const { error } = await supabase.rpc("reorder_categories", { p_server_id: serverId, p_items: items });
+    if (error) console.error("Reorder categories failed", error);
+  },
+
+  reorderChannels: async (serverId, items) => {
+    set((state) => {
+      const list = state.channels[serverId];
+      if (!list) return {};
+      const byId = new Map(items.map((it) => [it.id, it]));
+      const next = list
+        .map((c) => {
+          const patch = byId.get(c.id);
+          return patch ? { ...c, categoryId: patch.categoryId ?? undefined, position: patch.position } : c;
+        })
+        .sort((a, b) => a.position - b.position);
+      const newChannelIndex = { ...state.channelIndex };
+      for (const c of next) if (byId.has(c.id)) newChannelIndex[c.id] = c;
+      return { channels: { ...state.channels, [serverId]: next }, channelIndex: newChannelIndex };
+    });
+    const { error } = await supabase.rpc("reorder_channels", {
+      p_server_id: serverId,
+      p_items: items.map((it) => ({ id: it.id, category_id: it.categoryId, position: it.position })),
+    });
+    if (error) console.error("Reorder channels failed", error);
+  },
 
   inviteUser: async (serverId, username) => {
     // Membership writes go through invite_member (SECURITY DEFINER) — it checks
@@ -703,6 +851,11 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
     const firstTextChannel = newChannels.find((c) => c.type === "text") ?? newChannels[0] ?? null;
     if (firstTextChannel) void get().loadMessages(firstTextChannel.id);
+
+    // Track presence for members of the newly-joined server.
+    void import("../friends-store").then(({ useFriendsStore }) =>
+      useFriendsStore.getState().trackPresenceFor(newMembers.map((m) => m.userId)),
+    );
     return null;
   },
 

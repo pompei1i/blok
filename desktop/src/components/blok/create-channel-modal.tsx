@@ -9,6 +9,7 @@ interface CreateChannelModalProps {
  onClose: () => void;
  serverId: string;
  initialType?: "text" | "voice";
+ categoryId?: string;
 }
 
 export function CreateChannelModal({
@@ -16,6 +17,7 @@ export function CreateChannelModal({
  onClose,
  serverId,
  initialType = "text",
+ categoryId,
 }: CreateChannelModalProps) {
  const { createChannel } = useServerStore();
  const { t } = useI18n();
@@ -47,6 +49,7 @@ export function CreateChannelModal({
  serverId,
  name: name.trim().toLowerCase().replace(/\s+/g, "-"),
  type,
+ categoryId,
  });
  onClose();
  } catch (err: any) {

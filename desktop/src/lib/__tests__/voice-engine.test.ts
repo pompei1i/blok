@@ -4,7 +4,7 @@ import {
   getActiveNativeVoiceEngine,
   setActiveNativeVoiceEngine,
 } from "../native-voice-engine";
-import type { VoiceCallbacks } from "../voice-engine";
+import type { VoiceCallbacks } from "../voice-types";
 import { invoke } from "@tauri-apps/api/core";
 import { supabase } from "@/lib/supabaseClient";
 

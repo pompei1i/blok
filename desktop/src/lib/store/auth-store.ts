@@ -260,10 +260,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     const currentUser = get().user;
+    const { useFriendsStore } = await import("./friends-store");
     if (currentUser) {
-      const { useFriendsStore } = await import("./friends-store");
       await useFriendsStore.getState().updatePresence(currentUser.id, "offline");
     }
+    // Reset friends/presence so re-login as a different account doesn't inherit
+    // a stale relationship list or a stale presence-tracking set.
+    useFriendsStore.setState({
+      friends: [], pendingRequests: [], outgoingRequests: [],
+      presence: {}, presenceLastSeen: {}, activity: {},
+      presenceTrackedIds: new Set<string>(),
+    });
     const { useServerStore } = await import("./server-store");
     await useServerStore.getState().leaveVoiceChannel();
     const { clearDataChannels } = await import("./slices/_shared");

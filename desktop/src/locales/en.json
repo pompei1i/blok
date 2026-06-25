@@ -91,6 +91,8 @@
   "createChannel.channelName": "Channel Name",
   "createChannel.creating": "Creating...",
   "createChannel.create": "Create Channel",
+  "category.create": "Create Category",
+  "category.namePlaceholder": "New Category",
   "createServer.title": "Create a Server",
   "createServer.serverName": "Server Name",
   "createServer.serverNamePlaceholder": "e.g. My Awesome Server",

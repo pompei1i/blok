@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { supabase } from "./supabaseClient";
-import type { VoiceCallbacks } from "./voice-engine";
+import type { VoiceCallbacks } from "./voice-types";
 import { useUiSettingsStore } from "./store/ui-settings-store";
 import { useToastStore } from "./store/toast-store";
 

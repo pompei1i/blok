@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useFriendsStore, effectiveStatus, ONLINE_THRESHOLD_MS } from "../friends-store";
 import type { User, UserRelationship } from "../types";
 
@@ -22,12 +22,18 @@ const alice = makeUser("u1", "Alice");
 const bob = makeUser("u2", "Bob");
 const carol = makeUser("u3", "Carol");
 
+const q = () => (globalThis as any).__mockSupabaseQuery as Record<string, ReturnType<typeof vi.fn>>;
+
 beforeEach(() => {
+  vi.clearAllMocks();
   useFriendsStore.setState({
     friends: [],
     pendingRequests: [],
     outgoingRequests: [],
     presence: {},
+    presenceLastSeen: {},
+    activity: {},
+    presenceTrackedIds: new Set<string>(),
     currentUserId: null,
     loadError: null,
   });
@@ -100,5 +106,32 @@ describe("effectiveStatus", () => {
 
   it("returns online when fresh and status is online", () => {
     expect(effectiveStatus("online", fresh)).toBe("online");
+  });
+});
+
+// ── trackPresenceFor (scoped presence) ───────────────────────────────────────
+
+describe("trackPresenceFor", () => {
+  it("adds requested ids to the tracked set", async () => {
+    await useFriendsStore.getState().trackPresenceFor(["a", "b"]);
+    const tracked = useFriendsStore.getState().presenceTrackedIds;
+    expect(tracked.has("a")).toBe(true);
+    expect(tracked.has("b")).toBe(true);
+  });
+
+  it("only fetches ids not already tracked (idempotent)", async () => {
+    await useFriendsStore.getState().trackPresenceFor(["a", "b"]);
+    expect(q().in).toHaveBeenLastCalledWith("user_id", ["a", "b"]);
+
+    await useFriendsStore.getState().trackPresenceFor(["a", "c"]);
+    // Only the new id "c" should hit the DB on the second call.
+    expect(q().in).toHaveBeenLastCalledWith("user_id", ["c"]);
+  });
+
+  it("does not query at all when every id is already tracked", async () => {
+    await useFriendsStore.getState().trackPresenceFor(["a"]);
+    const callsBefore = q().in.mock.calls.length;
+    await useFriendsStore.getState().trackPresenceFor(["a"]);
+    expect(q().in.mock.calls.length).toBe(callsBefore);
   });
 });

@@ -11,6 +11,7 @@ import {
   Trash2,
   X,
   Clock,
+  FolderPlus,
 } from "lucide-react";
 import { SLOWMODE_PRESETS, formatSlowmode } from "@/lib/moderation";
 import { useServerStore } from "@/lib/store/server-store";
@@ -33,6 +34,7 @@ export function GroupSidebar() {
     servers,
     activeServerId,
     channels,
+    categories,
     activeChannelId,
     setActiveChannel,
     activeVoiceChannelId,
@@ -49,23 +51,39 @@ export function GroupSidebar() {
     renameChannel,
     renameServer,
     setChannelSlowmode,
+    createCategory,
+    renameCategory,
+    deleteCategory,
+    reorderCategories,
+    reorderChannels,
   } = useServerStore();
   const { user } = useAuthStore();
-  const [expandedSections, setExpandedSections] = useState({
-    text: true,
-    voice: true,
-  });
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  const toggleCategory = (id: string) => setCollapsedCategories((s) => ({ ...s, [id]: !s[id] }));
 
   const activeServer = servers.find((s) => s.id === activeServerId);
   const serverChannels = activeServerId ? channels[activeServerId] || [] : [];
+  const serverCategories = (activeServerId ? categories[activeServerId] ?? [] : [])
+    .slice().sort((a, b) => a.position - b.position);
 
-  const textChannels = serverChannels.filter((c) => c.type === "text");
-  const voiceChannels = serverChannels.filter((c) => c.type === "voice");
+  const channelsIn = (categoryId: string | null) =>
+    serverChannels.filter((c) => (c.categoryId ?? null) === categoryId).sort((a, b) => a.position - b.position);
 
   // Local state for modal
   const [showCreateChannel, setShowCreateChannel] = useState(false);
-  const [channelModalType, setChannelModalType] = useState<"text" | "voice">("text");
+  const [createChannelCategoryId, setCreateChannelCategoryId] = useState<string | undefined>(undefined);
   const [showRoleManager, setShowRoleManager] = useState(false);
+  const [showCreateCategory, setShowCreateCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const newCategoryInputRef = useRef<HTMLInputElement>(null);
+  const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
+  const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
+
+  // Drag-and-drop state
+  const [draggedChannelId, setDraggedChannelId] = useState<string | null>(null);
+  const [dragOverChannel, setDragOverChannel] = useState<{ id: string; position: "above" | "below" } | null>(null);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
+  const [dragOverCategory, setDragOverCategory] = useState<{ id: string; position: "above" | "below" } | null>(null);
 
   // Resolve current user's role in this server
   const serverMembers = activeServerId ? members[activeServerId] ?? [] : [];
@@ -80,6 +98,8 @@ export function GroupSidebar() {
   const canRenameServer  = can("rename_server",      roleCtx);
   const canManageIcon    = can("manage_server_icon", roleCtx);
   const canManageChannels= can("manage_channels",    roleCtx);
+  const canCreateChannel = can("create_channel",     roleCtx);
+  const canDeleteChannelPerm = can("delete_channel", roleCtx);
 
   const [showInviteUser, setShowInviteUser] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +143,73 @@ export function GroupSidebar() {
     if (renamingServer) serverRenameInputRef.current?.focus();
   }, [renamingServer]);
 
+  useEffect(() => {
+    if (showCreateCategory) newCategoryInputRef.current?.focus();
+  }, [showCreateCategory]);
+
+  useEffect(() => {
+    if (renamingCategoryId) renameInputRef.current?.focus();
+  }, [renamingCategoryId]);
+
+  const commitCreateCategory = async () => {
+    if (activeServerId && newCategoryName.trim()) {
+      await createCategory(activeServerId, newCategoryName);
+    }
+    setShowCreateCategory(false);
+    setNewCategoryName("");
+  };
+
+  const commitCategoryRename = async () => {
+    if (renamingCategoryId && renameValue.trim()) {
+      await renameCategory(renamingCategoryId, renameValue);
+    }
+    setRenamingCategoryId(null);
+    setRenameValue("");
+  };
+
+  const openCreateChannel = (categoryId?: string) => {
+    setCreateChannelCategoryId(categoryId);
+    setShowCreateChannel(true);
+  };
+
+  // ── Channel drag-and-drop (reorder within/between categories) ─────────────
+  const handleChannelDrop = (targetCategoryId: string | null, targetChannelId: string | null, insertAfter: boolean) => {
+    if (!draggedChannelId || !activeServerId) return;
+    const dragged = serverChannels.find((c) => c.id === draggedChannelId);
+    if (!dragged) return;
+    const sourceCategoryId = dragged.categoryId ?? null;
+
+    const destIds = channelsIn(targetCategoryId).map((c) => c.id).filter((id) => id !== draggedChannelId);
+    let insertIdx = destIds.length;
+    if (targetChannelId) {
+      const idx = destIds.indexOf(targetChannelId);
+      insertIdx = idx === -1 ? destIds.length : insertAfter ? idx + 1 : idx;
+    }
+    destIds.splice(insertIdx, 0, draggedChannelId);
+
+    const items = destIds.map((id, i) => ({ id, categoryId: targetCategoryId, position: i }));
+    if (sourceCategoryId !== targetCategoryId) {
+      const sourceIds = channelsIn(sourceCategoryId).map((c) => c.id).filter((id) => id !== draggedChannelId);
+      items.push(...sourceIds.map((id, i) => ({ id, categoryId: sourceCategoryId, position: i })));
+    }
+
+    void reorderChannels(activeServerId, items);
+    setDraggedChannelId(null);
+    setDragOverChannel(null);
+  };
+
+  // ── Category drag-and-drop (reorder categories themselves) ─────────────────
+  const handleCategoryDrop = (targetCategoryId: string, insertAfter: boolean) => {
+    if (!draggedCategoryId || !activeServerId || draggedCategoryId === targetCategoryId) return;
+    const ids = serverCategories.map((c) => c.id).filter((id) => id !== draggedCategoryId);
+    const idx = ids.indexOf(targetCategoryId);
+    const insertIdx = idx === -1 ? ids.length : insertAfter ? idx + 1 : idx;
+    ids.splice(insertIdx, 0, draggedCategoryId);
+    void reorderCategories(activeServerId, ids.map((id, i) => ({ id, position: i })));
+    setDraggedCategoryId(null);
+    setDragOverCategory(null);
+  };
+
   const commitRename = async () => {
     if (renamingChannelId && renameValue.trim()) {
       await renameChannel(renamingChannelId, renameValue);
@@ -165,6 +252,252 @@ export function GroupSidebar() {
     await leaveVoiceChannel();
     playLeaveSound();
   };
+
+  const renderChannel = (channel: import("@/lib/store/types").Channel, categoryId: string | null) => {
+    const isVoice = channel.type === "voice";
+    const isInChannel = isVoice && activeVoiceChannelId === channel.id;
+    const participants = isVoice ? (voiceParticipants[channel.id] || []) : [];
+    const dropAbove = dragOverChannel?.id === channel.id && dragOverChannel.position === "above";
+    const dropBelow = dragOverChannel?.id === channel.id && dragOverChannel.position === "below";
+
+    return (
+      <div
+        key={channel.id}
+        className={cn(
+          "group/ch relative",
+          dropAbove && "border-t-2 border-t-[var(--accent-red)]",
+          dropBelow && "border-b-2 border-b-[var(--accent-red)]",
+        )}
+        draggable={canManageChannels && !confirmDeleteChannelId && !renamingChannelId}
+        onDragStart={(e) => { e.stopPropagation(); setDraggedChannelId(channel.id); }}
+        onDragEnd={() => { setDraggedChannelId(null); setDragOverChannel(null); }}
+        onDragOver={(e) => {
+          if (!draggedChannelId || draggedChannelId === channel.id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          const position = e.clientY - rect.top > rect.height / 2 ? "below" : "above";
+          setDragOverChannel({ id: channel.id, position });
+        }}
+        onDrop={(e) => {
+          if (!draggedChannelId) return;
+          e.preventDefault();
+          e.stopPropagation();
+          handleChannelDrop(categoryId, channel.id, dragOverChannel?.position === "below");
+        }}
+      >
+        {confirmDeleteChannelId === channel.id ? (
+          <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--destructive)]/40 text-xs">
+            <span className="text-[var(--destructive)] truncate flex-1">
+              {t("channel.deleteConfirm").replace("{name}", channel.name)}
+            </span>
+            <button
+              onClick={() => { void deleteChannel(channel.id); setConfirmDeleteChannelId(null); }}
+              className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
+            >
+              {t("message.delete")}
+            </button>
+            <button
+              onClick={() => setConfirmDeleteChannelId(null)}
+              className="p-0.5 hover:text-[var(--text-primary)] transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ) : slowmodeChannelId === channel.id ? (
+          <div className="flex flex-col gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--accent-red)]/40">
+            <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--text-muted)]">
+              <Clock className="w-3 h-3" />
+              <span className="flex-1 truncate">{t("slowmode.title")} #{channel.name}</span>
+              <button onClick={() => setSlowmodeChannelId(null)} className="hover:text-[var(--text-primary)] transition-colors">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {SLOWMODE_PRESETS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => { void setChannelSlowmode(channel.id, s); setSlowmodeChannelId(null); }}
+                  className={cn(
+                    "px-1.5 py-0.5 text-[10px] font-mono border transition-colors",
+                    (channel.slowModeSeconds ?? 0) === s
+                      ? "border-[var(--accent-red)] text-[var(--accent-red)]"
+                      : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)]/40",
+                  )}
+                >
+                  {s === 0 ? t("slowmode.off") : formatSlowmode(s)}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : renamingChannelId === channel.id ? (
+          <div className={cn(
+            "flex items-center gap-1.5 w-full px-2 py-1.5 border bg-[var(--bg-elevated)]",
+            isVoice ? "border-[var(--online)]/60" : "border-[var(--accent-red)]/60",
+          )}>
+            <span className="text-[var(--text-muted)] flex-shrink-0 font-mono">{isVoice ? "♪" : "#"}</span>
+            <input
+              ref={renameInputRef}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); void commitRename(); }
+                if (e.key === "Escape") { setRenamingChannelId(null); setRenameValue(""); }
+              }}
+              onBlur={() => void commitRename()}
+              className="flex-1 min-w-0 bg-transparent text-sm text-[var(--text-primary)] outline-none font-mono"
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => isVoice ? void handleVoiceChannelClick(channel.id) : setActiveChannel(channel.id)}
+            onDoubleClick={canRenameChannel ? (e) => {
+              e.preventDefault();
+              setRenamingChannelId(channel.id);
+              setRenameValue(channel.name);
+            } : undefined}
+            disabled={isVoice && joiningChannel === channel.id}
+            className={cn(
+              "group/ch flex items-center gap-1.5 w-full px-2 py-1.5 text-sm transition-all duration-150 text-left border",
+              isVoice
+                ? isInChannel
+                  ? "border-[var(--online)]/40 bg-[var(--bg-elevated)] text-[var(--online)] shadow-[inset_2px_0_0_var(--online)]"
+                  : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                : activeChannelId === channel.id
+                  ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[inset_2px_0_0_var(--accent-red)]"
+                  : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+              isVoice && joiningChannel === channel.id && "opacity-60 cursor-wait",
+            )}
+          >
+            <span className={cn(
+              "flex-shrink-0 font-mono text-xs",
+              isVoice && isInChannel ? "text-[var(--online)]" : "text-[var(--text-muted)]",
+            )}>
+              {isVoice ? "♪" : "#"}
+            </span>
+            <span className="truncate flex-1 min-w-0 text-left">{channel.name}</span>
+            {!isVoice && (unreadCounts[channel.id] ?? 0) > 0 && (
+              <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center bg-[var(--accent-red)] text-[10px] text-white font-bold px-1">
+                {unreadCounts[channel.id] > 99 ? "99+" : unreadCounts[channel.id]}
+              </span>
+            )}
+            {isVoice && joiningChannel === channel.id && (
+              <span className="text-[10px] text-[var(--text-muted)] animate-pulse">…</span>
+            )}
+            {isVoice && isInChannel && !joiningChannel && (
+              <span
+                role="button"
+                onClick={(e) => void handleLeaveVoice(e)}
+                title="Leave voice"
+                className="p-0.5 hover:text-[var(--destructive)] transition-colors"
+              >
+                <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
+              </span>
+            )}
+            {!isVoice && canManageChannels && (
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); setSlowmodeChannelId(channel.id); }}
+                title={`${t("slowmode.title")}: ${(channel.slowModeSeconds ?? 0) === 0 ? t("slowmode.off") : formatSlowmode(channel.slowModeSeconds ?? 0)}`}
+                className={cn(
+                  "p-0.5 transition-all",
+                  (channel.slowModeSeconds ?? 0) > 0
+                    ? "text-[var(--accent-red)] opacity-100"
+                    : "opacity-0 group-hover/ch:opacity-100 hover:text-[var(--text-primary)]",
+                )}
+              >
+                <Clock className="w-3 h-3" />
+              </span>
+            )}
+            {canManage && (
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
+                className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+              >
+                <Trash2 className="w-3 h-3" />
+              </span>
+            )}
+          </button>
+        )}
+
+        {isVoice && participants.length > 0 && (
+          <div className="ml-6 mt-1 space-y-1">
+            {participants.map((participant) => {
+              const displayUser = participant.userId === user?.id ? user : participant.user;
+              const isSelf = participant.userId === user?.id;
+              return (
+                <div
+                  key={participant.userId}
+                  className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-muted)]"
+                  onContextMenu={isSelf ? undefined : (e) => {
+                    e.preventDefault();
+                    const name = displayUser?.displayName || displayUser?.username || participant.userId.slice(0, 8);
+                    setCtxMenu({ userId: participant.userId, name, x: e.clientX, y: e.clientY });
+                  }}
+                >
+                  <div
+                    className={cn(
+                      "rounded-full transition-all",
+                      participant.isSpeaking &&
+                        "ring-2 ring-[var(--online)] ring-offset-1 ring-offset-[var(--bg-surface)]",
+                    )}
+                  >
+                    <UserAvatar user={displayUser} size="xs" />
+                  </div>
+                  <span
+                    className={cn(
+                      "truncate transition-colors",
+                      participant.isSpeaking && "text-[var(--online)]",
+                    )}
+                  >
+                    {displayUser?.displayName || displayUser?.username || "..."}
+                  </span>
+                  <div className="ml-auto flex items-center gap-1">
+                    {participant.isScreenSharing && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.dispatchEvent(new CustomEvent("blok:focus-screen-share"));
+                        }}
+                        title="View screen share"
+                        className="hover:text-[var(--online)] transition-colors"
+                      >
+                        <Monitor className="w-3 h-3 text-[var(--online)]" />
+                      </button>
+                    )}
+                    {(participant.userId === user?.id ? isCameraOn : !!cameraUsers[participant.userId]) && (
+                      <Video className="w-3 h-3 text-[var(--online)]" />
+                    )}
+                    {(participant.isMuted || participant.isDeafened) && (
+                      <MicOff className="w-3 h-3 text-[var(--destructive)]" />
+                    )}
+                    {participant.isDeafened && (
+                      <VolumeX className="w-3 h-3 text-[var(--destructive)]" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderCategoryChannels = (categoryId: string | null) => (
+    <div
+      className="space-y-1 min-h-[4px]"
+      onDragOver={(e) => { if (draggedChannelId) e.preventDefault(); }}
+      onDrop={(e) => {
+        if (!draggedChannelId) return;
+        e.preventDefault();
+        handleChannelDrop(categoryId, null, true);
+      }}
+    >
+      {channelsIn(categoryId).map((channel) => renderChannel(channel, categoryId))}
+    </div>
+  );
 
   if (!activeServer) {
     return (
@@ -282,336 +615,142 @@ export function GroupSidebar() {
       )}
 
       <div className="flex-1 overflow-y-auto p-2">
-        <div className="mb-4">
-          <div className="flex items-center justify-between hover:text-[var(--text-primary)] transition-colors mb-1 pr-1 group">
+        <div className="flex items-center justify-between gap-1 mb-2 pr-1">
+          {canCreateChannel ? (
             <button
-              onClick={() =>
-                setExpandedSections((s) => ({ ...s, text: !s.text }))
-              }
-              className="flex items-center gap-1 flex-1 text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium"
+              onClick={() => setShowCreateCategory(true)}
+              title={t("category.create")}
+              className="p-1 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
-              <ChevronDown
-                className={cn(
-                  "w-3 h-3 transition-transform",
-                  !expandedSections.text && "-rotate-90",
-                )}
-              />
-              <span className="text-[var(--text-muted)] opacity-60">$</span>
-              {t("group.textChannels")}
+              <FolderPlus className="w-3.5 h-3.5" />
             </button>
-            {canManage && (
-              <button
-                onClick={() => {
-                  setChannelModalType("text");
-                  setShowCreateChannel(true);
-                }}
-                className="opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-all p-0.5"
-              >
-                <Plus className="w-3 h-3 text-[var(--text-muted)]" />
-              </button>
-            )}
-          </div>
+          ) : <span />}
+          {canCreateChannel && (
+            <button
+              onClick={() => openCreateChannel(undefined)}
+              title={t("createChannel.title")}
+              className="p-1 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
-          {expandedSections.text && (
-            <div className="space-y-1">
-              {textChannels.map((channel) => (
-                <div key={channel.id} className="group/ch relative">
-                  {confirmDeleteChannelId === channel.id ? (
-                    <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--destructive)]/40 text-xs">
-                      <span className="text-[var(--destructive)] truncate flex-1">
-                        {t("channel.deleteConfirm").replace("{name}", channel.name)}
-                      </span>
+        {showCreateCategory && (
+          <div className="flex items-center gap-1.5 mb-2 px-2 py-1.5 border border-[var(--accent-red)]/60 bg-[var(--bg-elevated)]">
+            <FolderPlus className="w-3 h-3 text-[var(--text-muted)] flex-shrink-0" />
+            <input
+              ref={newCategoryInputRef}
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder={t("category.namePlaceholder")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); void commitCreateCategory(); }
+                if (e.key === "Escape") { setShowCreateCategory(false); setNewCategoryName(""); }
+              }}
+              onBlur={() => void commitCreateCategory()}
+              className="flex-1 min-w-0 bg-transparent text-sm text-[var(--text-primary)] outline-none font-mono"
+            />
+          </div>
+        )}
+
+        {/* Uncategorized channels — flat list, no header, like Discord's root bucket */}
+        {renderCategoryChannels(null)}
+
+        {serverCategories.map((category) => {
+          const collapsed = collapsedCategories[category.id];
+          const dropAbove = dragOverCategory?.id === category.id && dragOverCategory.position === "above";
+          const dropBelow = dragOverCategory?.id === category.id && dragOverCategory.position === "below";
+          return (
+            <div key={category.id} className="mt-3">
+              <div
+                className={cn(
+                  "flex items-center justify-between hover:text-[var(--text-primary)] transition-colors mb-1 pr-1 group",
+                  dropAbove && "border-t-2 border-t-[var(--accent-red)]",
+                  dropBelow && "border-b-2 border-b-[var(--accent-red)]",
+                )}
+                draggable={canManageChannels && renamingCategoryId !== category.id}
+                onDragStart={(e) => { e.stopPropagation(); setDraggedCategoryId(category.id); }}
+                onDragEnd={() => { setDraggedCategoryId(null); setDragOverCategory(null); }}
+                onDragOver={(e) => {
+                  if (!draggedCategoryId || draggedCategoryId === category.id) return;
+                  e.preventDefault();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position = e.clientY - rect.top > rect.height / 2 ? "below" : "above";
+                  setDragOverCategory({ id: category.id, position });
+                }}
+                onDrop={(e) => {
+                  if (!draggedCategoryId) return;
+                  e.preventDefault();
+                  handleCategoryDrop(category.id, dragOverCategory?.position === "below");
+                }}
+              >
+                {renamingCategoryId === category.id ? (
+                  <input
+                    ref={renameInputRef}
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); void commitCategoryRename(); }
+                      if (e.key === "Escape") { setRenamingCategoryId(null); setRenameValue(""); }
+                    }}
+                    onBlur={() => void commitCategoryRename()}
+                    className="flex-1 min-w-0 bg-transparent text-xs text-[var(--text-primary)] outline-none font-mono uppercase tracking-wider"
+                  />
+                ) : (
+                  <button
+                    onClick={() => toggleCategory(category.id)}
+                    onDoubleClick={canRenameChannel ? (e) => {
+                      e.preventDefault();
+                      setRenamingCategoryId(category.id);
+                      setRenameValue(category.name);
+                    } : undefined}
+                    className="flex items-center gap-1 flex-1 text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium"
+                  >
+                    <ChevronDown className={cn("w-3 h-3 transition-transform", collapsed && "-rotate-90")} />
+                    <span className="truncate">{category.name}</span>
+                  </button>
+                )}
+                <div className="flex items-center gap-0.5">
+                  {confirmDeleteCategoryId === category.id ? (
+                    <>
                       <button
-                        onClick={() => { void deleteChannel(channel.id); setConfirmDeleteChannelId(null); }}
-                        className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
+                        onClick={() => { void deleteCategory(category.id); setConfirmDeleteCategoryId(null); }}
+                        className="px-1 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
                       >
                         {t("message.delete")}
                       </button>
-                      <button
-                        onClick={() => setConfirmDeleteChannelId(null)}
-                        className="p-0.5 hover:text-[var(--text-primary)] transition-colors"
-                      >
+                      <button onClick={() => setConfirmDeleteCategoryId(null)} className="p-0.5 hover:text-[var(--text-primary)] transition-colors">
                         <X className="w-3 h-3" />
                       </button>
-                    </div>
-                  ) : slowmodeChannelId === channel.id ? (
-                    <div className="flex flex-col gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--accent-red)]/40">
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--text-muted)]">
-                        <Clock className="w-3 h-3" />
-                        <span className="flex-1 truncate">{t("slowmode.title")} #{channel.name}</span>
-                        <button onClick={() => setSlowmodeChannelId(null)} className="hover:text-[var(--text-primary)] transition-colors">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {SLOWMODE_PRESETS.map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => { void setChannelSlowmode(channel.id, s); setSlowmodeChannelId(null); }}
-                            className={cn(
-                              "px-1.5 py-0.5 text-[10px] font-mono border transition-colors",
-                              (channel.slowModeSeconds ?? 0) === s
-                                ? "border-[var(--accent-red)] text-[var(--accent-red)]"
-                                : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)]/40",
-                            )}
-                          >
-                            {s === 0 ? t("slowmode.off") : formatSlowmode(s)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : renamingChannelId === channel.id ? (
-                    <div className="flex items-center gap-1.5 w-full px-2 py-1.5 border border-[var(--accent-red)]/60 bg-[var(--bg-elevated)]">
-                      <span className="text-[var(--text-muted)] flex-shrink-0 font-mono">#</span>
-                      <input
-                        ref={renameInputRef}
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") { e.preventDefault(); void commitRename(); }
-                          if (e.key === "Escape") { setRenamingChannelId(null); setRenameValue(""); }
-                        }}
-                        onBlur={() => void commitRename()}
-                        className="flex-1 min-w-0 bg-transparent text-sm text-[var(--text-primary)] outline-none font-mono"
-                      />
-                    </div>
+                    </>
                   ) : (
-                    <button
-                      onClick={() => setActiveChannel(channel.id)}
-                      onDoubleClick={canRenameChannel ? (e) => {
-                        e.preventDefault();
-                        setRenamingChannelId(channel.id);
-                        setRenameValue(channel.name);
-                      } : undefined}
-                      className={cn(
-                        "flex items-center gap-1.5 w-full px-2 py-1.5 text-sm transition-all duration-150 text-left border",
-                        activeChannelId === channel.id
-                          ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[inset_2px_0_0_var(--accent-red)]"
-                          : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
-                      )}
-                    >
-                      <span className="text-[var(--text-muted)] flex-shrink-0 font-mono">#</span>
-                      <span className="truncate flex-1 min-w-0">{channel.name}</span>
-                      {(unreadCounts[channel.id] ?? 0) > 0 && (
-                        <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center bg-[var(--accent-red)] text-[10px] text-white font-bold px-1">
-                          {unreadCounts[channel.id] > 99 ? "99+" : unreadCounts[channel.id]}
-                        </span>
-                      )}
-                      {canManageChannels && (
-                        <span
-                          role="button"
-                          onClick={(e) => { e.stopPropagation(); setSlowmodeChannelId(channel.id); }}
-                          title={`${t("slowmode.title")}: ${(channel.slowModeSeconds ?? 0) === 0 ? t("slowmode.off") : formatSlowmode(channel.slowModeSeconds ?? 0)}`}
-                          className={cn(
-                            "p-0.5 transition-all",
-                            (channel.slowModeSeconds ?? 0) > 0
-                              ? "text-[var(--accent-red)] opacity-100"
-                              : "opacity-0 group-hover/ch:opacity-100 hover:text-[var(--text-primary)]",
-                          )}
+                    <>
+                      {canCreateChannel && (
+                        <button
+                          onClick={() => openCreateChannel(category.id)}
+                          className="opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-all p-0.5"
                         >
-                          <Clock className="w-3 h-3" />
-                        </span>
+                          <Plus className="w-3 h-3 text-[var(--text-muted)]" />
+                        </button>
                       )}
-                      {canManage && (
-                        <span
-                          role="button"
-                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
-                          className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+                      {canDeleteChannelPerm && (
+                        <button
+                          onClick={() => setConfirmDeleteCategoryId(category.id)}
+                          className="opacity-0 group-hover:opacity-100 hover:text-[var(--destructive)] transition-all p-0.5"
                         >
-                          <Trash2 className="w-3 h-3" />
-                        </span>
+                          <Trash2 className="w-3 h-3 text-[var(--text-muted)]" />
+                        </button>
                       )}
-                    </button>
+                    </>
                   )}
                 </div>
-              ))}
+              </div>
+
+              {!collapsed && renderCategoryChannels(category.id)}
             </div>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between hover:text-[var(--text-primary)] transition-colors mb-1 pr-1 group">
-            <button
-              onClick={() =>
-                setExpandedSections((s) => ({ ...s, voice: !s.voice }))
-              }
-              className="flex items-center gap-1 flex-1 text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium"
-            >
-              <ChevronDown
-                className={cn(
-                  "w-3 h-3 transition-transform",
-                  !expandedSections.voice && "-rotate-90",
-                )}
-              />
-              <span className="text-[var(--text-muted)] opacity-60">$</span>
-              {t("group.voiceRooms")}
-            </button>
-            {canManage && (
-              <button
-                onClick={() => {
-                  setChannelModalType("voice");
-                  setShowCreateChannel(true);
-                }}
-                className="opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-all p-0.5"
-              >
-                <Plus className="w-3 h-3 text-[var(--text-muted)] hover:text-[var(--text-primary)]" />
-              </button>
-            )}
-          </div>
-
-          {expandedSections.voice && (
-            <div className="space-y-1">
-              {voiceChannels.map((channel) => {
-                const isInChannel = activeVoiceChannelId === channel.id;
-                const participants = voiceParticipants[channel.id] || [];
-
-                return (
-                  <div key={channel.id}>
-                    {confirmDeleteChannelId === channel.id ? (
-                      <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--destructive)]/40 text-xs">
-                        <span className="text-[var(--destructive)] truncate flex-1">
-                          {t("channel.deleteConfirm").replace("{name}", channel.name)}
-                        </span>
-                        <button
-                          onClick={() => { void deleteChannel(channel.id); setConfirmDeleteChannelId(null); }}
-                          className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
-                        >
-                          {t("message.delete")}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteChannelId(null)}
-                          className="p-0.5 hover:text-[var(--text-primary)] transition-colors"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ) : renamingChannelId === channel.id ? (
-                      <div className="flex items-center gap-1.5 w-full px-2 py-1.5 border border-[var(--online)]/60 bg-[var(--bg-elevated)]">
-                        <span className="flex-shrink-0 font-mono text-xs text-[var(--text-muted)]">♪</span>
-                        <input
-                          ref={renameInputRef}
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); void commitRename(); }
-                            if (e.key === "Escape") { setRenamingChannelId(null); setRenameValue(""); }
-                          }}
-                          onBlur={() => void commitRename()}
-                          className="flex-1 min-w-0 bg-transparent text-sm text-[var(--text-primary)] outline-none font-mono"
-                        />
-                      </div>
-                    ) : (
-                    <button
-                      onClick={() => void handleVoiceChannelClick(channel.id)}
-                      onDoubleClick={canRenameChannel ? (e) => {
-                        e.preventDefault();
-                        setRenamingChannelId(channel.id);
-                        setRenameValue(channel.name);
-                      } : undefined}
-                      disabled={joiningChannel === channel.id}
-                      className={cn(
-                        "group/ch flex items-center gap-2 w-full px-2 py-1.5 text-sm transition-all duration-150 border",
-                        isInChannel
-                          ? "border-[var(--online)]/40 bg-[var(--bg-elevated)] text-[var(--online)] shadow-[inset_2px_0_0_var(--online)]"
-                          : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
-                        joiningChannel === channel.id && "opacity-60 cursor-wait",
-                      )}
-                    >
-                      <span className={cn("flex-shrink-0 font-mono text-xs", isInChannel ? "text-[var(--online)]" : "text-[var(--text-muted)]")}>♪</span>
-                      <span className="truncate flex-1 text-left">
-                        {channel.name}
-                      </span>
-                      {joiningChannel === channel.id && (
-                        <span className="text-[10px] text-[var(--text-muted)] animate-pulse">…</span>
-                      )}
-                      {isInChannel && !joiningChannel && (
-                        <span
-                          role="button"
-                          onClick={(e) => void handleLeaveVoice(e)}
-                          title="Leave voice"
-                          className="p-0.5 hover:text-[var(--destructive)] transition-colors"
-                        >
-                          <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
-                        </span>
-                      )}
-                      {canManage && (
-                        <span
-                          role="button"
-                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
-                          className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </span>
-                      )}
-                    </button>
-                    )}
-
-                    {participants.length > 0 && (
-                      <div className="ml-6 mt-1 space-y-1">
-                        {participants.map((participant) => {
-                          const displayUser = participant.userId === user?.id ? user : participant.user;
-                          const isSelf = participant.userId === user?.id;
-                          return (
-                            <div
-                              key={participant.userId}
-                              className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-muted)]"
-                              onContextMenu={isSelf ? undefined : (e) => {
-                                e.preventDefault();
-                                const name = displayUser?.displayName || displayUser?.username || participant.userId.slice(0, 8);
-                                setCtxMenu({ userId: participant.userId, name, x: e.clientX, y: e.clientY });
-                              }}
-                            >
-                              <div
-                                className={cn(
-                                  "rounded-full transition-all",
-                                  participant.isSpeaking &&
-                                    "ring-2 ring-[var(--online)] ring-offset-1 ring-offset-[var(--bg-surface)]",
-                                )}
-                              >
-                                <UserAvatar user={displayUser} size="xs" />
-                              </div>
-                              <span
-                                className={cn(
-                                  "truncate transition-colors",
-                                  participant.isSpeaking && "text-[var(--online)]",
-                                )}
-                              >
-                                {displayUser?.displayName || displayUser?.username || "..."}
-                              </span>
-                              <div className="ml-auto flex items-center gap-1">
-                                {participant.isScreenSharing && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      window.dispatchEvent(new CustomEvent("blok:focus-screen-share"));
-                                    }}
-                                    title="View screen share"
-                                    className="hover:text-[var(--online)] transition-colors"
-                                  >
-                                    <Monitor className="w-3 h-3 text-[var(--online)]" />
-                                  </button>
-                                )}
-                                {(participant.userId === user?.id ? isCameraOn : !!cameraUsers[participant.userId]) && (
-                                  <Video className="w-3 h-3 text-[var(--online)]" />
-                                )}
-                                {(participant.isMuted || participant.isDeafened) && (
-                                  <MicOff className="w-3 h-3 text-[var(--destructive)]" />
-                                )}
-                                {participant.isDeafened && (
-                                  <VolumeX className="w-3 h-3 text-[var(--destructive)]" />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+          );
+        })}
       </div>
       <UserBar />
       
@@ -620,7 +759,7 @@ export function GroupSidebar() {
           isOpen={showCreateChannel}
           onClose={() => setShowCreateChannel(false)}
           serverId={activeServer.id}
-          initialType={channelModalType}
+          categoryId={createChannelCategoryId}
         />
       )}
       {activeServer && canManage && (

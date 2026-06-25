@@ -91,6 +91,8 @@
   "createChannel.channelName": "Назва каналу",
   "createChannel.creating": "Створення...",
   "createChannel.create": "Створити канал",
+  "category.create": "Створити розділ",
+  "category.namePlaceholder": "Новий розділ",
   "createServer.title": "Створити сервер",
   "createServer.serverName": "Назва сервера",
   "createServer.serverNamePlaceholder": "напр. Мій чудовий сервер",

@@ -27,10 +27,16 @@ interface FriendsState {
   presence: Record<string, PresenceStatus>;
   presenceLastSeen: Record<string, string>;
   activity: Record<string, string>;
+  /** Ids whose presence the UI actually shows (friends ∪ co-server-members ∪ self).
+   *  Bounds presence fetches and filters out churn from unrelated users. */
+  presenceTrackedIds: Set<string>;
   currentUserId: string | null;
   loadError: string | null;
 
   initFriendsData: (userId: string) => Promise<void>;
+  /** Idempotently fetch + merge presence for a set of users (called by both
+   *  friends-store and server-store as relationships/members load). */
+  trackPresenceFor: (userIds: string[]) => Promise<void>;
   removeFriend: (relationshipId: string) => Promise<void>;
   updatePresence: (userId: string, status: PresenceStatus) => Promise<void>;
   setActivity: (userId: string, activity: string | null) => Promise<void>;
@@ -48,8 +54,41 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
   presence: {},
   presenceLastSeen: {},
   activity: {},
+  presenceTrackedIds: new Set<string>(),
   currentUserId: null,
   loadError: null,
+
+  trackPresenceFor: async (userIds) => {
+    const tracked = get().presenceTrackedIds;
+    const newIds = [...new Set(userIds)].filter((id) => id && !tracked.has(id));
+    if (newIds.length === 0) return;
+
+    // Grow the tracked set immediately so concurrent callers don't double-fetch
+    // and so the realtime relevance filter recognises these ids right away.
+    set((state) => {
+      const next = new Set(state.presenceTrackedIds);
+      for (const id of newIds) next.add(id);
+      return { presenceTrackedIds: next };
+    });
+
+    const { data } = await supabase
+      .from("user_presence")
+      .select("user_id, status, online_at, activity")
+      .in("user_id", newIds);
+    if (!data || data.length === 0) return;
+
+    set((state) => {
+      const presence = { ...state.presence };
+      const presenceLastSeen = { ...state.presenceLastSeen };
+      const activity = { ...state.activity };
+      for (const p of data as any[]) {
+        presence[p.user_id] = p.status;
+        if (p.online_at) presenceLastSeen[p.user_id] = p.online_at;
+        if (p.activity) activity[p.user_id] = p.activity;
+      }
+      return { presence, presenceLastSeen, activity };
+    });
+  },
 
   initFriendsData: async (userId) => {
     try {
@@ -151,25 +190,23 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
       const uniqueIncoming = dedupeByCounterparty(pending, "incoming");
       const uniqueOutgoing = dedupeByCounterparty(outgoing, "outgoing");
 
-      // 2. Fetch presence (all users for simplicity in MVP)
-      const { data: presenceData } = await supabase.from("user_presence").select("user_id, status, online_at, activity");
-      const presenceMap: Record<string, PresenceStatus> = {};
-      const presenceLastSeenMap: Record<string, string> = {};
-      const activityMap: Record<string, string> = {};
-      (presenceData || []).forEach((p: any) => {
-        presenceMap[p.user_id] = p.status;
-        if (p.online_at) presenceLastSeenMap[p.user_id] = p.online_at;
-        if (p.activity) activityMap[p.user_id] = p.activity;
-      });
-
       set({
         friends: uniqueFriends,
         pendingRequests: uniqueIncoming,
         outgoingRequests: uniqueOutgoing,
-        presence: presenceMap,
-        presenceLastSeen: presenceLastSeenMap,
-        activity: activityMap,
       });
+
+      // 2. Fetch presence scoped to people the UI shows (friends + self).
+      //    Server members are added separately by server-store via
+      //    trackPresenceFor — both load concurrently, and trackPresenceFor is
+      //    idempotent so order doesn't matter.
+      const friendIds = [
+        userId,
+        ...uniqueFriends.map((r) => (r.requesterId === userId ? r.targetId : r.requesterId)),
+        ...uniqueIncoming.map((r) => r.requesterId),
+        ...uniqueOutgoing.map((r) => r.targetId),
+      ];
+      await get().trackPresenceFor(friendIds);
 
       // 3. Realtime setup — unsubscribe previous channel on re-init (e.g. re-login)
       if (friendsChannel) {
@@ -185,6 +222,9 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
           (payload) => {
             if (payload.new && "status" in payload.new) {
               const p = payload.new as any;
+              // Ignore churn from users the UI never shows (not a friend or
+              // co-server-member). Keeps state + re-renders scoped to our network.
+              if (!get().presenceTrackedIds.has(p.user_id)) return;
               set((state) => ({
                 presence: { ...state.presence, [p.user_id]: p.status },
                 ...(p.online_at ? { presenceLastSeen: { ...state.presenceLastSeen, [p.user_id]: p.online_at } } : {}),
