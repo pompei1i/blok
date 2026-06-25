@@ -18,11 +18,14 @@ export function ScreenShareOverlay() {
 
   const watchingStream = watchingUserId ? screenSharers[watchingUserId] ?? null : null;
 
+  // Re-attach the stream when it changes OR when the <video> remounts on restore:
+  // the element is unmounted while minimized, so a fresh one needs srcObject set
+  // again — otherwise restoring shows a black screen with the stream still live.
   useEffect(() => {
     if (!videoRef.current) return;
     videoRef.current.srcObject = watchingStream;
     if (watchingStream) videoRef.current.play().catch(() => {});
-  }, [watchingStream]);
+  }, [watchingStream, minimized]);
 
   useEffect(() => {
     const handler = () => setMinimized(false);
