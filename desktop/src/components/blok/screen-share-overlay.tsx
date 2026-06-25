@@ -27,6 +27,21 @@ export function ScreenShareOverlay() {
     if (watchingStream) videoRef.current.play().catch(() => {});
   }, [watchingStream, minimized]);
 
+  // Resume playback when the window/tab is restored after being hidden/minimized —
+  // WebView2 can pause the <video> while the window is minimized, freezing it.
+  useEffect(() => {
+    const resume = () => {
+      const v = videoRef.current;
+      if (v && v.srcObject && v.paused) v.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+    };
+  }, []);
+
   useEffect(() => {
     const handler = () => setMinimized(false);
     window.addEventListener("blok:focus-screen-share", handler);
