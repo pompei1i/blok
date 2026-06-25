@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.30] — 2026-06-25
+
+### Added
+- **Channel categories (sections)** — group text *and* voice channels under a
+  category; create / rename (double-click) / delete (channels move out, not
+  deleted) / collapse. Each category has its own "+" to add a channel into it.
+- **Drag-and-drop** — reorder channels up/down and between categories (including
+  the uncategorized bucket), and reorder the categories themselves. Native HTML5
+  DnD, no new dependencies.
+
+### Changed
+- **Daily message-XP cap** — 100 XP/day per (user, server) so messages can't be
+  spammed to farm levels. The +5/message reward is unchanged below the cap.
+- **Single-instance only** — removed the dev-only `BLOK_MULTI` multi-instance
+  opt-in; a second launch now always just focuses the existing window.
+
+### Performance (architecture review)
+- **DB indexes** — composite `messages(channel_id, created_at desc)` for the
+  hottest query, plus the missing FK indexes most hit by RLS membership checks
+  (`server_members`, `channels`, `categories`, `messages`, `user_relationships`).
+- **Scoped presence** — fetch presence only for people the UI shows (friends ∪
+  co-server-members ∪ self) instead of every user in the database; realtime
+  ignores churn from unrelated users.
+- **Scoped store selectors** — six heavy components (chat, sidebars, voice view,
+  top bar) no longer re-render on unrelated store churn.
+- **Incremental friends graph** — friend request/accept/decline/remove no longer
+  re-fetch the entire relationship + presence graph; changes apply incrementally.
+- **Dead code removed** — ~850 lines (unused browser voice engine + landing page).
+
 ## [0.9.27] — 2026-06-25
 
 ### Fixed

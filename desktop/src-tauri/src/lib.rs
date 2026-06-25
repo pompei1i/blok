@@ -429,34 +429,18 @@ fn capture_raw_window(_: isize) -> Option<RawFrame> { None }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Opt-in multi-instance for testing two accounts on one machine: launch a
-    // second copy with BLOK_MULTI=1 to skip the single-instance lock and use a
-    // separate WebView2 data folder (its own login session). Normal launches keep
-    // single-instance (clicking the icon just focuses the existing window).
-    let multi = std::env::var_os("BLOK_MULTI").is_some();
-    if multi {
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            let mut dir = std::path::PathBuf::from(local);
-            dir.push("blok-multi");
-            std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
-        }
-    }
-
-    let mut builder = tauri::Builder::default()
-        .manage(AudioState(Mutex::new(None)))
-        .manage(ScreenCaptureState { last_hashes: Mutex::new(HashMap::new()) });
-
-    if !multi {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    // Single-instance: only one copy of the app may run. A second launch just
+    // focuses the existing window (must be registered before any other plugin).
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-        }));
-    }
-
-    builder
+        }))
+        .manage(AudioState(Mutex::new(None)))
+        .manage(ScreenCaptureState { last_hashes: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
