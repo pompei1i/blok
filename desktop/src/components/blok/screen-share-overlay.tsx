@@ -127,12 +127,12 @@ export function ScreenShareOverlay() {
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border)] shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] min-w-0">
-            <Monitor className="w-3 h-3 text-[var(--online)] flex-shrink-0" />
+            <Monitor className="w-3 h-3 text-[var(--online-text)] flex-shrink-0" />
             {layout === "grid" ? (
               <span className="truncate">{sharerIds.length} {t("screenShare.isSharing")}</span>
             ) : (
               <>
-                <span className="text-[var(--online)] truncate">{sharingName}</span>
+                <span className="text-[var(--online-text)] truncate">{sharingName}</span>
                 <span className="truncate">{isSelfSharing ? `— ${t("screenShare.sharingYour")}` : t("screenShare.isSharing")}</span>
               </>
             )}
@@ -142,7 +142,7 @@ export function ScreenShareOverlay() {
               <button
                 onClick={() => setLayout((l) => (l === "grid" ? "single" : "grid"))}
                 className="p-1 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                title={layout === "grid" ? t("screenShare.viewSingle") : t("screenShare.viewGrid")}
+                aria-label={layout === "grid" ? t("screenShare.viewSingle") : t("screenShare.viewGrid")}
               >
                 {layout === "grid" ? <Square className="w-3 h-3" /> : <LayoutGrid className="w-3 h-3" />}
               </button>
@@ -156,8 +156,8 @@ export function ScreenShareOverlay() {
             {isSelfSharing && (
               <button
                 onClick={() => useServerStore.getState().toggleScreenShare()}
-                className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
-                title={t("screenShare.stopSharing")}
+                className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors"
+                aria-label={t("screenShare.stopSharing")}
               >
                 <X className="w-3 h-3" />
               </button>
@@ -190,7 +190,7 @@ export function ScreenShareOverlay() {
             {isSelfSharing ? (
               <div className="flex items-center justify-center h-full text-center text-[var(--text-muted)] font-mono text-sm">
                 <div>
-                  <Monitor className="w-8 h-8 mx-auto mb-2 text-[var(--online)]" />
+                  <Monitor className="w-8 h-8 mx-auto mb-2 text-[var(--online-text)]" />
                   <p>{t("screenShare.beingShared")}</p>
                   <button
                     onClick={() => useServerStore.getState().toggleScreenShare()}
@@ -216,7 +216,7 @@ export function ScreenShareOverlay() {
                     />
                     <span className="absolute bottom-1 left-1 flex items-center gap-1 px-1.5 py-0.5 bg-black/60 rounded text-[11px] font-mono text-white">
                       {getDisplayName(uid)}
-                      {getVolume(uid) === 0 && <Volume2 className="w-3 h-3 text-[var(--destructive)]" />}
+                      {getVolume(uid) === 0 && <Volume2 className="w-3 h-3 text-[var(--accent-red-text)]" />}
                     </span>
                   </div>
                 ))}

@@ -52,7 +52,7 @@ export function BaitView() {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
         {messages.length === 0 ? (
           <div className="flex flex-col items-start justify-end h-full pb-2">
-            <div className="border-l-2 border-[var(--border)] pl-4 space-y-1">
+            <div className="border-l-2 border-[var(--border)] pl-[22px] space-y-1">
               <p className="text-[10px] text-[var(--text-muted)] font-mono">~/blok/b.ai.t</p>
               <p className="text-sm font-mono font-semibold text-[var(--text-muted)] opacity-40">
                 <span className="font-normal">$ </span>{t("bait.placeholder")}
@@ -96,7 +96,7 @@ export function BaitView() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+      <div className="pl-10 pr-4 pt-2 pb-6 border-t border-[var(--border)] flex-shrink-0">
         <div className="flex items-center gap-3 border-b border-[var(--border)] focus-within:border-[var(--text-primary)] transition-colors pb-1">
           <span className="text-[var(--text-muted)] font-mono text-sm flex-shrink-0">&gt;</span>
           <input

@@ -100,7 +100,7 @@ export function MembersSidebar() {
             </p>
           )}
           {inCall && (
-            <p className="text-[12px] text-[var(--online)] truncate">in voice</p>
+            <p className="text-[12px] text-[var(--online-text)] truncate">in voice</p>
           )}
         </div>
         {!isMe && (

@@ -104,7 +104,7 @@ export function PollCreator({ onClose, onSubmit }: PollCreatorProps) {
             {options.length > 2 && (
               <button
                 onClick={() => removeOption(i)}
-                className="p-1 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0"
+                className="p-1 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors flex-shrink-0"
               >
                 <Minus className="w-3 h-3" />
               </button>

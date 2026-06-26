@@ -17,7 +17,7 @@ beforeEach(() => {
     dust: 0,
     catalog: [],
     inventory: new Set<string>(),
-    equipped: { badges: [] },
+    equipped: {},
     pity: 0,
     loading: false,
     opening: false,
@@ -37,7 +37,7 @@ describe("addCoins", () => {
 
 describe("clearDrop", () => {
   it("clears lastDrop", () => {
-    useEconomyStore.setState({ lastDrop: { itemId: "x", type: "badge", rarity: "common", payload: {}, duplicate: false, dustAwarded: 0, newPity: 1 } });
+    useEconomyStore.setState({ lastDrop: { itemId: "x", type: "nameplate", rarity: "common", payload: {}, duplicate: false, dustAwarded: 0, newPity: 1 } });
     useEconomyStore.getState().clearDrop();
     expect(useEconomyStore.getState().lastDrop).toBeNull();
   });
@@ -114,21 +114,10 @@ describe("equipItem / unequipSlot", () => {
   });
 
   it("clears the slot on unequip", async () => {
-    useEconomyStore.setState({ equipped: { nameplate: "np_crimson", badges: [] } });
+    useEconomyStore.setState({ equipped: { nameplate: "np_crimson" } });
     rpc().mockResolvedValueOnce({ data: { ok: true }, error: null });
     const ok = await useEconomyStore.getState().unequipSlot("nameplate");
     expect(ok).toBe(true);
     expect(useEconomyStore.getState().equipped.nameplate).toBeUndefined();
-  });
-
-  it("toggles badges off when equipping an already-equipped badge", async () => {
-    useEconomyStore.setState({
-      catalog: [{ id: "badge_fire", type: "badge", rarity: "common", name: "Fire", payload: { icon: "🔥" }, shopCost: 100, shopCurrency: "coins", weight: 60, active: true }],
-      inventory: new Set(["badge_fire"]),
-      equipped: { badges: ["badge_fire"] },
-    });
-    rpc().mockResolvedValueOnce({ data: { ok: true }, error: null });
-    await useEconomyStore.getState().equipItem("badge_fire");
-    expect(useEconomyStore.getState().equipped.badges).not.toContain("badge_fire");
   });
 });

@@ -1,4 +1,4 @@
-import { useRef, useLayoutEffect, useEffect, useState, useMemo } from "react";
+import { useRef, useLayoutEffect, useEffect, useState, useMemo, lazy, Suspense } from "react";
 import {
   Hash,
   Send,
@@ -20,7 +20,8 @@ import { useServerStore } from "@/lib/store/server-store";
 import { useShallow } from "zustand/react/shallow";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { MessageBubble } from "./message-bubble";
-import { EmojiPicker } from "./emoji-picker";
+// Lazy: the ~430KB emoji dataset only loads when the picker is first opened.
+const EmojiPicker = lazy(() => import("./emoji-picker").then((m) => ({ default: m.EmojiPicker })));
 import { GifPicker } from "./gif-picker";
 import { MentionPicker } from "./mention-picker";
 import { AtMentionDropdown } from "./at-mention-dropdown";
@@ -389,7 +390,7 @@ export function ChatArea() {
         <button
           onClick={() => setIsSearchOpen(true)}
           className="ml-auto p-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-          title={`${t("search.title").replace("{channel}", activeChannel.name)} (Ctrl+F)`}
+          aria-label={`${t("search.title").replace("{channel}", activeChannel.name)} (Ctrl+F)`}
         >
           <Search className="w-4 h-4" />
         </button>
@@ -447,8 +448,8 @@ export function ChatArea() {
                   {activeChannelId && canPin && (
                     <button
                       onClick={() => pinMessage(msg.id, activeChannelId)}
-                      className="text-xs text-[var(--text-muted)] hover:text-[var(--destructive)] flex-shrink-0"
-                      title="Unpin"
+                      className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-red-text)] flex-shrink-0"
+                      aria-label="Unpin"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -460,8 +461,10 @@ export function ChatArea() {
         </div>
       )}
 
-      {/* Messages list */}
-      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto py-4 relative">
+      {/* Messages list — the background lives in this wrapper (not the scroll
+          container) so it stays a fixed backdrop covering the whole viewport
+          instead of scrolling away with the messages. */}
+      <div className="flex-1 relative min-h-0">
         {chatBackground && (
           <div
             aria-hidden
@@ -469,6 +472,7 @@ export function ChatArea() {
             style={{ backgroundImage: `url("${chatBackground}")` }}
           />
         )}
+        <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="absolute inset-0 overflow-y-auto py-4">
         {isLoadingMore && (
           <div className="flex items-center justify-center py-2 text-xs text-[var(--text-muted)] font-mono">
             <span className="cursor-blink mr-1">$</span> loading older messages...
@@ -559,6 +563,7 @@ export function ChatArea() {
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* Typing indicator */}
@@ -659,11 +664,11 @@ export function ChatArea() {
         )}
 
         {chat.fileError && (
-          <p className="mb-1 text-xs text-[var(--destructive)] font-mono">{chat.fileError}</p>
+          <p className="mb-1 text-xs text-[var(--accent-red-text)] font-mono">{chat.fileError}</p>
         )}
 
         {chat.isTimedOut ? (
-          <p className="mb-1 text-xs text-[var(--destructive)] font-mono flex items-center gap-1.5">
+          <p className="mb-1 text-xs text-[var(--accent-red-text)] font-mono flex items-center gap-1.5">
             <Clock className="w-3 h-3 flex-shrink-0" />
             {t("moderation.timedOut").replace("{time}", formatDurationSeconds(chat.timeoutRemaining))}
           </p>
@@ -731,7 +736,7 @@ export function ChatArea() {
               "p-1 hover:bg-[var(--bg-hover)] transition-colors",
               showPollCreator && "bg-[var(--bg-hover)] text-[var(--accent-red)]",
             )}
-            title={t("poll.title")}
+            aria-label={t("poll.title")}
           >
             <BarChart2 className="w-5 h-5 text-[var(--text-muted)]" />
           </button>
@@ -835,17 +840,19 @@ export function ChatArea() {
               <Smile className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
             {chat.showEmojiPicker && (
-              <EmojiPicker
-                onSelect={handleEmojiSelect}
-                onClose={() => chat.setShowEmojiPicker(false)}
-              />
+              <Suspense fallback={null}>
+                <EmojiPicker
+                  onSelect={handleEmojiSelect}
+                  onClose={() => chat.setShowEmojiPicker(false)}
+                />
+              </Suspense>
             )}
           </div>
 
           {/* Announce toggle */}
           <button
             onClick={() => chat.setIsAnnouncement(!chat.isAnnouncement)}
-            title={chat.isAnnouncement ? "Sending as announcement (click to cancel)" : "Send as announcement"}
+            aria-label={chat.isAnnouncement ? "Sending as announcement (click to cancel)" : "Send as announcement"}
             className={cn(
               "p-1 transition-colors flex-shrink-0",
               chat.isAnnouncement

@@ -362,7 +362,7 @@ export function MessageBubble({
               <button
                 onClick={() => onReply(message as Message | DMMessage)}
                 className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                title="Reply"
+                aria-label="Reply"
               >
                 <CornerUpLeft className="w-3 h-3" />
               </button>
@@ -370,15 +370,15 @@ export function MessageBubble({
             <button
               onClick={handleCopy}
               className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              title="Copy"
+              aria-label="Copy"
             >
               <Copy className="w-3 h-3" />
             </button>
             {isOwn && onDelete && (
               <button
                 onClick={() => onDelete(message.id)}
-                className="p-1 rounded hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
-                title="Delete"
+                className="p-1 rounded hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors"
+                aria-label="Delete"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -499,10 +499,10 @@ export function MessageBubble({
             />
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
               <span>{t("message.editHint")}</span>
-              <button onClick={commitEdit} className="ml-auto p-0.5 hover:text-[var(--online)] transition-colors">
+              <button onClick={commitEdit} className="ml-auto p-0.5 hover:text-[var(--online-text)] transition-colors">
                 <Check className="w-3.5 h-3.5" />
               </button>
-              <button onClick={() => setIsEditing(false)} className="p-0.5 hover:text-[var(--destructive)] transition-colors">
+              <button onClick={() => setIsEditing(false)} className="p-0.5 hover:text-[var(--accent-red-text)] transition-colors">
                 <XIcon className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -573,7 +573,7 @@ export function MessageBubble({
                       ? "bg-[var(--accent-red)]/20 border-[var(--accent-red)]/50 text-[var(--accent-red)]"
                       : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
                   )}
-                  title={userIds.join(", ")}
+                  aria-label={userIds.join(", ")}
                 >
                   <span>{emoji}</span>
                   <span className="font-medium">{count}</span>
@@ -680,7 +680,7 @@ export function MessageBubble({
               <div className="my-1 border-t border-[var(--border)]" />
               <button
                 onClick={() => { onDelete(message.id); closeMenu(); }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--accent-red-text)] hover:bg-[var(--bg-hover)] transition-colors"
               >
                 <Trash2 className="w-3 h-3" /> {t("message.delete")}
               </button>

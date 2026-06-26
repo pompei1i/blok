@@ -69,14 +69,14 @@ describe("incoming call", () => {
   it("accept button calls acceptCall", () => {
     mockUseDMStore.mockReturnValue(incoming);
     render(<IncomingCallBanner />);
-    fireEvent.click(screen.getByTitle("Accept"));
+    fireEvent.click(screen.getByLabelText("Accept"));
     expect(mockAcceptCall).toHaveBeenCalledTimes(1);
   });
 
   it("decline button calls declineCall", () => {
     mockUseDMStore.mockReturnValue(incoming);
     render(<IncomingCallBanner />);
-    fireEvent.click(screen.getByTitle("Decline"));
+    fireEvent.click(screen.getByLabelText("Decline"));
     expect(mockDeclineCall).toHaveBeenCalledTimes(1);
   });
 });
@@ -102,7 +102,7 @@ describe("outgoing call", () => {
   it("cancel button calls cancelCall", () => {
     mockUseDMStore.mockReturnValue(outgoing);
     render(<IncomingCallBanner />);
-    fireEvent.click(screen.getByTitle("Cancel"));
+    fireEvent.click(screen.getByLabelText("Cancel"));
     expect(mockCancelCall).toHaveBeenCalledTimes(1);
   });
 });

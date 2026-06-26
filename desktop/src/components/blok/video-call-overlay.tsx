@@ -71,8 +71,8 @@ export function VideoCallOverlay() {
       <div className="bg-[var(--bg-base)] border border-[var(--border)] rounded-lg overflow-hidden flex flex-col h-full shadow-2xl">
         <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border)] shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)]">
-            <Video className="w-3 h-3 text-[var(--online)]" />
-            <span className="text-[var(--online)]">{t("videoCall.title")}</span>
+            <Video className="w-3 h-3 text-[var(--online-text)]" />
+            <span className="text-[var(--online-text)]">{t("videoCall.title")}</span>
             <span>— {tiles.length} {tiles.length !== 1 ? t("videoCall.participants") : t("videoCall.participant")}</span>
           </div>
           <div className="flex items-center gap-1">
@@ -84,7 +84,7 @@ export function VideoCallOverlay() {
                   ? "hover:bg-[var(--destructive)]/20"
                   : "hover:bg-[var(--bg-hover)]",
               )}
-              title={isDMCameraOn ? t("videoCall.turnOffCamera") : t("videoCall.turnOnCamera")}
+              aria-label={isDMCameraOn ? t("videoCall.turnOffCamera") : t("videoCall.turnOnCamera")}
             >
               {isDMCameraOn ? <VideoOff className="w-3 h-3" /> : <Video className="w-3 h-3" />}
             </button>
@@ -96,8 +96,8 @@ export function VideoCallOverlay() {
             </button>
             <button
               onClick={onToggle}
-              className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
-              title={t("videoCall.stopAll")}
+              className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors"
+              aria-label={t("videoCall.stopAll")}
             >
               <X className="w-3 h-3" />
             </button>

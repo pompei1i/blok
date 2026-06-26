@@ -15,7 +15,11 @@ export function ToastHost() {
           onClick={() => dismiss(t.id)}
           className="pointer-events-auto flex items-center gap-3 w-72 px-3 py-2.5 bg-[var(--bg-elevated)] border border-[var(--accent-red)]/50 shadow-2xl animate-fade-in text-left hover:bg-[var(--bg-hover)] transition-colors"
         >
-          {t.emoji && <span className="text-xl leading-none shrink-0">{t.emoji}</span>}
+          {t.icon ? (
+            <t.icon className="w-5 h-5 shrink-0 text-[var(--accent-red)]" />
+          ) : t.emoji ? (
+            <span className="text-xl leading-none shrink-0">{t.emoji}</span>
+          ) : null}
           <div className="min-w-0">
             <p className="text-xs font-bold text-[var(--text-primary)] truncate">{t.title}</p>
             {t.message && (

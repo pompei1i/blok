@@ -17,7 +17,6 @@ interface EquippedState {
   nameplate?: string;
   avatarFrame?: string;
   banner?: string;
-  badges: string[];
 }
 
 interface EconomyState {
@@ -52,7 +51,7 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
   dust: 0,
   catalog: [],
   inventory: new Set(),
-  equipped: { badges: [] },
+  equipped: {},
   pity: 0,
   loading: false,
   opening: false,
@@ -68,7 +67,7 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       supabase.from("user_gacha_state").select("opens_since_epic").eq("user_id", userId).maybeSingle(),
       supabase
         .from("profiles")
-        .select("equipped_nameplate, equipped_avatar_frame, equipped_banner, equipped_badges")
+        .select("equipped_nameplate, equipped_avatar_frame, equipped_banner")
         .eq("id", userId)
         .maybeSingle(),
     ]);
@@ -80,7 +79,6 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       nameplate: prof?.equipped_nameplate ?? undefined,
       avatarFrame: prof?.equipped_avatar_frame ?? undefined,
       banner: prof?.equipped_banner ?? undefined,
-      badges: Array.isArray(prof?.equipped_badges) ? prof.equipped_badges : [],
     };
 
     set({
@@ -174,11 +172,6 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
         if (item.type === "nameplate") equipped.nameplate = itemId;
         else if (item.type === "avatar_frame") equipped.avatarFrame = itemId;
         else if (item.type === "banner") equipped.banner = itemId;
-        else if (item.type === "badge") {
-          equipped.badges = equipped.badges.includes(itemId)
-            ? equipped.badges.filter((b) => b !== itemId)
-            : [...equipped.badges, itemId].slice(-3);
-        }
         return { equipped };
       });
     }
@@ -194,7 +187,6 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       if (type === "nameplate") equipped.nameplate = undefined;
       else if (type === "avatar_frame") equipped.avatarFrame = undefined;
       else if (type === "banner") equipped.banner = undefined;
-      else if (type === "badge") equipped.badges = [];
       return { equipped };
     });
     return true;
@@ -215,7 +207,7 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       dust: 0,
       catalog: [],
       inventory: new Set(),
-      equipped: { badges: [] },
+      equipped: {},
       pity: 0,
       lastDrop: null,
     });

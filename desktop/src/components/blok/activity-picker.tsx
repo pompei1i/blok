@@ -63,7 +63,7 @@ export function ActivityPicker({ current, anchorRect, onSelect, onClose }: Props
           <div className="border-t border-[var(--border)] my-1" />
           <button
             onClick={() => { onSelect(null); onClose(); }}
-            className="w-full text-left px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors rounded"
+            className="w-full text-left px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--accent-red-text)] hover:bg-[var(--bg-hover)] transition-colors rounded"
           >
             Clear activity
           </button>

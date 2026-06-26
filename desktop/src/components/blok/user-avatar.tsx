@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarFrameStyle } from "@/lib/economy";
 import type { User } from "@/lib/store/types";
@@ -28,10 +29,10 @@ export function UserAvatar({
 
   const initial = user?.username?.charAt(0).toUpperCase() || "?";
 
-  // Equipped avatar frame (cosmetic). Speaking glow takes visual priority.
+  // Equipped avatar frame (cosmetic).
   const frame = avatarFrameStyle(user);
   const frameStyle: CSSProperties | undefined =
-    frame?.ring && !isSpeaking
+    frame?.ring
       ? { boxShadow: frame.effect ? `0 0 0 2px ${frame.ring}, 0 0 8px ${frame.ring}` : `0 0 0 2px ${frame.ring}` }
       : undefined;
 
@@ -39,10 +40,9 @@ export function UserAvatar({
     <div
       style={frameStyle}
       className={cn(
-        "relative flex items-center justify-center rounded-full bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
+        "relative flex items-center justify-center rounded-full overflow-hidden bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
         sizeClasses[size],
         showRing && !frameStyle && "ring-2 ring-[var(--accent-red)]",
-        isSpeaking && "speaking-glow ring-2 ring-[var(--online)]",
         className,
       )}
     >
@@ -50,10 +50,19 @@ export function UserAvatar({
         <img
           src={user.avatarUrl}
           alt={user.username}
-          className="w-full h-full object-cover rounded-full"
+          className={cn(
+            "w-full h-full object-cover rounded-full transition-[filter,transform] duration-150",
+            isSpeaking && "blur-[2px] scale-110",
+          )}
         />
       ) : (
-        <span>{initial}</span>
+        <span className={cn("transition-[filter] duration-150", isSpeaking && "blur-[2px]")}>{initial}</span>
+      )}
+      {/* Speaking indicator: blurred avatar + centered loudspeaker (replaces the green ring). */}
+      {isSpeaking && (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+          <Volume2 className="w-1/2 h-1/2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
+        </span>
       )}
     </div>
   );

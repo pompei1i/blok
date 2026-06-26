@@ -116,8 +116,8 @@ export function AddFriendModal({ isOpen, onClose }: AddFriendModalProps) {
               className={cn(
                 "p-3 rounded-lg text-sm flex items-center gap-2",
                 message.type === "success"
-                  ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
-                  : "bg-[var(--destructive)]/20 text-[var(--destructive)] border border-[var(--destructive)]/30",
+                  ? "bg-[var(--online)]/20 text-[var(--online-text)] border border-[var(--online)]/30"
+                  : "bg-[var(--destructive)]/20 text-[var(--accent-red-text)] border border-[var(--destructive)]/30",
               )}
             >
               {message.type === "success" ? (
@@ -149,7 +149,7 @@ export function AddFriendModal({ isOpen, onClose }: AddFriendModalProps) {
                     </div>
                     <button
                       onClick={() => cancelRequest(request.id)}
-                      className="text-xs text-[var(--text-muted)] hover:text-[var(--destructive)] px-2 py-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
+                      className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-red-text)] px-2 py-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
                     >
                       Cancel
                     </button>

@@ -317,7 +317,7 @@ export function GroupSidebar() {
       >
         {confirmDeleteChannelId === channel.id ? (
           <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border border-[var(--destructive)]/40 text-xs">
-            <span className="text-[var(--destructive)] truncate flex-1">
+            <span className="text-[var(--accent-red-text)] truncate flex-1">
               {t("channel.deleteConfirm").replace("{name}", channel.name)}
             </span>
             <button
@@ -390,7 +390,7 @@ export function GroupSidebar() {
               "group/ch flex items-center gap-1.5 w-full px-2 py-1.5 text-sm transition-all duration-150 text-left border",
               isVoice
                 ? isInChannel
-                  ? "border-[var(--online)]/40 bg-[var(--bg-elevated)] text-[var(--online)] shadow-[inset_2px_0_0_var(--online)]"
+                  ? "border-[var(--online)]/40 bg-[var(--bg-elevated)] text-[var(--online-text)] shadow-[inset_2px_0_0_var(--online)]"
                   : "border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-solid hover:border-[var(--text-primary)]/30 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                 : activeChannelId === channel.id
                   ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[inset_2px_0_0_var(--accent-red)]"
@@ -400,7 +400,7 @@ export function GroupSidebar() {
           >
             <span className={cn(
               "flex-shrink-0 font-mono text-xs",
-              isVoice && isInChannel ? "text-[var(--online)]" : "text-[var(--text-muted)]",
+              isVoice && isInChannel ? "text-[var(--online-text)]" : "text-[var(--text-muted)]",
             )}>
               {isVoice ? "♪" : "#"}
             </span>
@@ -417,17 +417,17 @@ export function GroupSidebar() {
               <span
                 role="button"
                 onClick={(e) => void handleLeaveVoice(e)}
-                title="Leave voice"
-                className="p-0.5 hover:text-[var(--destructive)] transition-colors"
+                aria-label="Leave voice"
+                className="p-0.5 hover:text-[var(--accent-red-text)] transition-colors"
               >
-                <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
+                <PhoneOff className="w-3 h-3 text-[var(--accent-red-text)]" />
               </span>
             )}
             {!isVoice && canManageChannels && (
               <span
                 role="button"
                 onClick={(e) => { e.stopPropagation(); setSlowmodeChannelId(channel.id); }}
-                title={`${t("slowmode.title")}: ${(channel.slowModeSeconds ?? 0) === 0 ? t("slowmode.off") : formatSlowmode(channel.slowModeSeconds ?? 0)}`}
+                aria-label={`${t("slowmode.title")}: ${(channel.slowModeSeconds ?? 0) === 0 ? t("slowmode.off") : formatSlowmode(channel.slowModeSeconds ?? 0)}`}
                 className={cn(
                   "p-0.5 transition-all",
                   (channel.slowModeSeconds ?? 0) > 0
@@ -442,7 +442,7 @@ export function GroupSidebar() {
               <span
                 role="button"
                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteChannelId(channel.id); }}
-                className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+                className="opacity-0 group-hover/ch:opacity-100 p-0.5 hover:text-[var(--accent-red-text)] transition-all"
               >
                 <Trash2 className="w-3 h-3" />
               </span>
@@ -465,19 +465,13 @@ export function GroupSidebar() {
                     setCtxMenu({ userId: participant.userId, name, x: e.clientX, y: e.clientY });
                   }}
                 >
-                  <div
-                    className={cn(
-                      "rounded-full transition-all",
-                      participant.isSpeaking &&
-                        "ring-2 ring-[var(--online)] ring-offset-1 ring-offset-[var(--bg-surface)]",
-                    )}
-                  >
-                    <UserAvatar user={displayUser} size="xs" />
+                  <div className="rounded-full transition-all">
+                    <UserAvatar user={displayUser} size="xs" isSpeaking={participant.isSpeaking} />
                   </div>
                   <span
                     className={cn(
                       "truncate transition-colors",
-                      participant.isSpeaking && "text-[var(--online)]",
+                      participant.isSpeaking && "text-[var(--online-text)]",
                     )}
                   >
                     {displayUser?.displayName || displayUser?.username || "..."}
@@ -489,20 +483,20 @@ export function GroupSidebar() {
                           e.stopPropagation();
                           window.dispatchEvent(new CustomEvent("blok:focus-screen-share"));
                         }}
-                        title="View screen share"
-                        className="hover:text-[var(--online)] transition-colors"
+                        aria-label="View screen share"
+                        className="hover:text-[var(--online-text)] transition-colors"
                       >
-                        <Monitor className="w-3 h-3 text-[var(--online)]" />
+                        <Monitor className="w-3 h-3 text-[var(--online-text)]" />
                       </button>
                     )}
                     {(participant.userId === user?.id ? isCameraOn : !!cameraUsers[participant.userId]) && (
-                      <Video className="w-3 h-3 text-[var(--online)]" />
+                      <Video className="w-3 h-3 text-[var(--online-text)]" />
                     )}
                     {(participant.isMuted || participant.isDeafened) && (
-                      <MicOff className="w-3 h-3 text-[var(--destructive)]" />
+                      <MicOff className="w-3 h-3 text-[var(--accent-red-text)]" />
                     )}
                     {participant.isDeafened && (
-                      <VolumeX className="w-3 h-3 text-[var(--destructive)]" />
+                      <VolumeX className="w-3 h-3 text-[var(--accent-red-text)]" />
                     )}
                   </div>
                 </div>
@@ -544,8 +538,8 @@ export function GroupSidebar() {
 
   return (
     <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col flex-shrink-0">
-      <div className="p-3 border-b border-[var(--border)]">
-        <div className="flex items-center justify-between">
+      <div>
+        <div className="h-12 px-3 border-b border-[var(--border)] flex items-center justify-between">
           {renamingServer ? (
             <input
               ref={serverRenameInputRef}
@@ -562,7 +556,7 @@ export function GroupSidebar() {
             <h2
               className={cn("font-semibold text-sm text-[var(--text-primary)] truncate", canRenameServer && "cursor-text")}
               onDoubleClick={canRenameServer ? () => { setRenameValue(activeServer.name); setRenamingServer(true); } : undefined}
-              title={canRenameServer ? "Double-click to rename" : undefined}
+              aria-label={canRenameServer ? "Double-click to rename" : undefined}
             >
               <span className="text-[var(--text-muted)] font-normal mr-1">$</span>{activeServer.name}
             </h2>
@@ -571,7 +565,7 @@ export function GroupSidebar() {
             {canManage && (
               <button
                 onClick={() => setShowInviteUser(true)}
-                title={t("invite.addMember")}
+                aria-label={t("invite.addMember")}
                 className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
               >
                 <UserPlus className="w-4 h-4 text-[var(--text-muted)]" />
@@ -580,7 +574,7 @@ export function GroupSidebar() {
             {canManage && (
               <button
                 onClick={() => setShowRoleManager(true)}
-                title="Roles & Permissions"
+                aria-label="Roles & Permissions"
                 className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
               >
                 <Settings className="w-4 h-4 text-[var(--text-muted)]" />
@@ -588,8 +582,9 @@ export function GroupSidebar() {
             )}
           </div>
         </div>
+        <div className="p-3">
         {activeServer.description && (
-          <p className="text-xs text-[var(--text-muted)] mt-1 truncate">
+          <p className="text-xs text-[var(--text-muted)] mb-1 truncate">
             <span className="opacity-60">@desc </span>
             {activeServer.description}
           </p>
@@ -602,7 +597,7 @@ export function GroupSidebar() {
             {activeServer.iconUrl && canManageIcon && (
               <button
                 onClick={() => void updateServerIcon(activeServerId!, null)}
-                className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
+                className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors"
               >
                 [rm]
               </button>
@@ -634,10 +629,11 @@ export function GroupSidebar() {
             )}
           </div>
         </div>
+        </div>
       </div>
 
       {voiceError && (
-        <div className="mx-2 mt-2 px-2 py-1.5 border border-[var(--destructive)]/30 text-xs text-[var(--destructive)] flex items-center justify-between gap-1">
+        <div className="mx-2 mt-2 px-2 py-1.5 border border-[var(--destructive)]/30 text-xs text-[var(--accent-red-text)] flex items-center justify-between gap-1">
           <span className="truncate prefix-error">{voiceError}</span>
           <button onClick={() => setVoiceError(null)} className="shrink-0 opacity-70 hover:opacity-100">✕</button>
         </div>
@@ -648,7 +644,7 @@ export function GroupSidebar() {
           {canCreateChannel ? (
             <button
               onClick={() => setShowCreateCategory(true)}
-              title={t("category.create")}
+              aria-label={t("category.create")}
               className="p-1 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               <FolderPlus className="w-3.5 h-3.5" />
@@ -657,7 +653,7 @@ export function GroupSidebar() {
           {canCreateChannel && (
             <button
               onClick={() => openCreateChannel(undefined)}
-              title={t("createChannel.title")}
+              aria-label={t("createChannel.title")}
               className="p-1 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -766,7 +762,7 @@ export function GroupSidebar() {
                       {canDeleteChannelPerm && (
                         <button
                           onClick={() => setConfirmDeleteCategoryId(category.id)}
-                          className="opacity-0 group-hover:opacity-100 hover:text-[var(--destructive)] transition-all p-0.5"
+                          className="opacity-0 group-hover:opacity-100 hover:text-[var(--accent-red-text)] transition-all p-0.5"
                         >
                           <Trash2 className="w-3 h-3 text-[var(--text-muted)]" />
                         </button>

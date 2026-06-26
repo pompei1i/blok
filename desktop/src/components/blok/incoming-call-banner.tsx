@@ -44,14 +44,14 @@ export function IncomingCallBanner() {
  <button
  onClick={() => void acceptCall()}
  className="p-2 bg-[var(--online)] hover:opacity-90 text-white rounded-lg transition-opacity flex-shrink-0"
- title={t("incomingCall.accept")}
+ aria-label={t("incomingCall.accept")}
  >
  <Phone className="w-4 h-4" />
  </button>
  <button
  onClick={() => declineCall()}
  className="p-2 bg-[var(--accent-red)] hover:opacity-90 text-white rounded-lg transition-opacity flex-shrink-0"
- title={t("incomingCall.decline")}
+ aria-label={t("incomingCall.decline")}
  >
  <PhoneOff className="w-4 h-4" />
  </button>
@@ -76,11 +76,11 @@ export function IncomingCallBanner() {
  @{outgoingCall.toUsername}
  </p>
  </div>
- <PhoneCall className="w-4 h-4 text-[var(--online)] animate-pulse flex-shrink-0" />
+ <PhoneCall className="w-4 h-4 text-[var(--online-text)] animate-pulse flex-shrink-0" />
  <button
  onClick={() => cancelCall()}
  className="p-2 bg-[var(--accent-red)] hover:opacity-90 text-white rounded-lg transition-opacity flex-shrink-0"
- title={t("incomingCall.cancel")}
+ aria-label={t("incomingCall.cancel")}
  >
  <PhoneOff className="w-4 h-4" />
  </button>

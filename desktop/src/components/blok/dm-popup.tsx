@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, lazy, Suspense } from "react";
 import { X, Minus, Send, Smile, PlusCircle, Paperclip, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
 import { DM_WINDOW_W_REM, DM_WINDOW_H_REM } from "@/lib/constants";
 import type { Attachment } from "@/lib/store/types";
@@ -11,7 +11,8 @@ import { MessageBubble } from "./message-bubble";
 import { cn } from "@/lib/utils";
 import type { DMWindowState } from "@/lib/store/types";
 import { useI18n } from "@/lib/i18n";
-import { EmojiPicker } from "./emoji-picker";
+// Lazy: the ~430KB emoji dataset only loads when the picker is first opened.
+const EmojiPicker = lazy(() => import("./emoji-picker").then((m) => ({ default: m.EmojiPicker })));
 import { GifPicker } from "./gif-picker";
 import { AttachmentPicker } from "./attachment-picker";
 
@@ -206,7 +207,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
 
         {isActiveCall ? (
           <>
-            <span className="text-xs font-mono text-[var(--online)]">
+            <span className="text-xs font-mono text-[var(--online-text)]">
               {String(Math.floor(callSeconds / 60)).padStart(2, "0")}:{String(callSeconds % 60).padStart(2, "0")}
             </span>
             <button
@@ -214,35 +215,35 @@ export function DMPopup({ dmState }: DMPopupProps) {
               className={cn(
                 "p-1 rounded transition-opacity",
                 isDMCameraOn
-                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
+                  ? "bg-[var(--online)]/20 text-[var(--online-text)] ring-1 ring-[var(--online)]"
                   : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
               )}
-              title={isDMCameraOn ? "Turn off camera" : "Turn on camera"}
+              aria-label={isDMCameraOn ? "Turn off camera" : "Turn on camera"}
             >
               {isDMCameraOn ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
             </button>
             <button
               onClick={() => endCall()}
               className="p-1 bg-[var(--accent-red)] hover:opacity-90 text-white rounded transition-opacity"
-              title="End call"
+              aria-label="End call"
             >
               <PhoneOff className="w-3.5 h-3.5" />
             </button>
           </>
         ) : isIncomingCall ? (
           <>
-            <Phone className="w-3.5 h-3.5 text-[var(--online)] animate-pulse flex-shrink-0" />
+            <Phone className="w-3.5 h-3.5 text-[var(--online-text)] animate-pulse flex-shrink-0" />
             <button
               onClick={() => void acceptCall()}
               className="p-1 bg-[var(--online)] hover:opacity-90 text-white rounded transition-opacity"
-              title="Accept"
+              aria-label="Accept"
             >
               <Phone className="w-3 h-3" />
             </button>
             <button
               onClick={() => declineCall()}
               className="p-1 bg-[var(--accent-red)] hover:opacity-90 text-white rounded transition-opacity"
-              title="Decline"
+              aria-label="Decline"
             >
               <PhoneOff className="w-3 h-3" />
             </button>
@@ -252,9 +253,9 @@ export function DMPopup({ dmState }: DMPopupProps) {
             onClick={() => void callUser(dmState.userId, friend?.username ?? dmState.userId)}
             disabled={friendPresence === "offline" || isOutgoingCall}
             className="p-1 hover:bg-[var(--bg-hover)] disabled:opacity-30 rounded transition-colors"
-            title={friendPresence === "offline" ? "User is offline" : "Call"}
+            aria-label={friendPresence === "offline" ? "User is offline" : "Call"}
           >
-            <Phone className={cn("w-3.5 h-3.5", isOutgoingCall ? "text-[var(--online)] animate-pulse" : "text-[var(--text-muted)]")} />
+            <Phone className={cn("w-3.5 h-3.5", isOutgoingCall ? "text-[var(--online-text)] animate-pulse" : "text-[var(--text-muted)]")} />
           </button>
         )}
 
@@ -411,10 +412,12 @@ export function DMPopup({ dmState }: DMPopupProps) {
               <Smile className="w-4 h-4 text-[var(--text-muted)]" />
             </button>
             {showEmojiPicker && (
-              <EmojiPicker
-                onSelect={handleEmojiSelect}
-                onClose={() => setShowEmojiPicker(false)}
-              />
+              <Suspense fallback={null}>
+                <EmojiPicker
+                  onSelect={handleEmojiSelect}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              </Suspense>
             )}
           </div>
           <button

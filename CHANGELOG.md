@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.9.31] — 2026-06-26
+
+### Added
+- **Full emoji picker** — ~1800 emojis across 8 categories with search by name /
+  keyword, powered by `@emoji-mart/data` (lazy-loaded, so the dataset only
+  downloads when the picker is first opened). Replaces the old ~150 hardcoded set.
+- **Mute / deafen hotkeys** — Ctrl+Shift+M toggles the mic, Ctrl+Shift+D toggles
+  deafen; both listed in Settings → Hotkeys and shown in the button tooltips' a11y names.
+- **Quest feedback** — a sound plays when a daily quest completes, and the quests
+  button shows a red ring while a reward is unclaimed.
+
+### Changed
+- **Monochrome UI** — decorative color emojis in the interface (quests, toasts,
+  coin rewards, announcement notifications) are now monochrome icons. Reactions
+  and message content keep color emojis.
+- **Speaking indicator** — instead of a green ring, a speaking avatar now blurs
+  and shows a centered loudspeaker icon.
+- **Presence dots** convey status by shape as well as color (online ●, offline ○,
+  dnd ⊝, away ◐), so dnd/offline are distinguishable and color-blind safe.
+- **Readability** — separate readable red/green text tokens (≥4.5:1) for errors
+  and status; aligned the three column headers into one divider line; larger user
+  avatar; removed the divider above the user bar.
+- **No native tooltips** — all `title` hover tooltips replaced with `aria-label`
+  (no browser tooltip chrome; screen-reader names preserved).
+- **Removed the badges cosmetic type** entirely (customization rework).
+- Minimum window size so the layout no longer breaks when shrunk.
+
+### Fixed
+- **Chat wallpaper** now covers the whole scrollable area instead of staying
+  pinned to the top and disappearing as you scroll.
+- Horizontal alignment of the b.ai.t input / body.
+
 ## [0.9.30] — 2026-06-25
 
 ### Added

@@ -85,7 +85,7 @@ export function CreateChannelModal({
 
  <form onSubmit={handleSubmit} className="p-6 space-y-6">
  {error && (
- <div className="p-3 bg-[var(--destructive)]/20 border border-[var(--destructive)]/30 rounded-lg text-[var(--destructive)] text-sm">
+ <div className="p-3 bg-[var(--destructive)]/20 border border-[var(--destructive)]/30 rounded-lg text-[var(--accent-red-text)] text-sm">
  {error}
  </div>
  )}

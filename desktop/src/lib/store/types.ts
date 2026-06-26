@@ -1,7 +1,7 @@
 // Copied from root lib/store/types.ts
 
 export type Rarity = "common" | "rare" | "epic" | "legendary";
-export type CosmeticType = "nameplate" | "avatar_frame" | "badge" | "banner";
+export type CosmeticType = "nameplate" | "avatar_frame" | "banner";
 
 /** A single equipped cosmetic, denormalized onto profiles.cosmetics by the equip RPC. */
 export interface CosmeticItem {
@@ -15,7 +15,6 @@ export interface Cosmetics {
   nameplate?: CosmeticItem;
   avatar_frame?: CosmeticItem;
   banner?: CosmeticItem;
-  badges?: CosmeticItem[];
 }
 
 export interface User {

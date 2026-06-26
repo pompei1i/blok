@@ -61,7 +61,6 @@ export const RARITY_LABEL: Record<Rarity, string> = {
 export const COSMETIC_TYPE_LABEL: Record<CosmeticType, string> = {
   nameplate: "Nameplate",
   avatar_frame: "Avatar Frame",
-  badge: "Badge",
   banner: "Banner",
 };
 

@@ -151,7 +151,7 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
             playNotificationBeep();
             const channelName = get().channelIndex[m.channel_id]?.name ?? "blok";
             const preview = fastMessage.content?.slice(0, NOTIFICATION_PREVIEW_LEN) || "sent an attachment";
-            const title = isAnnouncement ? `📢 #${channelName}` : `#${channelName}`;
+            const title = isAnnouncement ? `[!] #${channelName}` : `#${channelName}`;
             sendDesktopNotification(title, `${cachedAuthor?.username ?? "someone"}: ${preview}`);
           }
         }

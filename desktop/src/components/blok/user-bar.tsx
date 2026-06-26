@@ -25,6 +25,8 @@ import { nameplateStyle } from "@/lib/economy";
 import { ActivityPicker } from "./activity-picker";
 import { EconomyModal } from "./economy-modal";
 import { QuestsModal } from "./quests-modal";
+import { useQuestsStore } from "@/lib/store/quests-store";
+import { DAILY_QUESTS } from "@/lib/quests";
 
 export function UserBar() {
   const { t } = useI18n();
@@ -52,6 +54,13 @@ export function UserBar() {
   const lvColor = lvProgress ? levelColor(lvProgress.level) : null;
   const coins = useEconomyStore((s) => s.coins);
   const dust = useEconomyStore((s) => s.dust);
+  // A quest is claimable when its target is met but the reward isn't claimed yet.
+  const hasClaimableQuest = useQuestsStore((s) =>
+    s.progress.some((p) => {
+      const q = DAILY_QUESTS.find((d) => d.id === p.questId);
+      return q ? p.count >= q.target && !p.claimed : false;
+    }),
+  );
   const [showStore, setShowStore] = useState(false);
   const [showQuests, setShowQuests] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -67,11 +76,11 @@ export function UserBar() {
 
   return (
     <>
-      <div className="w-56 bg-[var(--bg-surface)] border-t border-r border-[var(--border)] flex flex-col justify-center px-3 gap-2 py-3 mt-auto shrink-0">
+      <div className="w-56 bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col justify-center px-3 gap-2 py-3 mt-auto shrink-0">
         {activeVoiceChannelId && activeVoiceChannel && (
           <div className="flex items-center gap-2 px-2 py-1 bg-[var(--online)]/20 border border-[var(--online)]/30">
             <div className="w-2 h-2 rounded-full bg-[var(--online)] animate-pulse" />
-            <span className="text-xs text-[var(--online)]">
+            <span className="text-xs text-[var(--online-text)]">
               {activeVoiceChannel.name}
             </span>
             <button
@@ -80,9 +89,9 @@ export function UserBar() {
                 playLeaveSound();
               }}
               className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
-              title={t("userBar.leaveVoice")}
+              aria-label={t("userBar.leaveVoice")}
             >
-              <PhoneOff className="w-3 h-3 text-[var(--destructive)]" />
+              <PhoneOff className="w-3 h-3 text-[var(--accent-red-text)]" />
             </button>
           </div>
         )}
@@ -92,10 +101,10 @@ export function UserBar() {
             onClick={() => setShowSettings(true)}
             className="relative hover:opacity-80 transition-opacity"
           >
-            <UserAvatar user={user} size="md" />
+            <UserAvatar user={user} size="lg" className="w-11 h-11" />
             <PresenceDot
               status="online"
-              size="sm"
+              size="md"
               className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]"
             />
           </button>
@@ -134,7 +143,7 @@ export function UserBar() {
             )}
             <button
               onClick={() => setShowStore(true)}
-              title={t("userBar.store")}
+              aria-label={t("userBar.store")}
               className="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               <span className="flex items-center gap-1"><CoinIcon className="w-3 h-3" />{coins}</span>
@@ -162,10 +171,10 @@ export function UserBar() {
               isMuted || isDeafened
                 ? "bg-[var(--destructive)] text-white"
                 : isSpeaking
-                  ? "bg-[var(--online)]/20 text-[var(--online)] ring-1 ring-[var(--online)]"
+                  ? "bg-[var(--online)]/20 text-[var(--online-text)] ring-1 ring-[var(--online)]"
                   : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
             )}
-            title={isMuted ? t("userBar.unmute") : t("userBar.mute")}
+            aria-label={`${isMuted ? t("userBar.unmute") : t("userBar.mute")} (Ctrl+Shift+M)`}
           >
             {isMuted || isDeafened ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
@@ -177,7 +186,7 @@ export function UserBar() {
                 ? "bg-[var(--destructive)] text-white"
                 : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
             )}
-            title={isDeafened ? t("userBar.undeafen") : t("userBar.deafen")}
+            aria-label={`${isDeafened ? t("userBar.undeafen") : t("userBar.deafen")} (Ctrl+Shift+D)`}
           >
             {isDeafened ? (
               <HeadphoneOff className="w-4 h-4" />
@@ -187,22 +196,27 @@ export function UserBar() {
           </button>
           <button
             onClick={() => setShowQuests(true)}
-            className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-            title={t("userBar.quests")}
+            className={cn(
+              "p-2 transition-colors",
+              hasClaimableQuest
+                ? "ring-1 ring-[var(--accent-red)] text-[var(--accent-red-text)] hover:bg-[var(--bg-hover)]"
+                : "hover:bg-[var(--bg-hover)] text-[var(--text-muted)]",
+            )}
+            aria-label={t("userBar.quests")}
           >
             <ScrollText className="w-4 h-4" />
           </button>
           <button
             onClick={() => setShowStore(true)}
             className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-            title={t("userBar.store")}
+            aria-label={t("userBar.store")}
           >
             <Store className="w-4 h-4" />
           </button>
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-            title={t("userBar.settings")}
+            aria-label={t("userBar.settings")}
           >
             <Settings className="w-4 h-4" />
           </button>

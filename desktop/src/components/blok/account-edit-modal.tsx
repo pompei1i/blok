@@ -460,7 +460,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <p className="text-sm font-mono text-[var(--text-primary)]">@{user?.username}</p>
  <p className="text-xs text-[var(--text-muted)] mt-0.5">{user?.email}</p>
  {avatarPreview && (
- <p className="text-xs text-[var(--online)] mt-1 font-mono">[✓] {t("settings.account.newAvatarHint")}</p>
+ <p className="text-xs text-[var(--online-text)] mt-1 font-mono">[✓] {t("settings.account.newAvatarHint")}</p>
  )}
  </div>
  <input
@@ -517,7 +517,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  value={formData.email}
  readOnly
  disabled
- title="Your login email is managed by your account and can't be changed here."
+ aria-label="Your login email is managed by your account and can't be changed here."
  className="input-terminal opacity-60 cursor-not-allowed"
  placeholder="your@email.com"
  />
@@ -557,7 +557,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  {message && (
  <p className={cn(
  "text-sm font-mono animate-fade-in",
- message.type === "success" ? "text-[var(--online)]" : "text-[var(--destructive)]",
+ message.type === "success" ? "text-[var(--online-text)]" : "text-[var(--accent-red-text)]",
  )}>
  {message.type === "success" ? "[✓] " : "[!] "}{message.text}
  </p>
@@ -570,7 +570,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  logout();
  onClose();
  }}
- className="text-sm font-mono text-[var(--destructive)] hover:text-[var(--text-primary)] transition-colors"
+ className="text-sm font-mono text-[var(--accent-red-text)] hover:text-[var(--text-primary)] transition-colors"
  >
  [!] {t("settings.account.logOut")}
  </button>
@@ -619,7 +619,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  {pwdMessage && (
  <p className={cn(
  "text-sm font-mono animate-fade-in",
- pwdMessage.type === "success" ? "text-[var(--online)]" : "text-[var(--destructive)]",
+ pwdMessage.type === "success" ? "text-[var(--online-text)]" : "text-[var(--accent-red-text)]",
  )}>
  {pwdMessage.type === "success" ? "[✓] " : "[!] "}{pwdMessage.text}
  </p>
@@ -654,7 +654,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <div className="flex items-center justify-between gap-4">
  <div className="flex items-center gap-2 text-xs font-mono">
  {cameraDevices.length > 0
- ? <><CheckCircle className="w-3.5 h-3.5 text-[var(--online)]" /><span className="text-[var(--online)]">{t("settings.device.accessGranted")}</span></>
+ ? <><CheckCircle className="w-3.5 h-3.5 text-[var(--online-text)]" /><span className="text-[var(--online-text)]">{t("settings.device.accessGranted")}</span></>
  : <><AlertCircle className="w-3.5 h-3.5 text-[var(--afk)]" /><span className="text-[var(--afk)]">{t("settings.video.noCameraDetected")}</span></>
  }
  </div>
@@ -776,8 +776,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </span>
  <div className="flex items-center justify-between gap-4">
  <div className="flex items-center gap-2 text-xs font-mono">
- {micPermission === "granted" && <><CheckCircle className="w-3.5 h-3.5 text-[var(--online)]" /><span className="text-[var(--online)]">{t("settings.device.accessGranted")}</span></>}
- {micPermission === "denied" && <><XCircle className="w-3.5 h-3.5 text-[var(--destructive)]" /><span className="text-[var(--destructive)]">{t("settings.device.accessDenied")}</span></>}
+ {micPermission === "granted" && <><CheckCircle className="w-3.5 h-3.5 text-[var(--online-text)]" /><span className="text-[var(--online-text)]">{t("settings.device.accessGranted")}</span></>}
+ {micPermission === "denied" && <><XCircle className="w-3.5 h-3.5 text-[var(--accent-red-text)]" /><span className="text-[var(--accent-red-text)]">{t("settings.device.accessDenied")}</span></>}
  {micPermission === "prompt" && <><AlertCircle className="w-3.5 h-3.5 text-[var(--afk)]" /><span className="text-[var(--afk)]">{t("settings.device.notYetRequested")}</span></>}
  {micPermission === "checking" && <><AlertCircle className="w-3.5 h-3.5 text-[var(--text-muted)]" /><span className="text-[var(--text-muted)]">{t("settings.device.checking")}</span></>}
  </div>
@@ -918,6 +918,8 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <div className="grid grid-cols-2 gap-3 text-xs font-mono">
  <div className="bg-[var(--bg-base)] border border-dashed border-[var(--border)] px-3 py-2 text-[var(--text-muted)]">{t("settings.hotkeys.muteUnmute")}</div>
  <div className="bg-[var(--bg-base)] border border-[var(--border)] px-3 py-2 text-[var(--text-primary)]">Ctrl + Shift + M</div>
+ <div className="bg-[var(--bg-base)] border border-dashed border-[var(--border)] px-3 py-2 text-[var(--text-muted)]">{t("settings.hotkeys.deafenUndeafen")}</div>
+ <div className="bg-[var(--bg-base)] border border-[var(--border)] px-3 py-2 text-[var(--text-primary)]">Ctrl + Shift + D</div>
  <div className="bg-[var(--bg-base)] border border-dashed border-[var(--border)] px-3 py-2 text-[var(--text-muted)]">{t("settings.hotkeys.toggleOverlay")}</div>
  <div className="bg-[var(--bg-base)] border border-[var(--border)] px-3 py-2 text-[var(--text-primary)]">Ctrl + Shift + O</div>
  </div>
@@ -1021,7 +1023,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  <button
  type="button"
  onClick={() => setDraftSettings((prev) => ({ ...prev, chatBackground: "" }))}
- className="text-xs font-mono text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors text-left"
+ className="text-xs font-mono text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors text-left"
  >
  [rm]
  </button>
@@ -1111,7 +1113,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  {updateInstalling ? t("settings.system.installingUpdate") : `${t("settings.system.installUpdate")} v${updateVersion}`}
  </button>
  ) : (
- <span className="text-xs text-[var(--online)] font-mono">[✓] {t("settings.system.upToDate")}</span>
+ <span className="text-xs text-[var(--online-text)] font-mono">[✓] {t("settings.system.upToDate")}</span>
  )}
  </div>
  </div>
@@ -1157,7 +1159,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </span>
  <div className="flex items-center gap-3">
  {settingsMessage && (
- <span className="text-xs text-[var(--online)] font-mono">[✓] {t("settings.applied")}</span>
+ <span className="text-xs text-[var(--online-text)] font-mono">[✓] {t("settings.applied")}</span>
  )}
  <button
  type="button"

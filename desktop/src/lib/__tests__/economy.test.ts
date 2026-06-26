@@ -58,7 +58,7 @@ describe("mapCatalogItem", () => {
   });
 
   it("treats null shop_cost as not-for-sale", () => {
-    const item = mapCatalogItem({ id: "x", type: "badge", rarity: "legendary", name: "X", shop_cost: null });
+    const item = mapCatalogItem({ id: "x", type: "banner", rarity: "legendary", name: "X", shop_cost: null });
     expect(item.shopCost).toBeNull();
   });
 });

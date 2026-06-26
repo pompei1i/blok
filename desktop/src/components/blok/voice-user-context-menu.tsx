@@ -70,7 +70,7 @@ export function VoiceUserContextMenu({
         className={cn(
           "w-full flex items-center gap-2 px-2 py-1.5 text-[12px] transition-colors",
           locallyMuted[ctx.userId]
-            ? "bg-[var(--destructive)] bg-opacity-15 text-[var(--destructive)] hover:bg-opacity-25"
+            ? "bg-[var(--destructive)] bg-opacity-15 text-[var(--accent-red-text)] hover:bg-opacity-25"
             : "hover:bg-[var(--bg-hover)] text-[var(--text-primary)]",
         )}
       >

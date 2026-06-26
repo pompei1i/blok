@@ -1,7 +1,11 @@
 import { create } from "zustand";
+import type { ComponentType } from "react";
 
 export interface Toast {
   id: string;
+  /** Monochrome Lucide-style icon (preferred). Rendered in the accent color. */
+  icon?: ComponentType<{ className?: string }>;
+  /** Legacy color emoji — kept for any callers that still pass one. */
   emoji?: string;
   title: string;
   message?: string;

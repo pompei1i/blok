@@ -194,7 +194,7 @@ export function TopBar() {
                         </button>
                         <button
                           onClick={() => closeTab(server.id)}
-                          className="p-1 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors"
+                          className="p-1 text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -223,14 +223,14 @@ export function TopBar() {
       </div>
         <button
           onClick={() => setShowCreateServer(true)}
-          title={t("topBar.createServer")}
+          aria-label={t("topBar.createServer")}
           className="px-2 py-1 text-xs font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border)] hover:border-[var(--text-muted)]"
         >
           +
         </button>
         <button
           onClick={() => { setShowJoinModal(true); setJoinCode(""); setJoinStatus("idle"); setJoinError(""); }}
-          title={t("invite.joinByCode")}
+          aria-label={t("invite.joinByCode")}
           className="px-2 py-1 text-xs font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border)] hover:border-[var(--text-muted)]"
         >
           #code
@@ -239,7 +239,7 @@ export function TopBar() {
 
       <div className="flex items-center gap-1.5 ml-2 pl-2">
         <span
-          title="Public beta — expect rough edges"
+          aria-label="Public beta — expect rough edges"
           className="text-[9px] font-bold tracking-[0.15em] text-[var(--accent-red)] border border-[var(--accent-red)]/50 px-1 py-px leading-none uppercase select-none"
         >
           beta
@@ -268,7 +268,7 @@ export function TopBar() {
                 placeholder={t("invite.enterCode")}
                 className="input-terminal text-sm"
               />
-              {joinError && <p className="prefix-error text-xs text-[var(--destructive)] font-mono">{joinError}</p>}
+              {joinError && <p className="prefix-error text-xs text-[var(--accent-red-text)] font-mono">{joinError}</p>}
               <div className="flex gap-2">
                 <button onClick={() => setShowJoinModal(false)} className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border)]">
                   {t("topBar.cancel")}

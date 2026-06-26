@@ -47,7 +47,6 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
   const accent = user.accentColor ?? "var(--accent-red)";
   const np = nameplateStyle(user);
   const bannerBg = bannerBackground(user) ?? `linear-gradient(135deg, ${accent}, ${accent}99)`;
-  const badges = user.cosmetics?.badges ?? [];
 
   return createPortal(
     <div
@@ -98,15 +97,6 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
           </div>
           {user.pronouns && (
             <p className="text-[11px] text-[var(--text-muted)] opacity-60 mt-0.5">{user.pronouns}</p>
-          )}
-          {badges.length > 0 && (
-            <div className="flex items-center gap-1.5 mt-1.5">
-              {badges.map((b) => (
-                <span key={b.id} title={b.payload?.label} className="text-base leading-none">
-                  {b.payload?.icon ?? "🎖"}
-                </span>
-              ))}
-            </div>
           )}
         </div>
 

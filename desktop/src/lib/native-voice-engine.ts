@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { supabase } from "./supabaseClient";
 import type { VoiceCallbacks } from "./voice-types";
+import { WifiOff } from "lucide-react";
 import { useUiSettingsStore } from "./store/ui-settings-store";
 import { useToastStore } from "./store/toast-store";
 
@@ -98,7 +99,7 @@ function _notifyIceFailure(): void {
   if (now - _lastIceFailToast < 8000) return;
   _lastIceFailToast = now;
   useToastStore.getState().showToast({
-    emoji: "📵",
+    icon: WifiOff,
     title: "Video couldn't connect",
     message: "Screen share / camera failed to establish a connection (TURN relay).",
   });

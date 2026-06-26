@@ -81,6 +81,9 @@ export function playLeaveSound(): void { _synthTones([659.25, 392.0], 0.14, 0.12
 /** Someone started watching your screen share — soft rising double-blip. */
 export function playWatchSound(): void { _synthTones([880, 1318.51], 0.08, 0.09, 0.13, "sine"); }
 
+/** A daily quest was completed — bright ascending major triad (C–E–G). */
+export function playQuestCompleteSound(): void { _synthTones([523.25, 659.25, 783.99], 0.1, 0.1, 0.18, "triangle"); }
+
 // ── Mic / capture toggles ─────────────────────────────────────────────────────
 
 /** Mic muted — two descending tones. */

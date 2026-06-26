@@ -190,8 +190,8 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  <div className={cn(
  "flex items-center gap-2 px-3 py-2 rounded-lg text-xs",
  status === "success"
- ? "bg-[var(--online)]/10 border border-[var(--online)]/30 text-[var(--online)]"
- : "bg-[var(--destructive)]/10 border border-[var(--destructive)]/30 text-[var(--destructive)]"
+ ? "bg-[var(--online)]/10 border border-[var(--online)]/30 text-[var(--online-text)]"
+ : "bg-[var(--destructive)]/10 border border-[var(--destructive)]/30 text-[var(--accent-red-text)]"
  )}>
  {status === "success"
  ? <Check className="w-3 h-3 flex-shrink-0" />
@@ -246,7 +246,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
  >
  {copied
- ? <><Check className="w-3.5 h-3.5 text-[var(--online)]" /><span className="text-[var(--online)]">{t("invite.copied")}</span></>
+ ? <><Check className="w-3.5 h-3.5 text-[var(--online-text)]" /><span className="text-[var(--online-text)]">{t("invite.copied")}</span></>
  : <><Copy className="w-3.5 h-3.5" /><span>{t("invite.copy")}</span></>
  }
  </button>
@@ -257,7 +257,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  {expiryLabel && (
  <span className={cn(
  "flex items-center gap-1 text-[12px]",
- isExpired ? "text-[var(--destructive)]" : "text-[var(--text-muted)]"
+ isExpired ? "text-[var(--accent-red-text)]" : "text-[var(--text-muted)]"
  )}>
  <Clock className="w-3 h-3" /> {expiryLabel}
  </span>
@@ -265,7 +265,7 @@ export function InviteUserModal({ isOpen, onClose, serverId, serverName }: Invit
  {usesLabel && (
  <span className={cn(
  "flex items-center gap-1 text-[12px]",
- isExhausted ? "text-[var(--destructive)]" : "text-[var(--text-muted)]"
+ isExhausted ? "text-[var(--accent-red-text)]" : "text-[var(--text-muted)]"
  )}>
  <Users className="w-3 h-3" /> {usesLabel}
  </span>

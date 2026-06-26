@@ -109,7 +109,7 @@ export function FriendsSidebar() {
         <button
           onClick={() => setShowAddFriend(true)}
           className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
-          title={t("friends.addFriend")}
+          aria-label={t("friends.addFriend")}
         >
           <UserPlus className="w-3.5 h-3.5 text-[var(--text-muted)]" />
         </button>
@@ -119,7 +119,7 @@ export function FriendsSidebar() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
         {loadError && (
-          <div className="p-2 rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--destructive)] text-xs">
+          <div className="p-2 rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--accent-red-text)] text-xs">
             {loadError}
           </div>
         )}
@@ -153,8 +153,8 @@ export function FriendsSidebar() {
                         </div>
                         <button
                           onClick={() => cancelRequest(request.id)}
-                          className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0"
-                          title="Cancel request"
+                          className="p-1 hover:bg-[var(--destructive)]/20 rounded text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors flex-shrink-0"
+                          aria-label="Cancel request"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -175,7 +175,7 @@ export function FriendsSidebar() {
               className="flex items-center gap-1 w-full px-1 py-1.5 text-xs text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors"
             >
               <ChevronDown className={cn("w-3 h-3 transition-transform", !incomingOpen && "-rotate-90")} />
-              <span className="text-[var(--online)]">Incoming — {pendingRequests.length}</span>
+              <span className="text-[var(--online-text)]">Incoming — {pendingRequests.length}</span>
             </button>
             {incomingOpen && (
               <div className="space-y-1">
@@ -198,14 +198,14 @@ export function FriendsSidebar() {
                       <div className="mt-1.5 flex gap-1">
                         <button
                           onClick={() => acceptRequest(request.id)}
-                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--online)]/20 text-[var(--online)] hover:bg-[var(--online)]/30 transition-colors"
+                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--online)]/20 text-[var(--online-text)] hover:bg-[var(--online)]/30 transition-colors"
                         >
                           <Check className="w-3 h-3" />
                           Accept
                         </button>
                         <button
                           onClick={() => declineRequest(request.id)}
-                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--destructive)]/20 text-[var(--destructive)] hover:bg-[var(--destructive)]/30 transition-colors"
+                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded text-xs bg-[var(--destructive)]/20 text-[var(--accent-red-text)] hover:bg-[var(--destructive)]/30 transition-colors"
                         >
                           <X className="w-3 h-3" />
                           Decline

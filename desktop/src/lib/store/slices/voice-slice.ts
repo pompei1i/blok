@@ -1,4 +1,5 @@
 import type { StateCreator } from "zustand";
+import { MonitorOff } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
 import { playMuteSound, playUnmuteSound, playCaptureStartSound, playCaptureStopSound, playJoinSound, playLeaveSound, playWatchSound } from "../../sounds";
@@ -317,7 +318,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         if (name !== "NotAllowedError" && name !== "AbortError") {
           console.error("startScreenShare failed", err);
           useToastStore.getState().showToast({
-            emoji: "🖥️",
+            icon: MonitorOff,
             title: "Couldn't start screen share",
             message: err instanceof Error ? err.message : "Unknown error",
           });

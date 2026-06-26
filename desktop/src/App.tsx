@@ -14,7 +14,7 @@ import { UpdateBanner } from "./components/blok/update-banner";
 function App() {
   const { isAuthenticated, init, initialized, user } = useAuthStore();
   const { uiScale, compactMode, themeMode, customCss, pushToTalk, inputVolume } = useUiSettingsStore();
-  const { isMuted, toggleMute } = useServerStore();
+  const { isMuted, toggleMute, toggleDeafen } = useServerStore();
   const [audioError, setAudioError] = useState<string | null>(null);
 
 
@@ -110,6 +110,19 @@ function App() {
       window.removeEventListener("keyup", onUp);
     };
   }, [pushToTalk, isMuted, toggleMute]);
+
+  // Toggle hotkeys: Ctrl+Shift+M = mute/unmute mic, Ctrl+Shift+D = deafen/undeafen.
+  // e.code is layout-independent (physical key). The Ctrl+Shift combo never
+  // collides with plain typing, so no input-focus guard is needed.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.shiftKey || e.altKey || e.repeat) return;
+      if (e.code === "KeyM") { e.preventDefault(); toggleMute(); }
+      else if (e.code === "KeyD") { e.preventDefault(); toggleDeafen(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleMute, toggleDeafen]);
 
   // Live input volume update when slider changes
   useEffect(() => {

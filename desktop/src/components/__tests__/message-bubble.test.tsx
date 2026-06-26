@@ -232,14 +232,14 @@ describe("DM mode", () => {
   it("DM reply button calls onReply", () => {
     const onReply = vi.fn();
     render(<MessageBubble message={dmMsg} isDM onReply={onReply} />);
-    fireEvent.click(screen.getByTitle("Reply"));
+    fireEvent.click(screen.getByLabelText("Reply"));
     expect(onReply).toHaveBeenCalledWith(dmMsg);
   });
 
   it("DM delete button calls onDelete for own message", () => {
     const onDelete = vi.fn();
     render(<MessageBubble message={dmMsg} isDM isOwn onDelete={onDelete} />);
-    fireEvent.click(screen.getByTitle("Delete"));
+    fireEvent.click(screen.getByLabelText("Delete"));
     expect(onDelete).toHaveBeenCalledWith("msg-1");
   });
 });

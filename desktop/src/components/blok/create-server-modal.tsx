@@ -60,7 +60,7 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
 
  <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-4">
  {error && (
- <div className="p-3 bg-[var(--destructive)]/10 border border-[var(--destructive)]/20 rounded-lg text-xs text-[var(--destructive)]">
+ <div className="p-3 bg-[var(--destructive)]/10 border border-[var(--destructive)]/20 rounded-lg text-xs text-[var(--accent-red-text)]">
  {error}
  </div>
  )}

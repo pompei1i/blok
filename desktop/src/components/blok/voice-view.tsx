@@ -172,11 +172,8 @@ export function VoiceView() {
                     key={p.userId}
                     onContextMenu={openCtxMenu(p.userId)}
                     className={cn(
-                      "flex flex-col items-center gap-2 p-3 rounded bg-[var(--bg-surface)] border min-w-[80px]",
+                      "flex flex-col items-center gap-2 p-3 rounded bg-[var(--bg-surface)] border border-[var(--border)] min-w-[80px]",
                       p.userId !== user?.id && "cursor-context-menu",
-                      p.isSpeaking
-                        ? "border-[var(--online)] shadow-[0_0_0_1px_var(--online)]"
-                        : "border-[var(--border)]",
                     )}
                   >
                     <UserAvatar user={u} size="md" isSpeaking={p.isSpeaking} />
@@ -184,7 +181,7 @@ export function VoiceView() {
                       {u?.displayName || u?.username || p.userId.slice(0, 8)}
                     </span>
                     <div className="flex gap-1">
-                      {p.isMuted && <MicOff className="w-3 h-3 text-[var(--destructive)]" />}
+                      {p.isMuted && <MicOff className="w-3 h-3 text-[var(--accent-red-text)]" />}
                       {p.isDeafened && <VolumeX className="w-3 h-3 text-[var(--text-muted)]" />}
                       {p.isScreenSharing && <Monitor className="w-3 h-3 text-[var(--accent-red)]" />}
                     </div>
@@ -200,7 +197,7 @@ export function VoiceView() {
       <div className="shrink-0 h-14 border-t border-[var(--border)] bg-[var(--bg-surface)] flex items-center justify-center gap-2 px-4">
         <button
           onClick={toggleMute}
-          title={isMuted ? "Unmute" : "Mute"}
+          aria-label={isMuted ? "Unmute" : "Mute"}
           className={cn(
             "p-2.5 rounded transition-colors",
             isMuted
@@ -213,7 +210,7 @@ export function VoiceView() {
 
         <button
           onClick={toggleDeafen}
-          title={isDeafened ? "Undeafen" : "Deafen"}
+          aria-label={isDeafened ? "Undeafen" : "Deafen"}
           className={cn(
             "p-2.5 rounded transition-colors",
             isDeafened
@@ -227,40 +224,40 @@ export function VoiceView() {
         <div className="relative">
           <button
             onClick={() => void toggleCamera()}
-            title={`${isCameraOn ? "Turn off camera" : "Turn on camera"} (experimental)`}
+            aria-label={`${isCameraOn ? "Turn off camera" : "Turn on camera"} (experimental)`}
             className={cn(
               "p-2.5 rounded transition-colors",
               isCameraOn
-                ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
+                ? "bg-[var(--online)]/20 text-[var(--online-text)] border border-[var(--online)]/30"
                 : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
             )}
           >
             {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
           </button>
-          <span className="absolute -top-1 -right-1 text-[8px] font-bold leading-none px-0.5 bg-[var(--afk)] text-black rounded-sm select-none pointer-events-none" title="experimental">β</span>
+          <span className="absolute -top-1 -right-1 text-[8px] font-bold leading-none px-0.5 bg-[var(--afk)] text-black rounded-sm select-none pointer-events-none" aria-label="experimental">β</span>
         </div>
 
         <div className="relative">
           <button
             onClick={() => void toggleScreenShare()}
-            title={`${isScreenSharing ? "Stop sharing" : "Share screen"} (experimental)`}
+            aria-label={`${isScreenSharing ? "Stop sharing" : "Share screen"} (experimental)`}
             className={cn(
               "p-2.5 rounded transition-colors",
               isScreenSharing
-                ? "bg-[var(--online)]/20 text-[var(--online)] border border-[var(--online)]/30"
+                ? "bg-[var(--online)]/20 text-[var(--online-text)] border border-[var(--online)]/30"
                 : "bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]",
             )}
           >
             <Monitor className="w-4 h-4" />
           </button>
-          <span className="absolute -top-1 -right-1 text-[8px] font-bold leading-none px-0.5 bg-[var(--afk)] text-black rounded-sm select-none pointer-events-none" title="experimental">β</span>
+          <span className="absolute -top-1 -right-1 text-[8px] font-bold leading-none px-0.5 bg-[var(--afk)] text-black rounded-sm select-none pointer-events-none" aria-label="experimental">β</span>
         </div>
 
         <div className="w-px h-6 bg-[var(--border)] mx-1" />
 
         <button
           onClick={() => void leaveVoiceChannel()}
-          title="Leave voice"
+          aria-label="Leave voice"
           className="p-2.5 rounded bg-[var(--destructive)] hover:opacity-90 text-white transition-opacity"
         >
           <PhoneOff className="w-4 h-4" />

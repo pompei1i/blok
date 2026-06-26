@@ -89,7 +89,7 @@ describe("mapProfile", () => {
     const row = {
       id: "u5", username: "erin", email: "e@e.com", created_at: "2024-01-05",
       banner_url: "https://example.com/banner.png",
-      cosmetics: { nameplate: { id: "np_crimson", rarity: "common", payload: { color: "#e74c3c" } }, badges: [] },
+      cosmetics: { nameplate: { id: "np_crimson", rarity: "common", payload: { color: "#e74c3c" } } },
     };
     const user = mapProfile(row);
     expect(user.bannerUrl).toBe("https://example.com/banner.png");

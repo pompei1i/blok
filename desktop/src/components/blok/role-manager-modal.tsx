@@ -152,8 +152,8 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
       : entry.action === "ban" && entry.meta.reason ? `— ${entry.meta.reason}`
       : "";
     const when = new Date(entry.createdAt).toLocaleString();
-    const color = entry.action === "ban" ? "text-[var(--destructive)]"
-      : entry.action === "unban" ? "text-[var(--online)]"
+    const color = entry.action === "ban" ? "text-[var(--accent-red-text)]"
+      : entry.action === "unban" ? "text-[var(--online-text)]"
       : "text-[var(--text-muted)]";
     return (
       <div className="flex items-start gap-2 px-3 py-2 text-xs border-b border-[var(--border)]/40">
@@ -263,7 +263,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                       <span
                         role="button"
                         onClick={(e) => { e.stopPropagation(); void handleDeleteRole(role.id); }}
-                        className="absolute right-2 opacity-0 group-hover:opacity-100 p-0.5 hover:text-[var(--destructive)] transition-all"
+                        className="absolute right-2 opacity-0 group-hover:opacity-100 p-0.5 hover:text-[var(--accent-red-text)] transition-all"
                       >
                         <Trash2 className="w-3 h-3" />
                       </span>
@@ -361,7 +361,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                           style={{ backgroundColor: c }}
                         />
                       ))}
-                      <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-1 ring-[var(--border)] flex items-center justify-center" title={t("roles.customColor")}>
+                      <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-1 ring-[var(--border)] flex items-center justify-center" aria-label={t("roles.customColor")}>
                         <input
                           type="color"
                           value={editColor}
@@ -523,7 +523,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
                     </div>
                     <button
                       onClick={() => void unbanMember(serverId, ban.userId)}
-                      className="flex items-center gap-1 text-[12px] px-2 py-1 border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--online)] hover:border-[var(--online)]/40 transition-colors"
+                      className="flex items-center gap-1 text-[12px] px-2 py-1 border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--online-text)] hover:border-[var(--online)]/40 transition-colors"
                     >
                       <RotateCcw className="w-3 h-3" />
                       {t("bans.unban")}
@@ -562,7 +562,7 @@ export function RoleManagerModal({ serverId, onClose }: RoleManagerModalProps) {
               void kickMember(memberCtx.memberId, serverId);
               setMemberCtx(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--destructive)] hover:bg-[var(--bg-hover)] transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--accent-red-text)] hover:bg-[var(--bg-hover)] transition-colors"
           >
             <UserX className="w-3.5 h-3.5 flex-shrink-0" />
             {t("roles.kick")}

@@ -10,7 +10,7 @@ import { CoinIcon } from "./coin-icon";
 
 type SubTab = "box" | "shop" | "inventory";
 
-const TYPE_ORDER: CosmeticType[] = ["nameplate", "avatar_frame", "badge", "banner"];
+const TYPE_ORDER: CosmeticType[] = ["nameplate", "avatar_frame", "banner"];
 const RARITIES: Rarity[] = ["common", "rare", "epic", "legendary"];
 
 const rarityKey = (r: Rarity) => `store.rarity.${r}` as TranslationKey;
@@ -37,9 +37,6 @@ function CosmeticPreview({ item }: { item: CatalogItem }) {
         style={{ boxShadow: `0 0 0 2px ${p.ring ?? "#888"}`, background: "var(--bg-elevated)" }}
       />
     );
-  }
-  if (item.type === "badge") {
-    return <span className="text-lg leading-none">{p.icon ?? "🎖"}</span>;
   }
   return (
     <span
@@ -303,7 +300,7 @@ function InventorySection() {
     if (item.type === "nameplate") return equipped.nameplate === item.id;
     if (item.type === "avatar_frame") return equipped.avatarFrame === item.id;
     if (item.type === "banner") return equipped.banner === item.id;
-    return equipped.badges.includes(item.id);
+    return false;
   };
 
   if (owned.length === 0) {
@@ -329,7 +326,7 @@ function InventorySection() {
                     item={item}
                     owned
                     equipped={eq}
-                    onClick={() => (eq && type !== "badge" ? void unequipSlot(type) : void equipItem(item.id))}
+                    onClick={() => (eq ? void unequipSlot(type) : void equipItem(item.id))}
                     footer={
                       <span className="text-[11px] text-center text-[var(--text-muted)]">
                         {eq ? t("store.clickUnequip") : t("store.clickEquip")}
@@ -378,7 +375,7 @@ export function EconomyView({ onClose }: { onClose?: () => void } = {}) {
             <button
               onClick={onClose}
               className="ml-0.5 p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              title={t("store.close")}
+              aria-label={t("store.close")}
             >
               <X className="w-3.5 h-3.5" />
             </button>

@@ -249,13 +249,13 @@ export function AuthScreen() {
               )}
 
               {displayError && (
-                <p className="prefix-error text-sm text-[var(--destructive)] font-mono">
+                <p className="prefix-error text-sm text-[var(--accent-red-text)] font-mono">
                   {displayError}
                 </p>
               )}
 
               {info && (
-                <p className="text-sm text-[var(--online)] font-mono">
+                <p className="text-sm text-[var(--online-text)] font-mono">
                   [✓] {info}
                 </p>
               )}
@@ -282,18 +282,13 @@ export function AuthScreen() {
               </button>
 
               {mode === "login" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={goForgot}
-                    className="block text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-mono underline"
-                  >
-                    {t("auth.forgotPassword")}
-                  </button>
-                  <p className="text-xs text-[var(--text-muted)] font-mono border-l border-[var(--border)] pl-3">
-                    <span className="text-[var(--online)]">tip:</span> use demo@blok.app / demo123
-                  </p>
-                </>
+                <button
+                  type="button"
+                  onClick={goForgot}
+                  className="block text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-mono underline"
+                >
+                  {t("auth.forgotPassword")}
+                </button>
               )}
 
               {mode === "forgot" && (

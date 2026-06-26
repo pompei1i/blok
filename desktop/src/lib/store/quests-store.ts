@@ -3,6 +3,7 @@ import { supabase } from "../supabaseClient";
 import { DAILY_QUESTS, type QuestDef } from "../quests";
 import { useToastStore } from "./toast-store";
 import { translate } from "../i18n";
+import { playQuestCompleteSound } from "../sounds";
 
 export interface QuestProgress {
   questId: string;
@@ -81,11 +82,12 @@ export const useQuestsStore = create<QuestsState>((set, get) => ({
               return { ...p, count: row.count };
             }),
           }));
+          if (completed.length > 0) playQuestCompleteSound();
           for (const q of completed) {
             useToastStore.getState().showToast({
-              emoji: q.emoji,
+              icon: q.icon,
               title: translate("quests.completed"),
-              message: `${q.label} · +${q.xp} XP · 🪙${q.coins}`,
+              message: `${q.label} · +${q.xp} XP · +${q.coins} coins`,
             });
           }
         },

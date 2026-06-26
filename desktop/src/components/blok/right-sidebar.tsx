@@ -14,6 +14,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { useToastStore } from "@/lib/store/toast-store";
 import { UserAvatar } from "./user-avatar";
 import { PresenceDot } from "./presence-dot";
+import { CoinIcon } from "./coin-icon";
 import { AddFriendModal } from "./add-friend-modal";
 import { UserProfileModal } from "./user-profile-modal";
 import { EconomyView } from "./economy-view";
@@ -186,7 +187,7 @@ function MembersView() {
             <p className="text-[10px] text-[var(--text-muted)] truncate opacity-70">{activity[m.userId]}</p>
           )}
           {inVoice.has(m.userId) && (
-            <p className="text-[10px] text-[var(--online)]">{t("members.inVoice")}</p>
+            <p className="text-[10px] text-[var(--online-text)]">{t("members.inVoice")}</p>
           )}
         </div>
         {isMe ? (
@@ -338,7 +339,7 @@ function MembersView() {
                   void generateInviteCode(activeServerId).then((code) => {
                     if (code) {
                       navigator.clipboard.writeText(code).catch(() => {});
-                      showToast({ emoji: "🔗", title: t("member.ctx.inviteCopied"), message: code });
+                      showToast({ icon: Link2, title: t("member.ctx.inviteCopied"), message: code });
                     }
                   });
                   close();
@@ -379,7 +380,7 @@ function MembersView() {
                     {isTimedOut && (
                       <button
                         onClick={() => { if (activeServerId) void timeoutMember(activeServerId, m.userId, 0); close(); }}
-                        className="px-1.5 py-0.5 text-[10px] font-mono border border-[var(--online)]/40 text-[var(--online)] hover:bg-[var(--online)]/10 transition-colors"
+                        className="px-1.5 py-0.5 text-[10px] font-mono border border-[var(--online)]/40 text-[var(--online-text)] hover:bg-[var(--online)]/10 transition-colors"
                       >
                         {t("member.ctx.timeoutRemove")}
                       </button>
@@ -392,7 +393,7 @@ function MembersView() {
             {canKick && (
               <button
                 onClick={() => { if (activeServerId) void kickMember(m.id, activeServerId); close(); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--accent-red-text)] transition-colors"
               >
                 <UserX className="w-3.5 h-3.5 flex-shrink-0" />
                 {t("member.ctx.kick")}
@@ -402,7 +403,7 @@ function MembersView() {
             {canBan && (
               <button
                 onClick={() => { setBanTarget(m); close(); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--accent-red-text)] transition-colors"
               >
                 <Ban className="w-3.5 h-3.5 flex-shrink-0" />
                 {t("member.ctx.ban")}
@@ -423,7 +424,7 @@ function MembersView() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 mb-3">
-              <Ban className="w-4 h-4 text-[var(--destructive)]" />
+              <Ban className="w-4 h-4 text-[var(--accent-red-text)]" />
               <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
                 {t("ban.title").replace("{name}", banTarget.user?.username ?? banTarget.userId.slice(0, 8))}
               </span>
@@ -575,7 +576,7 @@ function FriendsView() {
         <span className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider font-medium">
           {t("friends.friends")} — {friends.length}
         </span>
-        <button onClick={() => setShowAddFriend(true)} className="p-1 hover:bg-[var(--bg-hover)] transition-colors" title="Add friend">
+        <button onClick={() => setShowAddFriend(true)} className="p-1 hover:bg-[var(--bg-hover)] transition-colors" aria-label="Add friend">
           <UserPlus className="w-3.5 h-3.5 text-[var(--text-muted)]" />
         </button>
       </div>
@@ -584,7 +585,7 @@ function FriendsView() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {loadError && (
-          <div className="p-2 mb-1 border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--destructive)] text-xs">{loadError}</div>
+          <div className="p-2 mb-1 border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 text-[var(--accent-red-text)] text-xs">{loadError}</div>
         )}
 
         {/* Outgoing requests */}
@@ -603,7 +604,7 @@ function FriendsView() {
                       <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{req.targetUser?.username ?? "unknown"}</p>
                       <p className="text-[10px] text-[var(--text-muted)] truncate opacity-60">{t("friends.pending")}</p>
                     </div>
-                    <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--destructive)] transition-colors flex-shrink-0">
+                    <button onClick={() => cancelRequest(req.id)} className="p-1 hover:bg-[var(--destructive)]/20 text-[var(--text-muted)] hover:text-[var(--accent-red-text)] transition-colors flex-shrink-0">
                       <X className="w-3 h-3" />
                     </button>
                   </div>
@@ -618,7 +619,7 @@ function FriendsView() {
           <div className="mt-1">
             <button onClick={() => setIncomingOpen((v) => !v)} className="flex items-center gap-1 w-full px-1 py-1 text-[11px] text-[var(--text-muted)] uppercase tracking-wider font-medium hover:text-[var(--text-primary)] transition-colors">
               <ChevronDown className={cn("w-3 h-3 transition-transform", !incomingOpen && "-rotate-90")} />
-              <span className="text-[var(--online)]">Incoming — {pendingRequests.length}</span>
+              <span className="text-[var(--online-text)]">Incoming — {pendingRequests.length}</span>
             </button>
             {incomingOpen && (
               <div className="space-y-0.5 mt-0.5">
@@ -632,10 +633,10 @@ function FriendsView() {
                       </div>
                     </div>
                     <div className="mt-1.5 flex gap-1">
-                      <button onClick={() => acceptRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs bg-[var(--online)]/20 text-[var(--online)] hover:bg-[var(--online)]/30 transition-colors">
+                      <button onClick={() => acceptRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs bg-[var(--online)]/20 text-[var(--online-text)] hover:bg-[var(--online)]/30 transition-colors">
                         <Check className="w-3 h-3" /> {t("friends.accept")}
                       </button>
-                      <button onClick={() => declineRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs bg-[var(--destructive)]/20 text-[var(--destructive)] hover:bg-[var(--destructive)]/30 transition-colors">
+                      <button onClick={() => declineRequest(req.id)} className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-xs bg-[var(--destructive)]/20 text-[var(--accent-red-text)] hover:bg-[var(--destructive)]/30 transition-colors">
                         <X className="w-3 h-3" /> {t("friends.decline")}
                       </button>
                     </div>
@@ -720,7 +721,7 @@ function FriendsView() {
                   void generateInviteCode(activeServerId).then((code) => {
                     if (code) {
                       navigator.clipboard.writeText(code).catch(() => {});
-                      showToast({ emoji: "🔗", title: t("member.ctx.inviteCopied"), message: code });
+                      showToast({ icon: Link2, title: t("member.ctx.inviteCopied"), message: code });
                     }
                   });
                   close();
@@ -734,7 +735,7 @@ function FriendsView() {
             <div className="my-1 border-t border-[var(--border)]" />
             <button
               onClick={() => { void removeFriend(f.id); close(); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--destructive)] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)] text-[var(--accent-red-text)] transition-colors"
             >
               <UserMinus className="w-3.5 h-3.5 flex-shrink-0" />
               {t("member.ctx.removeFriend")}
@@ -795,11 +796,11 @@ export function QuestsView() {
             claimed && "opacity-50",
           )}>
             <div className="flex items-center gap-2">
-              <span className="text-base leading-none">{quest.emoji}</span>
+              <quest.icon className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-[var(--text-primary)]">{quest.label}</p>
-                <p className="text-[12px] text-[var(--text-muted)]">
-                  {count}/{quest.target} · +{quest.xp} XP · 🪙{quest.coins}
+                <p className="text-[12px] text-[var(--text-muted)] flex items-center gap-1">
+                  {count}/{quest.target} · +{quest.xp} XP · <CoinIcon className="w-3 h-3" />{quest.coins}
                 </p>
               </div>
               {claimed && <span className="text-[12px] text-[var(--text-muted)]">✓</span>}
@@ -818,9 +819,9 @@ export function QuestsView() {
             {done && !claimed && (
               <button
                 onClick={() => void claimQuest(quest.id, quest.xp, quest.coins)}
-                className="w-full py-1 text-xs font-bold text-white bg-[var(--accent-red)] hover:bg-[var(--accent-red)]/80 transition-colors"
+                className="w-full py-1 text-xs font-bold text-white bg-[var(--accent-red)] hover:bg-[var(--accent-red)]/80 transition-colors inline-flex items-center justify-center gap-1"
               >
-                Claim +{quest.xp} XP · 🪙{quest.coins}
+                Claim +{quest.xp} XP · <CoinIcon className="w-3 h-3" />{quest.coins}
               </button>
             )}
           </div>
@@ -848,7 +849,7 @@ export function RightSidebar() {
   return (
     <div className="w-56 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col flex-shrink-0">
       {/* Tab header */}
-      <div className="px-2 pt-2 pb-0 border-b border-[var(--border)]">
+      <div className="h-12 px-2 flex items-center border-b border-[var(--border)]">
         <div className="flex items-center gap-1 w-full">
           {activeServerId ? (
             <>

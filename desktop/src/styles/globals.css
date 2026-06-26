@@ -15,6 +15,11 @@
   --online: #27ae60;
   --offline: #e74c3c;
   --afk: #f39c12;
+  /* Readable-as-TEXT variants (≥4.5:1 on dark surfaces incl. elevated #1a1a1a).
+     The base --accent-red/--destructive (#c0392b ≈ 4.0:1) is for backgrounds and
+     borders only; use these when red/green is the text/icon color. */
+  --accent-red-text: #ef5350;
+  --online-text: #2ecc71;
   --border: #333333;
   --border-color: #333333;
 
@@ -65,6 +70,9 @@
   --border: #d0d0d0;
   --text-primary: #1a1a1a;
   --text-muted: #595959;
+  /* Darker red/green for text on light surfaces (≥4.5:1 on #fff). */
+  --accent-red-text: #c0392b;
+  --online-text: #1e7e45;
   --ring: #555555;
   --background: #f7f7f7;
   --foreground: #1a1a1a;
@@ -319,7 +327,7 @@ select:focus-visible,
   .prefix-dollar::before { content: '$ '; color: var(--text-muted); font-weight: 300; }
   .prefix-gt::before     { content: '> '; color: var(--text-muted); font-weight: 300; }
   .prefix-check::before  { content: '[✓] '; color: var(--text-muted); font-weight: 300; }
-  .prefix-error::before  { content: '[!] '; color: var(--destructive); }
+  .prefix-error::before  { content: '[!] '; color: var(--accent-red-text); }
 
   .terminal-card {
     border: 1px dashed var(--border);
