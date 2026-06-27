@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.32] — 2026-06-27 — hotfix
+
+### Fixed
+- **Severe in-call lag / broken screen share / higher voice latency** introduced
+  in v0.9.31. The new speaking indicator animated a CSS `blur()` filter on
+  avatars; during a call (avatars toggling speaking many times/sec) this thrashed
+  the GPU compositor and starved the main thread, which handles incoming audio
+  chunks and WebRTC/ICE signaling — so voice lagged and screen share failed to
+  connect (a silent timeout, hence no error). Replaced the blur with a cheap dark
+  overlay + loudspeaker icon (no GPU filter).
+- **Screen-share icon no longer lingers** after stopping the share via the native
+  "Stop sharing" button: the participant entry and presence are now cleared (and
+  the stop broadcast to others), not just the local flag.
+
 ## [0.9.31] — 2026-06-26
 
 ### Added

@@ -40,27 +40,21 @@ export function UserAvatar({
     <div
       style={frameStyle}
       className={cn(
-        "relative flex items-center justify-center rounded-full overflow-hidden bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
+        "relative flex items-center justify-center rounded-full bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
         sizeClasses[size],
         showRing && !frameStyle && "ring-2 ring-[var(--accent-red)]",
         className,
       )}
     >
       {user?.avatarUrl ? (
-        <img
-          src={user.avatarUrl}
-          alt={user.username}
-          className={cn(
-            "w-full h-full object-cover rounded-full transition-[filter,transform] duration-150",
-            isSpeaking && "blur-[2px] scale-110",
-          )}
-        />
+        <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover rounded-full" />
       ) : (
-        <span className={cn("transition-[filter] duration-150", isSpeaking && "blur-[2px]")}>{initial}</span>
+        <span>{initial}</span>
       )}
-      {/* Speaking indicator: blurred avatar + centered loudspeaker (replaces the green ring). */}
+      {/* Speaking indicator: cheap dark overlay + centered loudspeaker (no GPU
+          blur filter — an animated blur here janked the compositor during calls). */}
       {isSpeaking && (
-        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
           <Volume2 className="w-1/2 h-1/2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
         </span>
       )}

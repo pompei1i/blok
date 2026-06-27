@@ -132,9 +132,26 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
       },
       onScreenShareStop: (userId) => {
         // Self: sharing can end outside the toggle path (browser "Stop sharing",
-        // track ended). Keep isScreenSharing in sync so the UI button resets.
+        // track ended). Mirror the toggle stop cleanup so the indicator clears
+        // for everyone — reset the flag, clear our participant entry, and
+        // broadcast isScreenSharing:false (otherwise the Monitor icon lingers).
         if (userId === get()._currentUserId) {
-          if (get().isScreenSharing) set({ isScreenSharing: false });
+          if (!get().isScreenSharing) return;
+          const { activeVoiceChannelId, isMuted, isDeafened, _currentUserId } = get();
+          if (activeVoiceChannelId && _currentUserId) {
+            voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: false });
+            set((state) => ({
+              isScreenSharing: false,
+              voiceParticipants: {
+                ...state.voiceParticipants,
+                [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
+                  p.userId === _currentUserId ? { ...p, isScreenSharing: false } : p
+                ),
+              },
+            }));
+          } else {
+            set({ isScreenSharing: false });
+          }
           return;
         }
         set((state) => {
