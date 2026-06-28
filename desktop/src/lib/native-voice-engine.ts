@@ -11,8 +11,9 @@ type NativeSignalMsg =
   | { type: "join"; from: string }
   | { type: "hello"; from: string }
   | { type: "leave"; from: string }
-  | { type: "audio"; from: string; data: string; rate?: number }
-  | { type: "speaking"; from: string; speaking: boolean }
+  | { type: "audio_offer"; from: string; to: string; sdp: string }
+  | { type: "audio_answer"; from: string; to: string; sdp: string }
+  | { type: "audio_ice"; from: string; to: string; candidate: RTCIceCandidateInit }
   | { type: "screenshare_start"; from: string }
   | { type: "screenshare_stop"; from: string }
   | { type: "screenshare_offer"; from: string; to: string; sdp: string }
@@ -88,6 +89,91 @@ async function getIceConfig(): Promise<RTCConfiguration> {
   }
 }
 
+export interface TurnTestResult {
+  ok: boolean;
+  /** Short human-readable status for the UI. */
+  detail: string;
+  /** True if a TURN url was present in the fetched config. */
+  hasTurn: boolean;
+  /** True if ICE gathered a `relay` candidate (proves the TURN server is reachable). */
+  relayReachable: boolean;
+  /** True when we fell back to the dead public openrelay (i.e. the Cloudflare fetch failed). */
+  usingFallback: boolean;
+  /** Host of the first TURN server actually used (cloudflare vs openrelay). */
+  turnHost?: string;
+  /** ICE candidate types observed: host / srflx (STUN) / relay (TURN). */
+  candidateTypes: string[];
+}
+
+/**
+ * End-to-end TURN check usable in the production build (no DevTools needed):
+ * fetch ICE config, then gather ICE candidates and look for a `relay` candidate.
+ * A relay candidate proves the TURN server actually minted creds AND is reachable —
+ * the exact thing screen share / camera / voice rely on cross-NAT.
+ *
+ * It also disambiguates the two failure modes that look identical otherwise:
+ * Cloudflare TURN reachable vs. silently falling back to the dead public relay
+ * (getIceConfig() swallows a failed fetch and returns the openrelay fallback).
+ */
+export async function testTurnConnectivity(timeoutMs = 10000): Promise<TurnTestResult> {
+  let config: RTCConfiguration;
+  try {
+    config = await getIceConfig();
+  } catch {
+    return { ok: false, detail: "Could not fetch ICE config", hasTurn: false, relayReachable: false, usingFallback: false, candidateTypes: [] };
+  }
+
+  const turnUrls: string[] = [];
+  for (const s of config.iceServers ?? []) {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    for (const u of urls) {
+      if (typeof u === "string" && (u.startsWith("turn:") || u.startsWith("turns:"))) turnUrls.push(u);
+    }
+  }
+  const hasTurn = turnUrls.length > 0;
+  const turnHost = turnUrls[0]?.replace(/^turns?:/, "").split(/[:?]/)[0];
+  const usingFallback = turnUrls.some((u) => u.includes("openrelay.metered.ca"));
+  if (!hasTurn) {
+    return { ok: false, detail: "No TURN server in config (STUN only — cross-NAT will fail)", hasTurn: false, relayReachable: false, usingFallback: false, turnHost, candidateTypes: [] };
+  }
+
+  return await new Promise<TurnTestResult>((resolve) => {
+    const pc = new RTCPeerConnection(config);
+    const types = new Set<string>();
+    let done = false;
+    const failMsg = () => {
+      const seen = types.size ? `got ${[...types].join("/")}` : "no candidates at all";
+      return usingFallback
+        ? `Cloudflare TURN unavailable — fell back to a dead public relay (${seen})`
+        : `TURN unreachable — no relay candidate (${seen})`;
+    };
+    const finish = (relay: boolean, detail: string) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { pc.close(); } catch { /* already closed */ }
+      resolve({ ok: relay, detail, hasTurn: true, relayReachable: relay, usingFallback, turnHost, candidateTypes: [...types] });
+    };
+    const timer = setTimeout(() => finish(false, failMsg()), timeoutMs);
+    pc.onicecandidate = ({ candidate }) => {
+      if (!candidate) {
+        // gathering complete — if no relay turned up by now it won't
+        if (!types.has("relay")) finish(false, failMsg());
+        return;
+      }
+      const m = candidate.candidate.match(/ typ (\w+)/);
+      if (m) types.add(m[1]);
+      if (candidate.candidate.includes(" typ relay")) {
+        finish(true, usingFallback ? "Relay OK (public fallback — set up Cloudflare)" : "TURN relay reachable — connections should work");
+      }
+    };
+    pc.createDataChannel("turn-probe");
+    pc.createOffer()
+      .then((o) => pc.setLocalDescription(o))
+      .catch(() => finish(false, "ICE probe failed to start"));
+  });
+}
+
 /**
  * Surface ICE/connection failures that would otherwise be silent (the symptom is
  * just a black video). Logs the state transitions for each media PeerConnection.
@@ -123,25 +209,6 @@ function attachPcDiagnostics(pc: RTCPeerConnection, label: string): void {
   };
 }
 
-function int16ToBase64(samples: number[]): string {
-  const bytes = new Uint8Array(new Int16Array(samples).buffer);
-  let binary = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-
-function base64ToInt16Array(b64: string): number[] {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return Array.from(new Int16Array(bytes.buffer));
-}
-
 export class NativeVoiceEngine {
   private channelId: string;
   private userId: string;
@@ -172,6 +239,14 @@ export class NativeVoiceEngine {
   // Camera video — receiver side: one PC per sender
   private _videoReceiverPcs = new Map<string, RTCPeerConnection>();
   private _cameraStream: MediaStream | null = null;
+
+  // ── Voice audio transport: WebRTC DataChannel (P2P/TURN), not Supabase relay ──
+  // Native Rust still captures/plays the PCM (good mic quality on WebView2); we
+  // just carry it peer-to-peer over an unreliable/unordered DataChannel (UDP-like)
+  // → low latency. One bidirectional PC+channel per peer; smaller userId offers.
+  private _audioPcs = new Map<string, RTCPeerConnection>();
+  private _audioChannels = new Map<string, RTCDataChannel>();
+  private _pendingAudioIce = new Map<string, RTCIceCandidateInit[]>();
 
   // Per-user local controls (not synced to remote)
   private _userVolumes = new Map<string, number>();
@@ -208,12 +283,16 @@ export class NativeVoiceEngine {
     });
     invoke("disable_audio_ducking").catch(() => {});
 
+    // Send each captured PCM frame peer-to-peer over the per-peer DataChannels
+    // (binary, unreliable). No Supabase relay → low latency.
     this.unlistenChunk = await listen<number[]>("audio-chunk", (event) => {
-      if (!this.realtimeCh || !this._subscribed) return;
-      const base64 = int16ToBase64(event.payload);
-      this.realtimeCh
-        .send({ type: "broadcast", event: "signal", payload: { type: "audio", from: this.userId, data: base64, rate: this.localRate } })
-        .catch(() => {});
+      if (this._audioChannels.size === 0) return;
+      const buf = new Int16Array(event.payload).buffer;
+      for (const ch of this._audioChannels.values()) {
+        if (ch.readyState === "open") {
+          try { ch.send(buf); } catch { /* channel closing */ }
+        }
+      }
     });
 
     this.unlistenSpeaking = await listen<boolean>("audio-speaking", (event) => {
@@ -265,6 +344,7 @@ export class NativeVoiceEngine {
     this.speakingState.clear();
 
     // Close all WebRTC connections
+    for (const id of [...this._audioPcs.keys()]) this._closeAudioPc(id);
     for (const id of [...this._shareePcs.keys()]) this._closeShareePc(id);
     for (const id of [...this._viewerPcs.keys()]) this._closeViewerPc(id);
     for (const id of [...this._videoSenderPcs.keys()]) this._closeVideoSenderPc(id);
@@ -299,6 +379,89 @@ export class NativeVoiceEngine {
   setLocalMute(userId: string, muted: boolean): void {
     if (muted) this._localMuted.add(userId);
     else this._localMuted.delete(userId);
+  }
+
+  // ── Voice audio mesh (PCM over WebRTC DataChannel) ──────────────────────────
+
+  /** Establish the audio PC with a peer. Smaller userId offers (avoids glare). */
+  private _ensureAudioPc(peerId: string): void {
+    if (this._audioPcs.has(peerId)) return;
+    if (this.userId < peerId) void this._createAudioOffer(peerId);
+    // else: wait for their audio_offer (their _ensureAudioPc offers to us).
+  }
+
+  private async _newAudioPc(peerId: string): Promise<RTCPeerConnection> {
+    const pc = new RTCPeerConnection(await getIceConfig());
+    this._audioPcs.set(peerId, pc);
+    attachPcDiagnostics(pc, `audio↔${peerId.slice(0, 8)}`);
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        this.broadcast({ type: "audio_ice", from: this.userId, to: peerId, candidate: candidate.toJSON() }).catch(() => {});
+      }
+    };
+    // Answerer receives the channel the offerer created.
+    pc.ondatachannel = ({ channel }) => this._attachAudioChannel(peerId, channel);
+    return pc;
+  }
+
+  private async _createAudioOffer(peerId: string): Promise<void> {
+    const pc = await this._newAudioPc(peerId);
+    // Offerer creates the unreliable/unordered (UDP-like) channel for low latency.
+    this._attachAudioChannel(peerId, pc.createDataChannel("audio", { ordered: false, maxRetransmits: 0 }));
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await this.broadcast({ type: "audio_offer", from: this.userId, to: peerId, sdp: offer.sdp! });
+    } catch {
+      this._closeAudioPc(peerId);
+    }
+  }
+
+  private async _handleAudioOffer(peerId: string, sdp: string): Promise<void> {
+    this._closeAudioPc(peerId);
+    const pc = await this._newAudioPc(peerId);
+    try {
+      await pc.setRemoteDescription({ type: "offer", sdp });
+      await this._flushIceQueue(pc, this._pendingAudioIce, peerId);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await this.broadcast({ type: "audio_answer", from: this.userId, to: peerId, sdp: answer.sdp! });
+    } catch {
+      this._closeAudioPc(peerId);
+    }
+  }
+
+  private async _handleAudioAnswer(peerId: string, sdp: string): Promise<void> {
+    const pc = this._audioPcs.get(peerId);
+    if (!pc) return;
+    await pc.setRemoteDescription({ type: "answer", sdp });
+    await this._flushIceQueue(pc, this._pendingAudioIce, peerId);
+  }
+
+  /** Wire a peer's audio DataChannel: incoming PCM → native playback. */
+  private _attachAudioChannel(peerId: string, ch: RTCDataChannel): void {
+    ch.binaryType = "arraybuffer";
+    this._audioChannels.set(peerId, ch);
+    ch.onmessage = (ev) => {
+      if (this._localMuted.has(peerId)) return;
+      const raw = Array.from(new Int16Array(ev.data as ArrayBuffer));
+      const vol = (this._userVolumes.get(peerId) ?? 100) / 100;
+      const samples = vol === 1 ? raw : raw.map((s) => Math.max(-32768, Math.min(32767, Math.round(s * vol))));
+      void invoke<boolean>("audio_receive", { from: peerId, samples, rate: this.localRate })
+        .then((speaking) => this.updateSpeaking(peerId, speaking))
+        .catch(() => {});
+    };
+    ch.onclose = () => { if (this._audioChannels.get(peerId) === ch) this._audioChannels.delete(peerId); };
+  }
+
+  private _closeAudioPc(peerId: string): void {
+    this._audioChannels.get(peerId)?.close();
+    this._audioChannels.delete(peerId);
+    this._audioPcs.get(peerId)?.close();
+    this._audioPcs.delete(peerId);
+    this._pendingAudioIce.delete(peerId);
+    invoke("audio_remove_peer", { peerId }).catch(() => {});
+    this.clearPeerSpeaking(peerId);
   }
 
   isScreenSharing(): boolean {
@@ -593,6 +756,7 @@ export class NativeVoiceEngine {
       case "join":
         this.cb.onParticipantJoin(msg.from, true);
         await this.broadcast({ type: "hello", from: this.userId });
+        this._ensureAudioPc(msg.from);
         if (this.isScreenSharing()) {
           await this.broadcast({ type: "screenshare_start", from: this.userId });
         }
@@ -602,28 +766,31 @@ export class NativeVoiceEngine {
         break;
       case "hello":
         this.cb.onParticipantJoin(msg.from, false);
+        this._ensureAudioPc(msg.from);
         break;
       case "leave":
         this.cb.onParticipantLeave(msg.from);
         this.clearPeerSpeaking(msg.from);
-        invoke("audio_remove_peer", { peerId: msg.from }).catch(() => {});
+        this._closeAudioPc(msg.from);
         this._closeShareePc(msg.from);
         this._closeViewerPc(msg.from);
         this._closeVideoSenderPc(msg.from);
         this._closeVideoReceiverPc(msg.from);
         break;
-      case "audio": {
-        if (this._localMuted.has(msg.from)) break;
-        const raw = base64ToInt16Array(msg.data);
-        const vol = (this._userVolumes.get(msg.from) ?? 100) / 100;
-        const samples = vol === 1 ? raw : raw.map(s => Math.max(-32768, Math.min(32767, Math.round(s * vol))));
-        const speaking = await invoke<boolean>("audio_receive", { from: msg.from, samples, rate: msg.rate ?? 48000 });
-        this.updateSpeaking(msg.from, speaking);
+      case "audio_offer":
+        if (msg.to !== this.userId) break;
+        await this._handleAudioOffer(msg.from, msg.sdp);
+        break;
+      case "audio_answer":
+        if (msg.to !== this.userId) break;
+        await this._handleAudioAnswer(msg.from, msg.sdp);
+        break;
+      case "audio_ice": {
+        if (msg.to !== this.userId) break;
+        const apc = this._audioPcs.get(msg.from);
+        if (apc) this._queueOrAddIce(apc, msg.candidate, this._pendingAudioIce, msg.from);
         break;
       }
-      case "speaking":
-        // Ignored: remote speaking state is driven by audio_receive return value (in sync with playback).
-        break;
       case "screenshare_start": {
         // A sharer re-broadcasts screenshare_start whenever anyone new joins the
         // channel. If we already have a healthy viewer connection, ignore it —

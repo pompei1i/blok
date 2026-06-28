@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle, XCircle, AlertCircle, ExternalLink } from "lucide-react";
+import { Camera, CheckCircle, XCircle, AlertCircle, ExternalLink, Wifi, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { testTurnConnectivity } from "@/lib/native-voice-engine";
 import { cn } from "@/lib/utils";
 import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode, type ScreenShareFps } from "@/lib/store/ui-settings-store";
 import { SCREEN_SHARE_FPS_OPTIONS } from "@/lib/constants";
@@ -99,6 +100,20 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  const previewVideoRef = useRef<HTMLVideoElement>(null);
  const previewStreamRef = useRef<MediaStream | null>(null);
  const [launchOnStartup, setLaunchOnStartup] = useState(false);
+ const [connTest, setConnTest] = useState<{
+   status: "idle" | "testing" | "ok" | "fail";
+   detail?: string;
+ }>({ status: "idle" });
+
+ const runConnectionTest = async () => {
+   setConnTest({ status: "testing" });
+   try {
+     const r = await testTurnConnectivity();
+     setConnTest({ status: r.ok ? "ok" : "fail", detail: r.detail });
+   } catch {
+     setConnTest({ status: "fail", detail: "Test could not run" });
+   }
+ };
 
  const [formData, setFormData] = useState({
  displayName: user?.displayName || "",
@@ -893,6 +908,41 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  className="w-full"
  />
  </label>
+ </div>
+
+ <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-3">
+ <span className="block text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+ <span className="mr-1">&gt;</span>connection test
+ <span className="ml-2 text-[var(--accent-red-text)] normal-case tracking-normal">(beta)</span>
+ </span>
+ <p className="text-xs text-[var(--text-muted)] font-mono">
+ Checks that the relay (TURN) server is reachable. If this passes, voice / screen share / camera will connect even behind strict networks.
+ </p>
+ <div className="flex items-center justify-between gap-4">
+ <button
+ type="button"
+ onClick={runConnectionTest}
+ disabled={connTest.status === "testing"}
+ className="btn-terminal flex items-center gap-1.5 text-xs px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+ >
+ {connTest.status === "testing"
+ ? <Loader2 className="w-3 h-3 animate-spin" />
+ : <Wifi className="w-3 h-3" />}
+ {connTest.status === "testing" ? "testing…" : "test connection"}
+ </button>
+ {connTest.status === "ok" && (
+ <div className="flex items-center gap-1.5 text-xs font-mono text-[var(--online-text)] text-right">
+ <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+ <span>{connTest.detail}</span>
+ </div>
+ )}
+ {connTest.status === "fail" && (
+ <div className="flex items-center gap-1.5 text-xs font-mono text-[var(--accent-red-text)] text-right">
+ <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+ <span>{connTest.detail}</span>
+ </div>
+ )}
+ </div>
  </div>
  </div>
  )}

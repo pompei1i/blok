@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.9.40] — 2026-06-28
+
+### Fixed
+- **Screen share / camera / voice now connect across NATs.** The Cloudflare TURN
+  relay was misconfigured server-side (a stale TURN key id → the `turn` Edge
+  Function returned no credentials), and the client silently fell back to a dead
+  public relay. Calls only ever worked when a direct P2P path existed, so the
+  relay never engaged for peers behind strict/symmetric NAT. Rotated to a fresh
+  Cloudflare TURN key; relay now reachable over UDP, TCP and TLS/443.
+
+### Added
+- **Connection test** (Settings → Audio, beta) — gathers ICE and confirms a TURN
+  `relay` candidate is reachable, so relay health can be verified in the production
+  build without DevTools. Distinguishes a working relay from the openrelay fallback.
+
+### Changed
+- **Lower voice latency.** Native audio now streams over a per-peer WebRTC
+  DataChannel (unordered, no retransmits) instead of the Supabase Realtime
+  broadcast relay, removing a server round-trip from every audio frame. Frame size
+  100 ms → 40 ms and the playback jitter buffer cap 2 s → 150 ms.
+- **b.ai.t beta cap surfaced** — a rolling 24h "left today" counter; admin accounts
+  are exempt (server + client). New signups auto-join the official "blok off" server.
+- A `BLOK_MULTI` env opt-in (+ `run-second-instance.bat`) launches a second isolated
+  instance for local multi-user testing; normal launches stay single-instance.
+
 ## [0.9.32] — 2026-06-27 — hotfix
 
 ### Fixed

@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useI18n } from "@/lib/i18n";
-import { useBaitStore } from "@/lib/store/bait-store";
+import { useBaitStore, baitDailyRemaining, BAIT_DAILY_LIMIT } from "@/lib/store/bait-store";
 import { useServerStore } from "@/lib/store/server-store";
+import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
 
 export function BaitView() {
   const { t } = useI18n();
-  const { messagesByServer, isLoading, sendMessage, clearHistory } = useBaitStore();
+  const { messagesByServer, isLoading, sendMessage, clearHistory, dailyLog } = useBaitStore();
   const { activeServerId } = useServerStore();
+  const isAdmin = useAuthStore((s) => s.user?.isAdmin ?? false);
   const messages = messagesByServer[activeServerId ?? "_global"] ?? [];
+  const remaining = baitDailyRemaining(dailyLog);
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -39,10 +42,19 @@ export function BaitView() {
           <span className="text-[var(--text-muted)] font-normal">$ </span>b.ai.t
         </span>
         <span className="text-xs text-[var(--text-muted)] font-mono">{t("bait.description")}</span>
+        <span
+          className={cn(
+            "ml-auto text-[10px] font-mono tabular-nums tracking-wider",
+            !isAdmin && remaining <= 3 ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]",
+          )}
+          title={isAdmin ? "Admin — unlimited during beta" : `Beta limit: ${BAIT_DAILY_LIMIT} b.ai.t prompts per day`}
+        >
+          {isAdmin ? "∞ admin" : `${remaining}/${BAIT_DAILY_LIMIT} left today`}
+        </span>
         {messages.length > 0 && (
           <button
             onClick={clearHistory}
-            className="ml-auto text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors border border-dashed border-[var(--border)] hover:border-solid hover:border-[var(--text-primary)]/30 px-2 py-0.5"
+            className="ml-3 text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors border border-dashed border-[var(--border)] hover:border-solid hover:border-[var(--text-primary)]/30 px-2 py-0.5"
           >
             clear
           </button>

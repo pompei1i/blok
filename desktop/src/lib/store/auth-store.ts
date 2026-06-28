@@ -45,6 +45,18 @@ async function fetchProfile(userId: string): Promise<User | null> {
   return data ? mapProfile(data) : null;
 }
 
+// App-admin flag lives in a locked-down table; this SECURITY DEFINER RPC only ever
+// reports the *caller's* own status. Used to bypass beta limits for one account.
+async function fetchIsAdmin(): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_current_user_admin");
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("Failed to check admin status", error);
+    return false;
+  }
+  return data === true;
+}
+
 export function normalizeUsername(value: string): string {
   const cleaned = value
     .trim()
@@ -109,9 +121,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     const profile = await fetchProfile(user.id);
+    const isAdmin = profile ? await fetchIsAdmin() : false;
     set({
       // own email comes from the auth session, not profiles (column was dropped)
-      user: profile ? { ...profile, email: user.email ?? undefined } : null,
+      user: profile ? { ...profile, email: user.email ?? undefined, isAdmin } : null,
       isAuthenticated: !!profile,
       isLoading: false,
       initialized: true,
@@ -197,7 +210,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: false, message: "Profile not found" };
     }
 
-    set({ user: { ...profile, email: data.user.email ?? undefined }, isAuthenticated: true, isLoading: false });
+    const isAdmin = await fetchIsAdmin();
+    set({ user: { ...profile, email: data.user.email ?? undefined, isAdmin }, isAuthenticated: true, isLoading: false });
     return { success: true };
   },
 

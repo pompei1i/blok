@@ -5,8 +5,11 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 const TARGET_RATE: u32 = 48_000;
-const FRAME_MS: usize = 100; // ms per broadcast chunk → 10 msgs/sec/participant
+const FRAME_MS: usize = 40; // ms per chunk → low send-side latency (sent P2P over a per-peer DataChannel, so no shared-channel saturation)
 const SPEAKING_THRESHOLD: f32 = 0.015; // RMS level to count as speaking
+// Max audio buffered per peer before old samples are dropped — bounds playback
+// latency (a deep buffer lets delay accumulate). ~150 ms is a tight jitter buffer.
+const JITTER_BUFFER_MS: usize = 150;
 
 struct CaptureShared {
     muted: bool,
@@ -462,7 +465,7 @@ fn run_audio(
                     &samples
                 };
                 // Read out_rate before the mutable borrow of buffers.
-                let max = state.out_rate as usize * 2;
+                let max = state.out_rate as usize * JITTER_BUFFER_MS / 1000;
                 let buf = state.buffers.entry(from).or_default();
                 let tail_start = incoming_all.len().saturating_sub(max);
                 let incoming = &incoming_all[tail_start..];

@@ -18,6 +18,8 @@ interface BaitStore {
   isActive: boolean;
   messagesByServer: Record<string, BaitMessage[]>;
   isLoading: boolean;
+  /** Timestamps of proxy calls in the rolling 24h beta window (persisted). */
+  dailyLog: number[];
 
   openTab: () => void;
   closeTab: () => void;
@@ -31,6 +33,25 @@ interface BaitStore {
 let requestLog: number[] = [];
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60_000;
+
+// Daily cap (beta cost guard). Mirrors the server's DAILY_MAX in functions/bait:
+// the proxy limits Anthropic *calls* per rolling 24h (one b.ai.t message with tool
+// use = 2-3 calls), so we count proxy calls here too and persist the log so the
+// window survives an app restart. The Edge Function stays the real enforcer — this
+// is just instant feedback + a visible "left today" counter. Admins are exempt
+// (the server skips the cap for them as well; see the bait_admin_bypass migration).
+export const BAIT_DAILY_LIMIT = 10;
+const DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const pruneDaily = (log: number[]): number[] => {
+  const cutoff = Date.now() - DAILY_WINDOW_MS;
+  return log.filter((t) => t > cutoff);
+};
+
+/** b.ai.t prompts left in the rolling 24h beta window. */
+export function baitDailyRemaining(log: number[]): number {
+  return Math.max(0, BAIT_DAILY_LIMIT - pruneDaily(log).length);
+}
 
 function serverKey(): string {
   return useServerStore.getState().activeServerId ?? "_global";
@@ -62,7 +83,10 @@ async function callBaitProxy(
     res = await doFetch();
   }
   if (res.status === 429) {
-    throw new Error("Rate limit — max 10 requests per minute. Please wait.");
+    // Surface the server's actual message ("Limit reached (10/min or 10/day).")
+    // instead of a hardcoded per-minute one, so the daily cap reads correctly.
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message ?? "b.ai.t rate limit reached. Please wait.");
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -78,6 +102,7 @@ export const useBaitStore = create<BaitStore>()(
       isActive: false,
       messagesByServer: {},
       isLoading: false,
+      dailyLog: [],
 
       openTab: () => set({ isTabOpen: true, isActive: true }),
       closeTab: () => set({ isTabOpen: false, isActive: false }),
@@ -103,21 +128,45 @@ export const useBaitStore = create<BaitStore>()(
             },
           }));
 
+        // Admins bypass every beta limit (the server skips the cap for them too).
+        const isAdmin = useAuthStore.getState().user?.isAdmin ?? false;
+
         // Client-side rate limiting — instant feedback; the proxy enforces the real cap.
-        const now = Date.now();
-        requestLog = requestLog.filter((t) => now - t < RATE_WINDOW_MS);
-        if (requestLog.length >= RATE_LIMIT) {
-          addMsgs(
-            { id: crypto.randomUUID(), role: "user", content: text.trim() },
-            { id: crypto.randomUUID(), role: "assistant", content: "Error: Rate limit — max 10 requests per minute. Please wait." },
-          );
-          return;
+        if (!isAdmin) {
+          const now = Date.now();
+          requestLog = requestLog.filter((t) => now - t < RATE_WINDOW_MS);
+          if (requestLog.length >= RATE_LIMIT) {
+            addMsgs(
+              { id: crypto.randomUUID(), role: "user", content: text.trim() },
+              { id: crypto.randomUUID(), role: "assistant", content: "Error: Rate limit — max 10 requests per minute. Please wait." },
+            );
+            return;
+          }
+
+          // Daily beta cap — count proxy calls over a rolling 24h (see notes above).
+          const dailyLog = pruneDaily(get().dailyLog);
+          if (dailyLog.length >= BAIT_DAILY_LIMIT) {
+            addMsgs(
+              { id: crypto.randomUUID(), role: "user", content: text.trim() },
+              { id: crypto.randomUUID(), role: "assistant", content: `Error: Daily limit reached — ${BAIT_DAILY_LIMIT} b.ai.t prompts per day during the beta. Try again later.` },
+            );
+            return;
+          }
+          if (dailyLog.length !== get().dailyLog.length) set({ dailyLog });
+          requestLog.push(now);
         }
-        requestLog.push(now);
 
         const userMsg: BaitMessage = { id: crypto.randomUUID(), role: "user", content: text.trim() };
         addMsgs(userMsg);
         set({ isLoading: true });
+
+        // Each proxy call = one unit against the daily cap (matching the server).
+        // Admins aren't capped, so we don't bother tracking them.
+        const proxyCall = async (params: Anthropic.MessageCreateParamsNonStreaming) => {
+          const result = await callBaitProxy(params);
+          if (!isAdmin) set((s) => ({ dailyLog: pruneDaily([...s.dailyLog, Date.now()]) }));
+          return result;
+        };
 
         const { activeServerId, activeChannelId, servers, channels, messages: channelMessages } = useServerStore.getState();
         const userId = useAuthStore.getState().user?.id ?? "";
@@ -159,7 +208,7 @@ export const useBaitStore = create<BaitStore>()(
             messages: history,
           };
 
-          let response = await callBaitProxy(baseParams);
+          let response = await proxyCall(baseParams);
 
           const toolResults: string[] = [];
 
@@ -187,7 +236,7 @@ export const useBaitStore = create<BaitStore>()(
             history.push({ role: "assistant", content: response.content });
             history.push({ role: "user", content: toolResultMessages });
 
-            response = await callBaitProxy({ ...baseParams, messages: history });
+            response = await proxyCall({ ...baseParams, messages: history });
           }
 
           const assistantText = response.content
@@ -214,7 +263,7 @@ export const useBaitStore = create<BaitStore>()(
     }),
     {
       name: "bait-store",
-      partialize: (s) => ({ messagesByServer: s.messagesByServer }),
+      partialize: (s) => ({ messagesByServer: s.messagesByServer, dailyLog: s.dailyLog }),
     },
   ),
 );

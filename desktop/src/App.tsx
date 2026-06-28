@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAuthStore } from "./lib/store/auth-store";
@@ -45,16 +45,45 @@ function App() {
     document.documentElement.setAttribute("data-theme-mode", themeMode);
   }, [uiScale, compactMode, themeMode]);
 
+  const customSheetRef = useRef<CSSStyleSheet | null>(null);
   useEffect(() => {
+    // Custom CSS only applies while the "custom" base theme is selected, so the
+    // theme picker truly swaps between dark / light / custom.
+    const css = themeMode === "custom" ? customCss : "";
+
+    // Inject via a Constructable Stylesheet, NOT a <style> element. Tauri bakes a
+    // hash/nonce into the CSP's style-src, which makes 'unsafe-inline' ignored and
+    // blocks any dynamically inserted <style> in WebView2 — so a <style> approach
+    // works in the browser but silently fails in the desktop app. Constructable
+    // stylesheets (adoptedStyleSheets) are exempt from style-src and work in both.
+    const supportsAdopted =
+      typeof CSSStyleSheet !== "undefined" &&
+      "replaceSync" in CSSStyleSheet.prototype &&
+      "adoptedStyleSheets" in Document.prototype;
+
+    if (supportsAdopted) {
+      let sheet = customSheetRef.current;
+      if (!sheet) {
+        sheet = new CSSStyleSheet();
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+        customSheetRef.current = sheet;
+      }
+      try {
+        sheet.replaceSync(css);
+      } catch {
+        // Invalid CSS (e.g. @import, which replaceSync rejects) — leave prior styles intact.
+      }
+      return;
+    }
+
+    // Fallback for engines without constructable stylesheets (no Tauri CSP there).
     let el = document.getElementById("blok-custom-css") as HTMLStyleElement | null;
     if (!el) {
       el = document.createElement("style");
       el.id = "blok-custom-css";
       document.head.appendChild(el);
     }
-    // Custom CSS only applies while the "custom" base theme is selected, so the
-    // theme picker truly swaps between dark / light / custom.
-    el.textContent = themeMode === "custom" ? customCss : "";
+    el.textContent = css;
   }, [customCss, themeMode]);
 
   useEffect(() => {

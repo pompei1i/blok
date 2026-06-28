@@ -30,6 +30,8 @@ export interface User {
   accentColor?: string;
   pronouns?: string;
   cosmetics?: Cosmetics;
+  /** App-wide admin — bypasses beta limits. Loaded via is_current_user_admin() for self only. */
+  isAdmin?: boolean;
   createdAt: string;
 }
 
