@@ -24,7 +24,7 @@ describe("economy constants", () => {
   it("match the migration values", () => {
     expect(BOX_COST).toBe(100);
     expect(DAILY_COIN_CAP).toBe(200);
-    expect(PITY_N).toBe(10);
+    expect(PITY_N).toBe(90);
     expect(DUPLICATE_DUST).toEqual({ common: 10, rare: 25, epic: 60, legendary: 150 });
   });
 });

@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.9.41] — 2026-07-02
+
+### Added
+- **Two-tier gacha pity**: guaranteed Epic+ every 10 opens, guaranteed Legendary
+  every 90 — with the legendary rate climbing 0.5% per open in between. Two
+  separate pity meters in the loot-box UI (purple for Epic, gold for Legendary).
+- Equipped cosmetics (nameplate color/FX, avatar frame, banner) now preview live
+  in the Account settings header, not just on the public profile card.
+
+### Changed
+- **Lower audio overhead**: voice capture/playback moved from JSON frame arrays
+  over Tauri's event bus to a binary IPC channel; per-user volume is now applied
+  natively in Rust instead of JS. Wire format to peers is unchanged.
+- **Faster boot on large servers**: initial load no longer joins every member's
+  profile — profiles hydrate lazily per server (chunked, deduped) instead of
+  inflating the bootstrap payload.
+- Settings modal: the 1249-line account editor is now a thin shell over
+  per-tab components; Security (password) is its own tab, split out of Account.
+
+### Fixed
+- **Production security/audit pass**: server mutations (rename, icon, invite
+  rotation) are now RPC-only; message/DM content and rate limits enforced
+  server-side; member kicks/bans/leaves propagate live instead of needing a
+  refresh; optimistic-send/reaction race conditions resolved; voice connections
+  auto-rebuild on ICE failure and after reconnect; DM attachments and avatars
+  moved off base64-in-row to Storage.
+- Rejected sends (rate limit, slowmode, message too long) now surface a toast
+  instead of failing silently; stale frozen screen shares are reconciled
+  against live voice presence.
+
 ## [0.9.40] — 2026-06-28
 
 ### Fixed

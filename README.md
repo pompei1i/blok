@@ -13,9 +13,9 @@
 ## Highlights
 
 - 🤖 **b.ai.t — an AI that acts.** A built-in assistant (Claude) that creates polls, summarizes channels and translates — on command, right inside the chat. Runs through a server-side proxy; no API key ships in the client.
-- 🎙️ **Real voice.** Low-latency audio over a native **Rust** engine (cpal), streamed via Supabase Realtime. Noise suppression, echo cancellation, push-to-talk, per-user volume & local mute.
+- 🎙️ **Real voice.** Low-latency audio over a native **Rust** engine (cpal), streamed peer-to-peer over WebRTC DataChannels via binary Tauri IPC. Noise suppression, echo cancellation, push-to-talk, per-user volume & local mute.
 - 🖥️ **Screen share & video** *(experimental).* `getDisplayMedia` — share a window, a tab or the whole screen, **up to 60 fps with system audio**; camera & video calls over WebRTC.
-- 🎰 **A game inside your chat.** XP & levels, daily quests, a gacha **loot box** (server-side RNG with pity), a coin/dust economy and equippable cosmetics (nameplates, avatar frames, badges, banners).
+- 🎰 **A game inside your chat.** XP & levels, daily quests, a gacha **loot box** (server-side RNG, two-tier pity — guaranteed Epic at 10 opens, guaranteed Legendary at 90), a coin/dust economy and equippable cosmetics (nameplates, avatar frames, badges, banners).
 - 🛡️ **Built for communities.** Servers, channels & categories, bitfield **roles & permissions**, moderation (bans, timeouts, slow-mode, audit log), invite codes.
 - 💬 **A real messenger.** Realtime messages, attachments & drag-drop, GIFs, emoji & reactions, replies, pins, polls, announcements, in-channel search, `Ctrl+K` quick switcher.
 - 🎨 **Make it yours.** Light/dark/custom themes, Custom CSS, custom chat background, 6 languages (EN · RU · UK · PL · DE · ES).
