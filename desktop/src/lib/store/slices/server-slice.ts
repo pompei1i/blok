@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
+import { getActiveNativeVoiceEngine } from "../../native-voice-engine";
 import type { Server, Category, Channel, ServerMember, User, VoiceParticipant, Role, ServerBan, AuditEntry } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import {
@@ -247,7 +248,35 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
               return existing ? { ...p, isSpeaking: existing.isSpeaking, user: p.user ?? existing.user } : p;
             });
           }
-          return { voiceParticipants: merged };
+
+          // Reconcile screenSharers against presence: if a sharer stopped (or
+          // left) while WE were offline, we missed their screenshare_stop and
+          // the overlay keeps a frozen frame forever. Presence is the truth:
+          // drop streams whose owner is gone from the channel, or whose flag
+          // is false AND our viewer PC to them is dead (the flag alone can lag
+          // ~1s behind a freshly-started share, so a live PC keeps the stream).
+          let screenSharers = state.screenSharers;
+          let watchingUserId = state.watchingUserId;
+          const activeCh = state.activeVoiceChannelId;
+          if (activeCh && Object.keys(screenSharers).length > 0) {
+            const inChannel = new Map((merged[activeCh] ?? []).map((p) => [p.userId, p]));
+            const engine = getActiveNativeVoiceEngine();
+            const next: typeof screenSharers = {};
+            for (const [uid, stream] of Object.entries(screenSharers)) {
+              const p = inChannel.get(uid);
+              const stale = !p || (!p.isScreenSharing && !(engine?.hasLiveViewerPc(uid) ?? false));
+              if (!stale) next[uid] = stream;
+            }
+            if (Object.keys(next).length !== Object.keys(screenSharers).length) {
+              screenSharers = next;
+              if (watchingUserId && !next[watchingUserId]) {
+                const rest = Object.keys(next);
+                watchingUserId = rest.length > 0 ? rest[0] : null;
+              }
+            }
+          }
+
+          return { voiceParticipants: merged, screenSharers, watchingUserId };
         });
         const uniqueMissing = [...new Set(missingProfileIds)];
         if (uniqueMissing.length > 0) {

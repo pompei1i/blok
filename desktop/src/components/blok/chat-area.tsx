@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useChatInput } from "@/hooks/useChatInput";
 import { formatDurationSeconds } from "@/lib/moderation";
-import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS } from "@/lib/constants";
+import { MESSAGE_GROUP_THRESHOLD_MS, HIGHLIGHT_FLASH_DURATION_MS, MAX_MESSAGE_LEN } from "@/lib/constants";
 import { can } from "@/lib/permission";
 import { useBaitStore } from "@/lib/store/bait-store";
 import { BaitView } from "./bait-view";
@@ -745,6 +745,7 @@ export function ChatArea() {
           <textarea
             ref={inputRef}
             rows={1}
+            maxLength={MAX_MESSAGE_LEN}
             value={chat.inputValue}
             onChange={(e) => {
               chat.handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length);

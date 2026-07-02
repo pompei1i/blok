@@ -29,6 +29,13 @@ export const DM_PAGE_SIZE = 30;
 /** Max characters shown in a desktop notification preview. */
 export const NOTIFICATION_PREVIEW_LEN = 80;
 
+/**
+ * Max message length. MUST match the messages_content_len CHECK constraint
+ * (supabase/migrations/20260702_content_limits_rate.sql) — the DB rejects
+ * longer inserts, this just stops the user from typing past the limit.
+ */
+export const MAX_MESSAGE_LEN = 4000;
+
 /** Max number of channels kept in the LRU message cache simultaneously. */
 export const MESSAGE_LRU_LIMIT = 5;
 

@@ -580,6 +580,16 @@ export const useDMStore = create<DMState>((set, get) => ({
 
     if (error) {
       console.error("Failed to send DM message", error);
+      // Surface the reason (rate limit / too long) — a silent fail looks broken.
+      const { MessageSquareWarning } = await import("lucide-react");
+      const { useToastStore } = await import("./toast-store");
+      useToastStore.getState().showToast({
+        icon: MessageSquareWarning,
+        title: "Message not sent",
+        message: error.message.includes("dm_messages_content_len")
+          ? "Message is too long."
+          : error.message,
+      });
       return false;
     }
 

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, lazy, Suspense } from "react";
 import { X, Minus, Send, Smile, PlusCircle, Paperclip, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
-import { DM_WINDOW_W_REM, DM_WINDOW_H_REM } from "@/lib/constants";
+import { DM_WINDOW_W_REM, DM_WINDOW_H_REM, MAX_MESSAGE_LEN } from "@/lib/constants";
 import type { Attachment } from "@/lib/store/types";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
@@ -369,6 +369,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
 
           <input
             type="text"
+            maxLength={MAX_MESSAGE_LEN}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}

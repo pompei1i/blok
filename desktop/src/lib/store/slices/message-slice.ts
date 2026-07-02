@@ -1,12 +1,25 @@
 import type { StateCreator } from "zustand";
+import { MessageSquareWarning } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
-import { MESSAGE_PAGE_SIZE, MESSAGE_LRU_LIMIT, NOTIFICATION_PREVIEW_LEN } from "../../constants";
+import { MESSAGE_PAGE_SIZE, MESSAGE_LRU_LIMIT, NOTIFICATION_PREVIEW_LEN, MAX_MESSAGE_LEN } from "../../constants";
 import { playNotificationBeep } from "../../sounds";
 import { sendDesktopNotification } from "../../notifications";
+import { useToastStore } from "../toast-store";
 import type { Message, Reaction } from "../types";
 import type { ServerStore } from "../server-store.shape";
 import { trackDataChannel } from "./_shared";
+
+/**
+ * Human-readable reason for a rejected message insert. Server-side triggers
+ * (20260615 moderation + 20260702 limits) raise with readable text — pass it
+ * through; constraint names get translated.
+ */
+function sendFailureText(message: string): string {
+  if (message.includes("messages_content_len")) return `Message is too long (max ${MAX_MESSAGE_LEN} characters).`;
+  if (message.includes("dm_messages_content_len")) return "Message is too long.";
+  return message;
+}
 
 interface MessageAuthorRow {
   id: string;
@@ -416,6 +429,13 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
           messages: { ...state.messages, [channelId]: (state.messages[channelId] || []).filter((m) => m.id !== message.id) },
           messageChannelIndex: restIndex,
         };
+      });
+      // Surface the reason — a silent rollback looks like the message was
+      // eaten (rate limit / slow mode / timeout / too long all land here).
+      useToastStore.getState().showToast({
+        icon: MessageSquareWarning,
+        title: "Message not sent",
+        message: sendFailureText(error.message),
       });
       return;
     }

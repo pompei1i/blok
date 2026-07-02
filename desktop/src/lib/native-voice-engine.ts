@@ -528,6 +528,19 @@ export class NativeVoiceEngine {
     return this.screenStream !== null;
   }
 
+  /**
+   * True while we hold a non-dead viewer PC to this sharer. Used by the
+   * presence reconciliation to tell a briefly-lagging presence flag apart
+   * from a genuinely stale stream (sharer stopped while we were offline).
+   */
+  hasLiveViewerPc(sharerId: string): boolean {
+    const pc = this._viewerPcs.get(sharerId);
+    return !!pc
+      && pc.connectionState !== "failed"
+      && pc.connectionState !== "disconnected"
+      && pc.connectionState !== "closed";
+  }
+
   async startScreenShare(): Promise<void> {
     if (this.screenStream) return;
 
