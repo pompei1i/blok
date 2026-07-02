@@ -9,6 +9,9 @@ import {
   nameplateStyle,
   avatarFrameStyle,
   bannerBackground,
+  bannerClass,
+  bannerTheme,
+  cardThemeVars,
 } from "../economy";
 import type { Cosmetics } from "../store/types";
 
@@ -87,6 +90,26 @@ describe("nameplateStyle", () => {
     const out = nameplateStyle(withCosmetics({ nameplate: { id: "np", rarity: "legendary", payload: { gradient: ["#f00", "#00f"], animation: "shimmer" } } }));
     expect(out.className).toBe("nameplate-shimmer");
   });
+
+  it("adds the flame class for flame gradients", () => {
+    const out = nameplateStyle(withCosmetics({ nameplate: { id: "np", rarity: "epic", payload: { gradient: ["#fbbf24", "#ef4444"], animation: "flame" } } }));
+    expect(out.className).toBe("nameplate-flame");
+    expect(out.style?.backgroundSize).toBe("200% auto");
+  });
+
+  it("adds a text-shadow for glow / neon effects", () => {
+    const glow = nameplateStyle(withCosmetics({ nameplate: { id: "np", rarity: "rare", payload: { color: "#22d3ee", effect: "glow" } } }));
+    expect(glow.style?.color).toBe("#22d3ee");
+    expect(glow.style?.textShadow).toContain("#22d3ee");
+    const neon = nameplateStyle(withCosmetics({ nameplate: { id: "np", rarity: "epic", payload: { color: "#ec4899", effect: "neon" } } }));
+    expect(neon.style?.textShadow).toContain("#ec4899");
+  });
+
+  it("adds the glitch class for glitch animation", () => {
+    const out = nameplateStyle(withCosmetics({ nameplate: { id: "np", rarity: "legendary", payload: { color: "#e2e8f0", animation: "glitch" } } }));
+    expect(out.className).toBe("nameplate-glitch");
+    expect(out.style?.color).toBe("#e2e8f0");
+  });
 });
 
 // ── avatarFrameStyle ────────────────────────────────────────────────────────
@@ -99,6 +122,13 @@ describe("avatarFrameStyle", () => {
     const out = avatarFrameStyle(withCosmetics({ avatar_frame: { id: "f", rarity: "epic", payload: { ring: "#ffd700", effect: "glow" } } }));
     expect(out?.ring).toBe("#ffd700");
     expect(out?.effect).toBe("glow");
+  });
+
+  it("returns shape and colors for SVG frames", () => {
+    const out = avatarFrameStyle(withCosmetics({ avatar_frame: { id: "f", rarity: "legendary", payload: { shape: "orbit", color: "#a855f7", color2: "#c084fc" } } }));
+    expect(out?.shape).toBe("orbit");
+    expect(out?.color).toBe("#a855f7");
+    expect(out?.color2).toBe("#c084fc");
   });
 });
 
@@ -123,5 +153,48 @@ describe("bannerBackground", () => {
   it("falls back to bannerUrl when no cosmetic banner", () => {
     const bg = bannerBackground({ bannerUrl: "https://z/w.png" });
     expect(bg).toContain("url(https://z/w.png)");
+  });
+
+  it("prepends a texture layer for overlay banners", () => {
+    const dots = bannerBackground(withCosmetics({ banner: { id: "b", rarity: "epic", payload: { gradient: ["#111", "#222"], overlay: "dots" } } }));
+    expect(dots).toContain("radial-gradient");
+    expect(dots).toContain("linear-gradient(135deg"); // base gradient still present
+    const noise = bannerBackground(withCosmetics({ banner: { id: "b", rarity: "legendary", payload: { gradient: ["#111", "#222"], overlay: "noise" } } }));
+    expect(noise).toContain("feTurbulence");
+  });
+});
+
+// ── bannerClass ─────────────────────────────────────────────────────────────
+describe("bannerClass", () => {
+  it("returns undefined when not animated", () => {
+    expect(bannerClass(null)).toBeUndefined();
+    expect(bannerClass(withCosmetics({ banner: { id: "b", rarity: "common", payload: { gradient: ["#111"] } } }))).toBeUndefined();
+  });
+
+  it("returns banner-shift for shift animation", () => {
+    expect(bannerClass(withCosmetics({ banner: { id: "b", rarity: "rare", payload: { gradient: ["#111"], animation: "shift" } } }))).toBe("banner-shift");
+  });
+});
+
+// ── bannerTheme / cardThemeVars ─────────────────────────────────────────────
+describe("bannerTheme", () => {
+  it("returns null without a complete theme payload", () => {
+    expect(bannerTheme(null)).toBeNull();
+    expect(bannerTheme(withCosmetics({ banner: { id: "b", rarity: "legendary", payload: { gradient: ["#111"] } } }))).toBeNull();
+    // partial theme (missing border) → rejected
+    expect(bannerTheme(withCosmetics({ banner: { id: "b", rarity: "legendary", payload: { theme: { bg: "#000", surface: "#111" } } } }))).toBeNull();
+  });
+
+  it("extracts a full theme", () => {
+    const t = bannerTheme(withCosmetics({ banner: { id: "b", rarity: "legendary", payload: { theme: { bg: "#0d0516", surface: "#1a0f2e", border: "#7c3aed", hover: "#241542" } } } }));
+    expect(t).toEqual({ bg: "#0d0516", surface: "#1a0f2e", border: "#7c3aed", hover: "#241542" });
+  });
+
+  it("cardThemeVars maps a theme to CSS custom properties", () => {
+    const vars = cardThemeVars({ bg: "#0d0516", surface: "#1a0f2e", border: "#7c3aed" }) as Record<string, string>;
+    expect(vars["--bg-elevated"]).toBe("#0d0516");
+    expect(vars["--bg-surface"]).toBe("#1a0f2e");
+    expect(vars["--border"]).toBe("#7c3aed");
+    expect(cardThemeVars(null)).toBeUndefined();
   });
 });

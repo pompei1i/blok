@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarFrameStyle } from "@/lib/economy";
+import { AvatarFrameSVG } from "./avatar-frame-svg";
 import type { User } from "@/lib/store/types";
 
 interface AvatarProps {
@@ -31,8 +32,9 @@ export function UserAvatar({
 
   // Equipped avatar frame (cosmetic).
   const frame = avatarFrameStyle(user);
+  // SVG shape frames override the old box-shadow ring approach.
   const frameStyle: CSSProperties | undefined =
-    frame?.ring
+    frame?.ring && !frame?.shape
       ? { boxShadow: frame.effect ? `0 0 0 2px ${frame.ring}, 0 0 8px ${frame.ring}` : `0 0 0 2px ${frame.ring}` }
       : undefined;
 
@@ -42,7 +44,7 @@ export function UserAvatar({
       className={cn(
         "relative flex items-center justify-center rounded-full bg-[var(--bg-elevated)] border border-[var(--border)] font-medium text-[var(--text-primary)]",
         sizeClasses[size],
-        showRing && !frameStyle && "ring-2 ring-[var(--accent-red)]",
+        showRing && !frameStyle && !frame?.shape && "ring-2 ring-[var(--accent-red)]",
         className,
       )}
     >
@@ -57,6 +59,9 @@ export function UserAvatar({
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
           <Volume2 className="w-1/2 h-1/2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
         </span>
+      )}
+      {frame?.shape && (
+        <AvatarFrameSVG shape={frame.shape} color={frame.color ?? "#888"} color2={frame.color2} />
       )}
     </div>
   );

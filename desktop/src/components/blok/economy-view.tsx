@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useEconomyStore } from "@/lib/store/economy-store";
-import { BOX_COST, PITY_N, rarityColor, type CatalogItem } from "@/lib/economy";
+import { BOX_COST, PITY_N, rarityColor, nameplateStyle, bannerBackground, bannerClass, type CatalogItem } from "@/lib/economy";
 import type { CosmeticType, Rarity } from "@/lib/store/types";
 import { useI18n, type TranslationKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { PixelLootBox } from "./pixel-loot-box";
 import { CoinIcon } from "./coin-icon";
+import { AvatarFrameSVG } from "./avatar-frame-svg";
 
 type SubTab = "box" | "shop" | "inventory";
 
@@ -20,17 +21,21 @@ const typeKey = (t: CosmeticType) => `store.type.${t}` as TranslationKey;
 function CosmeticPreview({ item }: { item: CatalogItem }) {
   const p = item.payload ?? {};
   if (item.type === "nameplate") {
-    const style = Array.isArray(p.gradient)
-      ? {
-          background: `linear-gradient(90deg, ${p.gradient.join(", ")})`,
-          WebkitBackgroundClip: "text" as const,
-          backgroundClip: "text" as const,
-          color: "transparent",
-        }
-      : { color: p.color };
-    return <span className="text-sm font-bold" style={style}>@name</span>;
+    // Reuse the live nameplate renderer so previews match the real effect
+    // (glow/neon/flame/glitch), not just the base color/gradient.
+    const { style, className } = nameplateStyle({
+      cosmetics: { nameplate: { id: item.id, rarity: item.rarity, payload: p } },
+    });
+    return <span className={cn("text-sm font-bold", className)} style={style}>@name</span>;
   }
   if (item.type === "avatar_frame") {
+    if (typeof p.shape === "string") {
+      return (
+        <span className="relative inline-flex items-center justify-center w-7 h-7 rounded-full bg-[var(--bg-elevated)] border border-[var(--border)]">
+          <AvatarFrameSVG shape={p.shape} color={p.color ?? p.ring ?? "#888"} color2={p.color2} />
+        </span>
+      );
+    }
     return (
       <span
         className="inline-block w-6 h-6 rounded-full"
@@ -38,14 +43,14 @@ function CosmeticPreview({ item }: { item: CatalogItem }) {
       />
     );
   }
+  // Banner — reuse the live renderer so overlays/animation show in the preview.
+  const fakeUser = { cosmetics: { banner: { id: item.id, rarity: item.rarity, payload: p } } };
+  const bg = bannerBackground(fakeUser) ?? "var(--bg-elevated)";
+  const cls = bannerClass(fakeUser);
   return (
     <span
-      className="inline-block w-12 h-5 rounded"
-      style={{
-        background: Array.isArray(p.gradient)
-          ? `linear-gradient(135deg, ${p.gradient.join(", ")})`
-          : "var(--bg-elevated)",
-      }}
+      className={cn("inline-block w-12 h-5 rounded", cls)}
+      style={{ background: bg }}
     />
   );
 }
@@ -286,7 +291,8 @@ function ShopSection() {
 }
 
 // ── Inventory section ───────────────────────────────────────────────────────
-function InventorySection() {
+// Exported so the settings modal can reuse the same equip/unequip grid.
+export function InventorySection() {
   const { t } = useI18n();
   const catalog = useEconomyStore((s) => s.catalog);
   const inventory = useEconomyStore((s) => s.inventory);

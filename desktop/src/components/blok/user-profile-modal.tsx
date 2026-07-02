@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { X, MessageCircle, Phone } from "lucide-react";
 import { UserAvatar } from "./user-avatar";
 import { levelProgress, levelColor } from "@/lib/levels";
-import { nameplateStyle, bannerBackground } from "@/lib/economy";
+import { nameplateStyle, bannerBackground, bannerClass, bannerTheme, cardThemeVars } from "@/lib/economy";
 import { cn } from "@/lib/utils";
 import { useDMStore } from "@/lib/store/dm-store";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -47,17 +47,19 @@ export function UserProfileModal({ user, status, xp, onClose }: Props) {
   const accent = user.accentColor ?? "var(--accent-red)";
   const np = nameplateStyle(user);
   const bannerBg = bannerBackground(user) ?? `linear-gradient(135deg, ${accent}, ${accent}99)`;
+  const bannerCls = bannerClass(user);
+  const themeVars = cardThemeVars(bannerTheme(user));
 
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] w-76 shadow-2xl overflow-hidden" style={{ width: 300 }}>
+      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] w-76 shadow-2xl overflow-hidden" style={{ width: 300, ...themeVars }}>
 
         {/* Banner */}
         <div
-          className="relative h-20 flex-shrink-0"
+          className={cn("relative h-20 flex-shrink-0", bannerCls)}
           style={{ background: bannerBg }}
         >
           <button

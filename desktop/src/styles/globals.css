@@ -232,6 +232,24 @@
   100% { background-position: 200% center; }
 }
 
+/* Glitch: mostly stable, brief chromatic-aberration jitters near the end of the cycle. */
+@keyframes nameplate-glitch {
+  0%, 82%, 100% {
+    transform: translateX(0);
+    text-shadow: 1px 0 rgba(0, 255, 255, 0.5), -1px 0 rgba(255, 0, 255, 0.5);
+  }
+  83% { transform: translateX(-2px); text-shadow: 2px 0 rgba(0, 255, 255, 0.9), -2px 0 rgba(255, 0, 255, 0.9); }
+  85% { transform: translateX(2px);  text-shadow: -2px 0 rgba(0, 255, 255, 0.9), 2px 0 rgba(255, 0, 255, 0.9); }
+  87% { transform: translateX(-1px); }
+  89% { transform: translateX(1px); }
+}
+
+@keyframes banner-bg-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 /* ─── Scrollbar (pseudo-elements, stay outside layers) ─────────────────── */
 
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
@@ -269,6 +287,9 @@ select:focus-visible,
   .terminal-grid { animation: none !important; }
   .cursor-blink  { animation: none !important; opacity: 1 !important; }
   .nameplate-shimmer { animation: none !important; }
+  .nameplate-flame   { animation: none !important; }
+  .nameplate-glitch  { animation: none !important; transform: none !important; }
+  .banner-shift      { animation: none !important; }
 }
 
 /* ─── Component layer — Tailwind utilities (@layer utilities) CAN override ─ */
@@ -291,6 +312,15 @@ select:focus-visible,
   .animate-fade-in  { animation: fadeIn  0.5s ease-out forwards; }
 
   .nameplate-shimmer { animation: nameplate-shimmer 3s linear infinite; }
+  /* Flame reuses the shimmer scroll but faster — pair with a warm gradient payload. */
+  .nameplate-flame   { animation: nameplate-shimmer 1.5s linear infinite; }
+  .nameplate-glitch  { animation: nameplate-glitch 4s linear infinite; }
+  /* !important overrides the inline `background` shorthand's implicit
+     background-size:auto reset so the position animation has room to scroll. */
+  .banner-shift {
+    background-size: 300% 300% !important;
+    animation: banner-bg-shift 8s ease infinite;
+  }
   .animate-slide-in { animation: slideIn 0.5s ease-out forwards; }
 
   .presence-online { box-shadow: 0 0 6px var(--online); }
