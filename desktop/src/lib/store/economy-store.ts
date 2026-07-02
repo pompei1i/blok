@@ -26,7 +26,8 @@ interface EconomyState {
   catalog: CatalogItem[];
   inventory: Set<string>;
   equipped: EquippedState;
-  pity: number;
+  epicPity: number;
+  legendaryPity: number;
   loading: boolean;
   opening: boolean;
   lastDrop: BoxDrop | null;
@@ -52,7 +53,8 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
   catalog: [],
   inventory: new Set(),
   equipped: {},
-  pity: 0,
+  epicPity: 0,
+  legendaryPity: 0,
   loading: false,
   opening: false,
   lastDrop: null,
@@ -64,7 +66,7 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       supabase.from("user_wallet").select("coins, dust").eq("user_id", userId).maybeSingle(),
       supabase.from("item_catalog").select("*").eq("active", true),
       supabase.from("user_inventory").select("item_id").eq("user_id", userId),
-      supabase.from("user_gacha_state").select("opens_since_epic").eq("user_id", userId).maybeSingle(),
+      supabase.from("user_gacha_state").select("opens_since_epic, opens_since_legendary").eq("user_id", userId).maybeSingle(),
       supabase
         .from("profiles")
         .select("equipped_nameplate, equipped_avatar_frame, equipped_banner")
@@ -87,7 +89,8 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       catalog,
       inventory,
       equipped,
-      pity: gachaRes.data?.opens_since_epic ?? 0,
+      epicPity: gachaRes.data?.opens_since_epic ?? 0,
+      legendaryPity: gachaRes.data?.opens_since_legendary ?? 0,
       loading: false,
     });
 
@@ -141,9 +144,14 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
     set((s) => {
       const inventory = new Set(s.inventory);
       if (!drop.duplicate) inventory.add(drop.itemId);
-      return { inventory, pity: drop.newPity, lastDrop: drop };
+      return { inventory, legendaryPity: drop.newPity, lastDrop: drop };
     });
     await get().refreshWallet();
+    // Refetch gacha state to sync both pity counters
+    if (userId) {
+      const { data } = await supabase.from("user_gacha_state").select("opens_since_epic, opens_since_legendary").eq("user_id", userId).maybeSingle();
+      if (data) set({ epicPity: data.opens_since_epic ?? 0, legendaryPity: data.opens_since_legendary ?? 0 });
+    }
     return drop;
   },
 
@@ -208,7 +216,8 @@ export const useEconomyStore = create<EconomyState>((set, get) => ({
       catalog: [],
       inventory: new Set(),
       equipped: {},
-      pity: 0,
+      epicPity: 0,
+      legendaryPity: 0,
       lastDrop: null,
     });
   },

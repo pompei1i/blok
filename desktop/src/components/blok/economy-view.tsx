@@ -167,7 +167,8 @@ function DropReveal() {
 function BoxSection() {
   const { t } = useI18n();
   const coins = useEconomyStore((s) => s.coins);
-  const pity = useEconomyStore((s) => s.pity);
+  const epicPity = useEconomyStore((s) => s.epicPity);
+  const legendaryPity = useEconomyStore((s) => s.legendaryPity);
   const opening = useEconomyStore((s) => s.opening);
   const openBox = useEconomyStore((s) => s.openBox);
   const canAfford = coins >= BOX_COST;
@@ -203,17 +204,33 @@ function BoxSection() {
       </button>
       {!canAfford && <p className="text-[11px] text-[var(--text-muted)]">{t("store.notEnoughCoins")}</p>}
 
-      {/* Pity meter */}
-      <div className="w-full">
-        <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)] mb-1">
-          <span>{t("store.pity")}</span>
-          <span className="text-[var(--accent-purple,#a855f7)]">{pity}/{PITY_N}</span>
+      {/* Pity meters: epic at 10, legendary at 90 */}
+      <div className="w-full space-y-3">
+        {/* Epic pity (10) */}
+        <div>
+          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)] mb-1">
+            <span>{t("store.pity")} · {t("store.rarity.epic")}</span>
+            <span className="text-[var(--accent-purple,#a855f7)]">{epicPity}/10</span>
+          </div>
+          <div className="w-full h-1.5 bg-[var(--bg-elevated)] overflow-hidden">
+            <div
+              className="h-full bg-[var(--accent-purple,#a855f7)] transition-all"
+              style={{ width: `${Math.min(100, (epicPity / 10) * 100)}%` }}
+            />
+          </div>
         </div>
-        <div className="w-full h-1.5 bg-[var(--bg-elevated)] overflow-hidden">
-          <div
-            className="h-full bg-[var(--accent-purple,#a855f7)] transition-all"
-            style={{ width: `${Math.min(100, (pity / PITY_N) * 100)}%` }}
-          />
+        {/* Legendary pity (90) */}
+        <div>
+          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)] mb-1">
+            <span>{t("store.pity")} · {t("store.rarity.legendary")}</span>
+            <span className="text-[var(--accent-purple,#a855f7)]">{legendaryPity}/{PITY_N}</span>
+          </div>
+          <div className="w-full h-1.5 bg-[var(--bg-elevated)] overflow-hidden">
+            <div
+              className="h-full bg-[var(--accent-purple,#a855f7)] transition-all"
+              style={{ width: `${Math.min(100, (legendaryPity / PITY_N) * 100)}%` }}
+            />
+          </div>
         </div>
       </div>
 

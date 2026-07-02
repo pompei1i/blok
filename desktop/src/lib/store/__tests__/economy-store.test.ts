@@ -18,7 +18,8 @@ beforeEach(() => {
     catalog: [],
     inventory: new Set<string>(),
     equipped: {},
-    pity: 0,
+    epicPity: 0,
+    legendaryPity: 0,
     loading: false,
     opening: false,
     lastDrop: null,
@@ -61,7 +62,7 @@ describe("openBox", () => {
     const drop = await useEconomyStore.getState().openBox();
     expect(drop?.itemId).toBe("np_ocean");
     expect(useEconomyStore.getState().inventory.has("np_ocean")).toBe(true);
-    expect(useEconomyStore.getState().pity).toBe(1);
+    expect(useEconomyStore.getState().legendaryPity).toBe(1);
     expect(useEconomyStore.getState().lastDrop?.duplicate).toBe(false);
   });
 
