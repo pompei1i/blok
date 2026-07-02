@@ -2,6 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::Emitter;
 
 const TARGET_RATE: u32 = 48_000;
@@ -106,6 +107,7 @@ impl NativeAudio {
     /// Pass `None` for either device to use the system default.
     pub fn start(
         app: tauri::AppHandle,
+        on_chunk: Channel<InvokeResponseBody>,
         input_device: Option<String>,
         output_device: Option<String>,
         noise_suppression: bool,
@@ -116,7 +118,7 @@ impl NativeAudio {
         std::thread::Builder::new()
             .name("blok-audio".into())
             .spawn(move || {
-                if let Err(e) = run_audio(app, rx, rate_tx, input_device, output_device, noise_suppression, echo_cancellation) {
+                if let Err(e) = run_audio(app, on_chunk, rx, rate_tx, input_device, output_device, noise_suppression, echo_cancellation) {
                     eprintln!("[audio] engine error: {e}");
                 }
             })
@@ -223,6 +225,7 @@ fn apply_voice_processing(
 
 fn run_audio(
     app: tauri::AppHandle,
+    on_chunk: Channel<InvokeResponseBody>,
     rx: std::sync::mpsc::Receiver<Cmd>,
     rate_tx: std::sync::mpsc::SyncSender<u32>,
     input_device_name: Option<String>,
@@ -368,11 +371,13 @@ fn run_audio(
                     pa,
                 );
                 let speaking = rms_f32(&frame) > SPEAKING_THRESHOLD;
-                let samples_i16: Vec<i16> = frame
-                    .iter()
-                    .map(|&s| (s.clamp(-1.0, 1.0) * 32_767.0) as i16)
-                    .collect();
-                let _ = app_in.emit("audio-chunk", &samples_i16);
+                // Raw i16-LE bytes over the binary IPC channel — matches the
+                // DataChannel wire format on the JS side, zero re-encoding.
+                let mut bytes = Vec::with_capacity(frame.len() * 2);
+                for &s in frame.iter() {
+                    bytes.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32_767.0) as i16).to_le_bytes());
+                }
+                let _ = on_chunk.send(InvokeResponseBody::Raw(bytes));
                 let _ = app_in.emit("audio-speaking", speaking);
             }
         },

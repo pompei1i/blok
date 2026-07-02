@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { supabase } from "./supabaseClient";
@@ -229,7 +229,6 @@ export class NativeVoiceEngine {
   private cb: VoiceCallbacks;
 
   private realtimeCh: ReturnType<typeof supabase.channel> | null = null;
-  private unlistenChunk: UnlistenFn | null = null;
   private unlistenSpeaking: UnlistenFn | null = null;
 
   private speakingState = new Map<string, boolean>();
@@ -293,25 +292,28 @@ export class NativeVoiceEngine {
       throw new Error("Native voice requires the desktop app");
     }
     const { inputDevice, outputDevice, noiseSuppression, echoCancellation } = useUiSettingsStore.getState();
-    this.localRate = await invoke<number>("audio_start", {
-      inputDevice: inputDevice || null,
-      outputDevice: outputDevice || null,
-      noiseSuppression,
-      echoCancellation,
-    });
-    invoke("disable_audio_ducking").catch(() => {});
 
-    // Send each captured PCM frame peer-to-peer over the per-peer DataChannels
-    // (binary, unreliable). No Supabase relay → low latency.
-    this.unlistenChunk = await listen<number[]>("audio-chunk", (event) => {
+    // Captured PCM frames arrive as raw i16-LE ArrayBuffers over a binary IPC
+    // channel (no JSON number-array serialization) and go straight onto the
+    // per-peer DataChannels (binary, unreliable). No Supabase relay → low latency.
+    const onChunk = new Channel<ArrayBuffer>();
+    onChunk.onmessage = (buf) => {
       if (this._audioChannels.size === 0) return;
-      const buf = new Int16Array(event.payload).buffer;
       for (const ch of this._audioChannels.values()) {
         if (ch.readyState === "open") {
           try { ch.send(buf); } catch { /* channel closing */ }
         }
       }
+    };
+
+    this.localRate = await invoke<number>("audio_start", {
+      inputDevice: inputDevice || null,
+      outputDevice: outputDevice || null,
+      noiseSuppression,
+      echoCancellation,
+      onChunk,
     });
+    invoke("disable_audio_ducking").catch(() => {});
 
     this.unlistenSpeaking = await listen<boolean>("audio-speaking", (event) => {
       this.updateSpeaking(this.userId, event.payload);
@@ -355,7 +357,6 @@ export class NativeVoiceEngine {
     try {
       await this.subscribePromise;
     } catch (err) {
-      this.unlistenChunk?.(); this.unlistenChunk = null;
       this.unlistenSpeaking?.(); this.unlistenSpeaking = null;
       if (this.realtimeCh) { await supabase.removeChannel(this.realtimeCh); this.realtimeCh = null; }
       await invoke("audio_stop");
@@ -370,8 +371,8 @@ export class NativeVoiceEngine {
 
     await this.broadcast({ type: "leave", from: this.userId });
 
-    this.unlistenChunk?.();
-    this.unlistenChunk = null;
+    // audio_stop below tears down the Rust engine, which drops its end of the
+    // binary chunk channel — no explicit unlisten needed for it.
     this.unlistenSpeaking?.();
     this.unlistenSpeaking = null;
 
@@ -498,16 +499,25 @@ export class NativeVoiceEngine {
     }
   }
 
-  /** Wire a peer's audio DataChannel: incoming PCM → native playback. */
+  /**
+   * Wire a peer's audio DataChannel: incoming PCM → native playback.
+   * The frame is forwarded to Rust as raw bytes (binary IPC) with metadata in
+   * headers; per-user volume is applied in Rust — the old path deserialized,
+   * copied and volume-mapped a JS number array per frame per peer.
+   */
   private _attachAudioChannel(peerId: string, ch: RTCDataChannel): void {
     ch.binaryType = "arraybuffer";
     this._audioChannels.set(peerId, ch);
     ch.onmessage = (ev) => {
       if (this._localMuted.has(peerId)) return;
-      const raw = Array.from(new Int16Array(ev.data as ArrayBuffer));
       const vol = (this._userVolumes.get(peerId) ?? 100) / 100;
-      const samples = vol === 1 ? raw : raw.map((s) => Math.max(-32768, Math.min(32767, Math.round(s * vol))));
-      void invoke<boolean>("audio_receive", { from: peerId, samples, rate: this.localRate })
+      void invoke<boolean>("audio_receive", new Uint8Array(ev.data as ArrayBuffer), {
+        headers: {
+          "x-from": peerId,
+          "x-rate": String(this.localRate),
+          "x-volume": vol.toFixed(2),
+        },
+      })
         .then((speaking) => this.updateSpeaking(peerId, speaking))
         .catch(() => {});
     };

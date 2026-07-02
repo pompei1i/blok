@@ -4,6 +4,7 @@ use audio::{Cmd, NativeAudio};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{
+    ipc::{Channel, InvokeBody, InvokeResponseBody, Request},
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
@@ -15,6 +16,10 @@ struct AudioState(Mutex<Option<NativeAudio>>);
 
 /// Returns the actual input sample rate so the JS side can include it in
 /// every audio packet, enabling correct resampling on remote peers.
+///
+/// `on_chunk` is a binary IPC channel: each captured PCM frame is delivered to
+/// JS as raw i16-LE bytes (ArrayBuffer). The old "audio-chunk" event serialized
+/// a JSON number array ~25×/sec — measurable main-thread cost during calls.
 #[tauri::command]
 fn audio_start(
     state: tauri::State<AudioState>,
@@ -23,9 +28,16 @@ fn audio_start(
     output_device: Option<String>,
     noise_suppression: bool,
     echo_cancellation: bool,
+    on_chunk: Channel<InvokeResponseBody>,
 ) -> Result<u32, String> {
-    let (engine, actual_rate) =
-        NativeAudio::start(app, input_device, output_device, noise_suppression, echo_cancellation)?;
+    let (engine, actual_rate) = NativeAudio::start(
+        app,
+        on_chunk,
+        input_device,
+        output_device,
+        noise_suppression,
+        echo_cancellation,
+    )?;
     *state.0.lock().unwrap() = Some(engine);
     Ok(actual_rate)
 }
@@ -75,22 +87,44 @@ fn audio_set_deafened(deafened: bool, state: tauri::State<AudioState>) {
     }
 }
 
-/// Receive i16 samples from a remote participant, queue them for playback.
-/// `rate` is the sender's input sample rate; samples are resampled to 48 kHz
-/// if necessary. Returns true if the packet's RMS exceeds the speaking threshold.
+/// Receive a remote participant's PCM frame as raw i16-LE bytes (binary IPC —
+/// the old JSON path serialized a number array per frame per peer). Metadata
+/// rides in request headers:
+///   x-from   — peer id
+///   x-rate   — sender's input sample rate (resampled to 48 kHz here)
+///   x-volume — local per-user volume 0.00–2.00, applied here in f32 (was a
+///              per-sample map() on the JS main thread)
+/// Returns true if the frame's RMS exceeds the speaking threshold — computed
+/// BEFORE the volume override, so a quiet local volume doesn't hide the
+/// speaking indicator.
 #[tauri::command]
-fn audio_receive(
-    from: String,
-    samples: Vec<i16>,
-    rate: Option<u32>,
-    state: tauri::State<AudioState>,
-) -> bool {
+fn audio_receive(request: Request<'_>, state: tauri::State<AudioState>) -> Result<bool, String> {
+    let InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected raw PCM body".into());
+    };
+    let header = |name: &str| -> Option<&str> {
+        request.headers().get(name).and_then(|v| v.to_str().ok())
+    };
+    let from = header("x-from").ok_or("missing x-from header")?.to_string();
+    let rate: u32 = header("x-rate").and_then(|v| v.parse().ok()).unwrap_or(48_000);
+    let volume: f32 = header("x-volume").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+
+    let samples: Vec<i16> = bytes
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .collect();
+
     let speaking = audio::is_speaking_i16(&samples);
     if let Some(engine) = state.0.lock().unwrap().as_ref() {
-        let f32s = audio::resample_to_f32(&samples, rate.unwrap_or(48_000));
+        let mut f32s = audio::resample_to_f32(&samples, rate);
+        if (volume - 1.0).abs() > f32::EPSILON {
+            for s in f32s.iter_mut() {
+                *s = (*s * volume).clamp(-1.0, 1.0);
+            }
+        }
         engine.send(Cmd::AddSamples { from, samples: f32s });
     }
-    speaking
+    Ok(speaking)
 }
 
 #[tauri::command]

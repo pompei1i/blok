@@ -4,6 +4,10 @@ import { vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(null),
+  // Binary IPC channel (audio chunks) — tests only need the shape.
+  Channel: class {
+    onmessage: ((data: unknown) => void) | null = null;
+  },
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
