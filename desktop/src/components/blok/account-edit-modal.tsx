@@ -7,13 +7,14 @@ import { useUiSettingsStore, type CameraQuality, type Language, type ThemeMode, 
 import { SCREEN_SHARE_FPS_OPTIONS } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n";
 import { useUpdater } from "@/hooks/useUpdater";
+import { InventorySection } from "./economy-view";
 
 interface AccountEditModalProps {
  isOpen: boolean;
  onClose: () => void;
 }
 
-type TabId = "account" | "video" | "audio" | "hotkeys" | "view" | "theme" | "language" | "system";
+type TabId = "account" | "security" | "video" | "audio" | "hotkeys" | "view" | "theme" | "language" | "system";
 type SettingsDraft = {
  previewVideo: boolean;
  mirrorCamera: boolean;
@@ -38,6 +39,7 @@ type SettingsDraft = {
 
 const TAB_IDS = [
  { id: "account", labelKey: "settings.tab.account" as const },
+ { id: "security", labelKey: "settings.tab.security" as const },
  { id: "video", labelKey: "settings.tab.video" as const },
  { id: "audio", labelKey: "settings.tab.audio" as const },
  { id: "hotkeys", labelKey: "settings.tab.hotkeys" as const },
@@ -320,13 +322,21 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  setMessage(null);
 
  try {
+  // Avatars go to the Storage bucket; the profile row only carries the URL.
+  // Fall back to inline base64 if the upload fails (e.g. bucket not deployed
+  // yet) — the lazy self-migration on next login will move it to Storage.
+  let avatarUrl: string | undefined;
+  if (avatarBase64 && user) {
+   const { uploadAvatar } = await import("@/lib/avatar");
+   avatarUrl = (await uploadAvatar(user.id, avatarBase64, user.avatarUrl)) ?? avatarBase64;
+  }
   await updateUser({
    displayName: formData.displayName,
    username: formData.username,
    email: formData.email,
    bio: formData.bio,
    pronouns: formData.pronouns,
-   ...(avatarBase64 ? { avatarUrl: avatarBase64 } : {}),
+   ...(avatarUrl ? { avatarUrl } : {}),
   });
   setMessage({ type: "success", text: t("settings.account.savedSuccess") });
   setTimeout(() => setMessage(null), 3000);
@@ -599,12 +609,30 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  </div>
  </form>
 
- <form onSubmit={handleChangePassword} className="mt-8 pt-6 border-t border-dashed border-[var(--border)] space-y-4">
+ <div className="mt-8 pt-6 border-t border-dashed border-[var(--border)] space-y-4">
  <div>
+ <h3 className="text-base font-bold text-[var(--text-primary)] font-mono uppercase tracking-wider">
+ <span className="text-[var(--text-muted)] font-normal">$ </span>{t("settings.cosmetics.title")}
+ </h3>
+ <p className="text-[var(--text-muted)] text-xs mt-1">{t("settings.cosmetics.subtitle")}</p>
+ </div>
+ <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)]">
+ <InventorySection />
+ </div>
+ </div>
+ </div>
+ )}
+
+ {activeTab === "security" && (
+ <div className="max-w-2xl animate-fade-in">
+ <div className="mb-6">
  <h3 className="text-base font-bold text-[var(--text-primary)] font-mono uppercase tracking-wider">
  <span className="text-[var(--text-muted)] font-normal">$ </span>{t("settings.account.changePassword")}
  </h3>
+ <p className="text-[var(--text-muted)] text-xs mt-1">{t("settings.security.subtitle")}</p>
  </div>
+
+ <form onSubmit={handleChangePassword} className="p-5 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-4">
  <div>
  <label className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
  <span className="mr-1">&gt;</span>{t("settings.account.newPassword")}
@@ -1202,7 +1230,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
  )}
 
  </div>
- {activeTab !== "account" && (
+ {activeTab !== "account" && activeTab !== "security" && (
  <div className="border-t border-[var(--border)] px-8 lg:px-10 py-3 bg-[var(--bg-surface)] flex items-center justify-between gap-3">
  <span className="text-xs text-[var(--text-muted)] font-mono">
  {t("settings.applyHint")}
