@@ -48,6 +48,7 @@ export interface ServerSlice {
   auditLog: Record<string, AuditEntry[]>;
 
   initData: (userId: string) => Promise<void>;
+  loadProfilesFor: (userIds: string[]) => Promise<void>;
   setActiveServer: (serverId: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
   createServer: (data: { name: string; description?: string }) => Promise<void>;
@@ -107,11 +108,16 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
   initData: async (_userId) => {
     try {
+      // server_members WITHOUT the profiles join: the join duplicated the full
+      // profile (incl. possibly-base64 avatar) into every membership row of
+      // every server — the single heaviest payload in the app. Profiles now
+      // load per-server on demand via loadProfilesFor (active server below,
+      // others on setActiveServer).
       const [serverRes, channelRes, categoryRes, memberRes, rolesRes] = await Promise.all([
         supabase.from("servers").select("*"),
         supabase.from("channels").select("*"),
         supabase.from("categories").select("*"),
-        supabase.from("server_members").select("*, user:profiles(*)"),
+        supabase.from("server_members").select("*"),
         supabase.from("roles").select("*"),
       ]);
 
@@ -152,16 +158,16 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       });
 
       const membersMap: Record<string, ServerMember[]> = {};
-      const userProfileCache: Record<string, User> = {};
       const memberUserIndex: Record<string, { serverId: string; memberId: string }[]> = {};
       (memberRes.data || []).forEach((m) => {
         if (!membersMap[m.server_id]) membersMap[m.server_id] = [];
-        const user = m.user ? mapProfile(m.user) : undefined;
-        if (user) userProfileCache[m.user_id] = user;
         const entry: ServerMember = {
           id: m.id, serverId: m.server_id, userId: m.user_id,
           roleId: m.role_id, nickname: m.nickname, joinedAt: m.joined_at,
-          xp: m.xp ?? 0, timeoutUntil: m.timeout_until ?? null, user,
+          xp: m.xp ?? 0, timeoutUntil: m.timeout_until ?? null,
+          // user is hydrated lazily by loadProfilesFor — every render site
+          // already falls back gracefully while it's undefined.
+          user: undefined,
         };
         membersMap[m.server_id].push(entry);
         if (!memberUserIndex[m.user_id]) memberUserIndex[m.user_id] = [];
@@ -192,13 +198,18 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
       set({
         servers, categories: categoriesMap, channels: channelsMap, channelIndex,
-        members: membersMap, roles: rolesMap, userProfileCache, memberUserIndex,
+        members: membersMap, roles: rolesMap, userProfileCache: {}, memberUserIndex,
         openTabs: prevTabs,
         activeServerId: restoredActiveId,
         activeChannelId: targetChannel?.id ?? null,
       });
 
       if (targetChannel) void get().loadMessages(targetChannel.id);
+
+      // Hydrate profiles for the restored server's members only.
+      if (restoredActiveId) {
+        void get().loadProfilesFor((membersMap[restoredActiveId] ?? []).map((m) => m.userId));
+      }
 
       // Track presence for every co-server-member (friends-store fetches friends
       // separately; trackPresenceFor is idempotent so the union is race-free).
@@ -606,6 +617,43 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     }
   },
 
+  /**
+   * Batch-hydrate profiles into userProfileCache (and patch member/voice
+   * entries that were waiting on them). Cached ids are skipped, queries are
+   * chunked — safe to call with a whole server's member list.
+   */
+  loadProfilesFor: async (userIds) => {
+    const cache = get().userProfileCache;
+    const missing = [...new Set(userIds)].filter((id) => !cache[id]);
+    if (missing.length === 0) return;
+
+    const CHUNK = 100;
+    const byId: Record<string, User> = {};
+    for (let i = 0; i < missing.length; i += CHUNK) {
+      const { data, error } = await supabase
+        .from("profiles").select("*").in("id", missing.slice(i, i + CHUNK));
+      if (error) { console.error("loadProfilesFor failed", error); break; }
+      for (const row of data ?? []) byId[row.id] = mapProfile(row);
+    }
+    if (Object.keys(byId).length === 0) return;
+
+    set((state) => ({
+      userProfileCache: { ...state.userProfileCache, ...byId },
+      members: Object.fromEntries(
+        Object.entries(state.members).map(([sid, list]) => [
+          sid,
+          list.map((m) => (!m.user && byId[m.userId] ? { ...m, user: byId[m.userId] } : m)),
+        ]),
+      ),
+      voiceParticipants: Object.fromEntries(
+        Object.entries(state.voiceParticipants).map(([chId, parts]) => [
+          chId,
+          parts.map((p) => (!p.user && byId[p.userId] ? { ...p, user: byId[p.userId] } : p)),
+        ]),
+      ),
+    }));
+  },
+
   setActiveServer: (serverId) => {
     const state = get();
     const serverChannels = serverId ? state.channels[serverId] ?? [] : [];
@@ -622,6 +670,10 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         : s.serverAccessOrder,
     }));
     if (target) void get().loadMessages(target.id);
+    // Hydrate this server's member profiles on demand (no-op when cached).
+    if (serverId) {
+      void get().loadProfilesFor((state.members[serverId] ?? []).map((m) => m.userId));
+    }
   },
 
   setActiveChannel: (channelId) => {
