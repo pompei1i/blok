@@ -30,9 +30,9 @@ alter table profiles     drop constraint if exists profiles_avatar_len;
 alter table profiles     add  constraint profiles_avatar_len
   check (avatar_url is null or char_length(avatar_url) <= 200000) not valid;
 
-alter table profiles     drop constraint if exists profiles_banner_len;
-alter table profiles     add  constraint profiles_banner_len
-  check (banner_url is null or char_length(banner_url) <= 400000) not valid;
+-- (no profiles.banner_url cap: the column doesn't exist in the live schema —
+--  User.bannerUrl on the client is optional and nothing ever writes it; banner
+--  cosmetics live in item payloads. If the column is ever added, cap it then.)
 
 alter table profiles     drop constraint if exists profiles_bio_len;
 alter table profiles     add  constraint profiles_bio_len
