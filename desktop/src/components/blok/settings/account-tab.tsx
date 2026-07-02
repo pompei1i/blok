@@ -3,8 +3,10 @@ import { Camera } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { nameplateStyle, avatarFrameStyle, bannerBackground, bannerClass } from "@/lib/economy";
 import { InventorySection } from "../economy-view";
 import { SectionHeader } from "./section-header";
+import { AvatarFrameSVG } from "../avatar-frame-svg";
 
 /** Profile form (avatar, names, bio) + equipped-cosmetics inventory. */
 export function AccountTab({ onClose }: { onClose: () => void }) {
@@ -23,6 +25,12 @@ export function AccountTab({ onClose }: { onClose: () => void }) {
   const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Equipped cosmetics preview — same renderers used everywhere else in the app.
+  const frame = avatarFrameStyle(user);
+  const { style: npStyle, className: npClassName } = nameplateStyle(user);
+  const banner = bannerBackground(user);
+  const bannerAnimClass = bannerClass(user);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -82,44 +90,62 @@ export function AccountTab({ onClose }: { onClose: () => void }) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Avatar Section */}
-        <div className="p-5 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] flex items-center gap-5">
-          <div className="relative group flex-shrink-0">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold border-2 border-[var(--border)] overflow-hidden bg-[var(--accent-red)]">
-              {(avatarPreview || user?.avatarUrl) ? (
-                <img
-                  src={avatarPreview ?? user!.avatarUrl!}
-                  alt="Avatar"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-white">
-                  {formData.displayName?.[0]?.toUpperCase() || "U"}
-                </span>
+        {/* Avatar Section — banner strip (equipped cosmetic) behind the avatar row */}
+        <div className="bg-[var(--bg-surface)] border border-dashed border-[var(--border)] overflow-hidden">
+          <div
+            className={cn("h-14", bannerAnimClass)}
+            style={{ background: banner ?? "var(--bg-elevated)" }}
+          />
+          <div className="p-5 pt-0 flex items-center gap-5">
+            <div
+              className="relative group flex-shrink-0 -mt-8 w-20 h-20 rounded-full"
+              style={
+                frame?.ring && !frame?.shape
+                  ? { boxShadow: frame.effect ? `0 0 0 2px ${frame.ring}, 0 0 10px ${frame.ring}` : `0 0 0 2px ${frame.ring}` }
+                  : undefined
+              }
+            >
+              {/* Image is clipped to the circle; the outer div stays overflow-visible
+                  so SVG frame shapes (orbit/hex/crystal) can render past the edge. */}
+              <div className="w-full h-full rounded-full flex items-center justify-center text-2xl font-bold border-2 border-[var(--bg-surface)] overflow-hidden bg-[var(--accent-red)]">
+                {(avatarPreview || user?.avatarUrl) ? (
+                  <img
+                    src={avatarPreview ?? user!.avatarUrl!}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-white">
+                    {formData.displayName?.[0]?.toUpperCase() || "U"}
+                  </span>
+                )}
+              </div>
+              {frame?.shape && (
+                <AvatarFrameSVG shape={frame.shape} color={frame.color ?? "#888"} color2={frame.color2} />
+              )}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute inset-0 rounded-full flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Camera className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            <div className="flex-1 min-w-0 pt-1">
+              <p className={cn("text-sm font-bold", npClassName)} style={npStyle}>@{user?.username}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">{user?.email}</p>
+              {avatarPreview && (
+                <p className="text-xs text-[var(--online-text)] mt-1 font-mono">[✓] {t("settings.account.newAvatarHint")}</p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute inset-0 rounded-full flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <Camera className="w-5 h-5 text-white" />
-            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-mono text-[var(--text-primary)]">@{user?.username}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">{user?.email}</p>
-            {avatarPreview && (
-              <p className="text-xs text-[var(--online-text)] mt-1 font-mono">[✓] {t("settings.account.newAvatarHint")}</p>
-            )}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleAvatarChange}
-          />
         </div>
 
         {/* Form Fields */}
