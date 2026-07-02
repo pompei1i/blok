@@ -1,10 +1,10 @@
 import type { CSSProperties } from "react";
 import type { Rarity, CosmeticType, Cosmetics } from "./store/types";
 
-// ── Tunable constants — MUST stay in sync with supabase/migrations/20260611_economy.sql
+// ── Tunable constants — MUST stay in sync with supabase/migrations/20260707_gacha_pity_90.sql
 export const BOX_COST = 100; // coins per loot-box open
 export const DAILY_COIN_CAP = 200; // max coins earnable from quests per user per day
-export const PITY_N = 10; // guaranteed epic+ on the Nth open without one
+export const PITY_N = 90; // guaranteed legendary on the Nth open without one
 
 /** Dust awarded when a box rolls an item already owned (per rarity). */
 export const DUPLICATE_DUST: Record<Rarity, number> = {
