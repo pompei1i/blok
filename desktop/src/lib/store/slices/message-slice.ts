@@ -156,32 +156,64 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
           }
         }
 
-        // Single joined fetch: resolves author avatar/username if not cached,
-        // and picks up any attachments/reactions. Patches the already-inserted message.
-        const { data: fullRow } = await supabase
-          .from("messages")
-          .select(MESSAGE_SELECT)
-          .eq("id", m.id)
-          .single();
-
-        if (fullRow) {
-          const fullMessage = mapMessageRow(fullRow as unknown as MessageRow);
-          if (!cachedAuthor && fullMessage.author) {
-            set((state) => ({ userProfileCache: { ...state.userProfileCache, [m.author_id]: fullMessage.author! } }));
-          }
-          if (get().messagesLoaded.has(m.channel_id)) {
+        // Author resolution: only fetch the profile when it's not cached.
+        // Attachments arrive via their own realtime INSERT events (see the
+        // public:attachments subscription below) — the old full joined refetch
+        // per message was an N+1 amplified across every online client.
+        if (!cachedAuthor) {
+          const { data: authorRow } = await supabase
+            .from("profiles").select("*").eq("id", m.author_id).single();
+          if (authorRow) {
+            const author = mapProfile(authorRow);
             set((state) => ({
-              messages: {
-                ...state.messages,
-                [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
-                  msg.id === m.id ? fullMessage : msg
-                ),
-              },
+              userProfileCache: { ...state.userProfileCache, [m.author_id]: author },
+              messages: state.messagesLoaded.has(m.channel_id)
+                ? {
+                    ...state.messages,
+                    [m.channel_id]: (state.messages[m.channel_id] ?? []).map((msg) =>
+                      msg.id === m.id ? { ...msg, author } : msg
+                    ),
+                  }
+                : state.messages,
             }));
           }
         }
       }
     ).subscribe()
+    );
+
+    // Attachments are inserted right after their message row (addMessage) —
+    // stream them and patch the already-rendered message. Dedup by id AND url:
+    // the sender's optimistic attachment carries a temp id but the same
+    // storage URL as the DB row.
+    trackDataChannel(
+      supabase.channel("public:attachments").on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "attachments" },
+        (payload) => {
+          const a = payload.new;
+          const attachment = {
+            id: a.id, messageId: a.message_id, url: a.url, filename: a.filename,
+            mediaType: a.media_type ?? undefined, sizeBytes: a.size_bytes ?? undefined,
+            createdAt: a.created_at,
+          };
+          set((state) => {
+            const channelId = state.messageChannelIndex[a.message_id];
+            if (!channelId) return state;
+            return {
+              messages: {
+                ...state.messages,
+                [channelId]: (state.messages[channelId] ?? []).map((msg) => {
+                  if (msg.id !== a.message_id) return msg;
+                  const existing = msg.attachments ?? [];
+                  if (existing.some((x) => x.id === a.id || x.url === a.url)) return msg;
+                  return { ...msg, attachments: [...existing, attachment] };
+                }),
+              },
+            };
+          });
+        }
+      ).subscribe()
     );
 
     trackDataChannel(
@@ -215,10 +247,19 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
               const channelId = state.messageChannelIndex[r.message_id];
               if (!channelId) return state;
               return {
-                messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) =>
-                  m.id === r.message_id && !m.reactions?.some((rx) => rx.id === r.id)
-                    ? { ...m, reactions: [...(m.reactions || []), reaction] } : m
-                ) },
+                messages: { ...state.messages, [channelId]: state.messages[channelId].map((m) => {
+                  if (m.id !== r.message_id) return m;
+                  // The sender's optimistic reaction has a random temp id but the
+                  // same (userId, emoji) — replace it with the DB row so ids
+                  // converge instead of rendering a duplicate.
+                  const existing = m.reactions ?? [];
+                  if (existing.some((rx) => rx.id === r.id)) return m;
+                  const optimisticIdx = existing.findIndex((rx) => rx.userId === r.user_id && rx.emoji === r.emoji);
+                  const reactions = optimisticIdx >= 0
+                    ? existing.map((rx, i) => (i === optimisticIdx ? reaction : rx))
+                    : [...existing, reaction];
+                  return { ...m, reactions };
+                }) },
               };
             });
           } else if (payload.eventType === "DELETE") {
@@ -379,15 +420,21 @@ export const createMessageSlice: StateCreator<ServerStore, [], [], MessageSlice>
       return;
     }
 
-    // Swap temp ID for real DB ID
+    // Swap temp ID for real DB ID. Dedup: the postgres_changes INSERT for this
+    // row may have landed before this response (both are network round-trips,
+    // order isn't guaranteed) — in that case the realtime copy is already in
+    // state under the real id, so drop the optimistic one instead of swapping,
+    // or we'd render two messages with the same id.
     set((state) => {
       const { [message.id]: _dropped, ...restIndex } = state.messageChannelIndex;
+      const list = state.messages[channelId] || [];
+      const realtimeAlreadyAdded = list.some((m) => m.id === insertedMsg.id);
       return {
         messages: {
           ...state.messages,
-          [channelId]: (state.messages[channelId] || []).map((m) =>
-            m.id === message.id ? { ...m, id: insertedMsg.id } : m
-          ),
+          [channelId]: realtimeAlreadyAdded
+            ? list.filter((m) => m.id !== message.id)
+            : list.map((m) => (m.id === message.id ? { ...m, id: insertedMsg.id } : m)),
         },
         messageChannelIndex: { ...restIndex, [insertedMsg.id]: channelId },
       };

@@ -130,6 +130,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       initialized: true,
     });
 
+    // Lazy migration: move a legacy base64 avatar into the Storage bucket
+    // (fire-and-forget; the profile-self subscription below picks up the row
+    // update and refreshes the in-memory user).
+    if (profile?.avatarUrl?.startsWith("data:")) {
+      void import("../avatar").then(({ migrateOwnBase64Avatar }) =>
+        migrateOwnBase64Avatar(user.id, profile.avatarUrl),
+      );
+    }
+
     if (_profileSelfChannel) await supabase.removeChannel(_profileSelfChannel);
     _profileSelfChannel = supabase
       .channel(`profile-self-${user.id}`)
@@ -212,6 +221,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const isAdmin = await fetchIsAdmin();
     set({ user: { ...profile, email: data.user.email ?? undefined, isAdmin }, isAuthenticated: true, isLoading: false });
+
+    // Lazy migration: legacy base64 avatar → Storage bucket (fire-and-forget).
+    if (profile.avatarUrl?.startsWith("data:")) {
+      const uid = data.user.id;
+      const url = profile.avatarUrl;
+      void import("../avatar").then(({ migrateOwnBase64Avatar }) => migrateOwnBase64Avatar(uid, url));
+    }
     return { success: true };
   },
 
@@ -287,6 +303,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
     const { useServerStore } = await import("./server-store");
     await useServerStore.getState().leaveVoiceChannel();
+    const { cleanupDMChannels } = await import("./dm-store");
+    await cleanupDMChannels();
     const { clearDataChannels } = await import("./slices/_shared");
     await clearDataChannels();
     const { useEconomyStore } = await import("./economy-store");

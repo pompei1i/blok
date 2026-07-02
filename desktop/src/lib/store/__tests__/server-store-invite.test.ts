@@ -47,22 +47,36 @@ beforeEach(() => {
 });
 
 // ── generateInviteCode ────────────────────────────────────────────────────────
+//
+// The code is now minted server-side by the rotate_invite_code SECURITY DEFINER
+// RPC (owner/INVITE_MEMBER check + gen_random_bytes) — see
+// supabase/migrations/20260702_rotate_invite_code.sql. The client forwards opts
+// and mirrors the returned code into state.
 
 describe("generateInviteCode", () => {
-  it("returns a non-empty string and updates server.inviteCode in state", async () => {
+  it("returns the RPC-minted code and updates server.inviteCode in state", async () => {
     useServerStore.setState({ servers: [makeServer("s1")] });
-    resolveWith(null); // update().eq() direct chain await
+    rpc().mockResolvedValueOnce({ data: { ok: true, code: "abcdef1234" }, error: null });
 
     const code = await useServerStore.getState().generateInviteCode("s1");
 
-    expect(typeof code).toBe("string");
-    expect(code!.length).toBeGreaterThan(0);
-    expect(useServerStore.getState().servers[0].inviteCode).toBe(code);
+    expect(code).toBe("abcdef1234");
+    expect(useServerStore.getState().servers[0].inviteCode).toBe("abcdef1234");
   });
 
-  it("returns null and leaves server.inviteCode unchanged when DB update fails", async () => {
+  it("returns null and leaves server.inviteCode unchanged when the RPC call errors", async () => {
     useServerStore.setState({ servers: [makeServer("s1")] });
-    resolveWith(null, { message: "DB error" });
+    rpc().mockResolvedValueOnce({ data: null, error: { message: "DB error" } });
+
+    const code = await useServerStore.getState().generateInviteCode("s1");
+
+    expect(code).toBeNull();
+    expect(useServerStore.getState().servers[0].inviteCode).toBeUndefined();
+  });
+
+  it("returns null when the RPC reports forbidden (no INVITE_MEMBER permission)", async () => {
+    useServerStore.setState({ servers: [makeServer("s1")] });
+    rpc().mockResolvedValueOnce({ data: { ok: false, reason: "forbidden" }, error: null });
 
     const code = await useServerStore.getState().generateInviteCode("s1");
 
@@ -72,23 +86,26 @@ describe("generateInviteCode", () => {
 
   it("only updates the targeted server and leaves others unchanged", async () => {
     useServerStore.setState({ servers: [makeServer("s1"), makeServer("s2")] });
-    resolveWith(null);
+    rpc().mockResolvedValueOnce({ data: { ok: true, code: "abcdef1234" }, error: null });
 
     await useServerStore.getState().generateInviteCode("s1");
 
     expect(useServerStore.getState().servers[1].inviteCode).toBeUndefined();
-    expect(useServerStore.getState().servers[0].inviteCode).toBeTruthy();
+    expect(useServerStore.getState().servers[0].inviteCode).toBe("abcdef1234");
   });
 
-  it("generates unique codes on successive calls", async () => {
+  it("passes opts through to the RPC", async () => {
+    const expiresAt = "2026-08-01T00:00:00.000Z";
     useServerStore.setState({ servers: [makeServer("s1")] });
-    resolveWith(null);
-    const code1 = await useServerStore.getState().generateInviteCode("s1");
+    rpc().mockResolvedValueOnce({ data: { ok: true, code: "abcdef1234" }, error: null });
 
-    resolveWith(null);
-    const code2 = await useServerStore.getState().generateInviteCode("s1");
+    await useServerStore.getState().generateInviteCode("s1", { expiresAt, maxUses: 5 });
 
-    expect(code1).not.toBe(code2);
+    expect(rpc()).toHaveBeenCalledWith("rotate_invite_code", {
+      p_server_id: "s1",
+      p_expires_at: expiresAt,
+      p_max_uses: 5,
+    });
   });
 });
 
@@ -183,7 +200,7 @@ describe("generateInviteCode — opts", () => {
   it("stores expiresAt and maxUses in state after successful generation", async () => {
     const expiresAt = new Date(Date.now() + 86_400_000 * 7).toISOString();
     useServerStore.setState({ servers: [makeServer("s1")] });
-    resolveWith(null);
+    rpc().mockResolvedValueOnce({ data: { ok: true, code: "abcdef1234" }, error: null });
 
     await useServerStore.getState().generateInviteCode("s1", { expiresAt, maxUses: 5 });
 
@@ -195,7 +212,7 @@ describe("generateInviteCode — opts", () => {
 
   it("stores null expiresAt and null maxUses when opts are omitted", async () => {
     useServerStore.setState({ servers: [makeServer("s1")] });
-    resolveWith(null);
+    rpc().mockResolvedValueOnce({ data: { ok: true, code: "abcdef1234" }, error: null });
 
     await useServerStore.getState().generateInviteCode("s1");
 

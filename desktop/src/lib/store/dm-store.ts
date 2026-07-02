@@ -70,6 +70,26 @@ function stopDMVoiceLocally() {
   useDMStore.setState({ isDMCameraOn: false, dmCameraUsers: {}, localDMCameraStream: null });
 }
 
+/**
+ * Tear down all module-level DM channels/timers. Called on logout — without
+ * this the call channels and outbound-channel cache survive until the next
+ * initDMData, leaking realtime connections across re-logins.
+ */
+export async function cleanupDMChannels(): Promise<void> {
+  if (_callInviteTimer) { clearTimeout(_callInviteTimer); _callInviteTimer = null; }
+  stopDMVoiceLocally();
+  const toRemove = [
+    ..._outboundCallChannels.values(),
+    ...(_callChannel ? [_callChannel] : []),
+    ...(_dmMessagesChannel ? [_dmMessagesChannel] : []),
+  ];
+  _outboundCallChannels.clear();
+  _callChannel = null;
+  _dmMessagesChannel = null;
+  await Promise.all(toRemove.map((ch) => supabase.removeChannel(ch).catch(() => {})));
+  useDMStore.setState({ openDMs: {}, incomingCall: null, outgoingCall: null, activeCall: null });
+}
+
 interface DMWindowState {
   userId: string; // the target user
   dmChannelId?: string; 
@@ -167,29 +187,43 @@ export function buildDMContent(text: string, attachments: Attachment[]): string 
   })}`;
 }
 
+// DM files go to the same public "attachments" bucket as server messages
+// (see useChatInput.uploadFilesToStorage). They used to be embedded as base64
+// data-URLs inside dm_messages.content — which bloated rows into the MBs and
+// silently broke Realtime delivery for large files (postgres_changes payloads
+// have a ~1MB cap, so the INSERT event for a big DM never arrived). Old
+// messages still carry data-URLs; parseDMContent renders both formats.
 async function filesToDMAttachments(
   files: File[],
   messageId: string,
+  dmChannelId: string,
 ): Promise<Attachment[]> {
-  return Promise.all(
-    files.map((file, i) => {
-      return new Promise<Attachment>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          resolve({
-            id: `dm-att-${Date.now()}-${i}`,
-            messageId,
-            url: reader.result as string,
-            filename: file.name,
-            mediaType: file.type,
-            sizeBytes: file.size,
-            createdAt: new Date().toISOString(),
-          });
-        };
-        reader.readAsDataURL(file);
-      });
-    }),
-  );
+  const results: Attachment[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    // Storage object keys reject spaces/non-ASCII — sanitize the key, keep the
+    // original name for display (same rule as useChatInput).
+    const safeName = file.name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]/g, "_") || "file";
+    const path = `dm/${dmChannelId}/${messageId}-${i}-${safeName}`;
+    const { error } = await supabase.storage
+      .from("attachments")
+      .upload(path, file, { upsert: false, contentType: file.type || undefined });
+    if (error) {
+      console.error("DM attachment upload failed", file.name, error);
+      continue;
+    }
+    const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
+    results.push({
+      id: `dm-att-${Date.now()}-${i}`,
+      messageId,
+      url: publicUrl,
+      filename: file.name,
+      mediaType: file.type,
+      sizeBytes: file.size,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return results;
 }
 
 async function resolveOrCreateDMChannel(
@@ -521,7 +555,13 @@ export const useDMStore = create<DMState>((set, get) => ({
     }
 
     const localMessageId = `dm-${Date.now()}`;
-    const convertedAttachments = await filesToDMAttachments(files, localMessageId);
+    const convertedAttachments = await filesToDMAttachments(files, localMessageId, dmChannelId);
+    // Every upload failed and there's nothing else to send → don't post an
+    // empty message (mirrors the server-message path in useChatInput).
+    if (files.length > 0 && convertedAttachments.length === 0 &&
+        content.trim().length === 0 && extraAttachments.length === 0) {
+      return false;
+    }
     const allAttachments = [
       ...convertedAttachments,
       ...extraAttachments.map((a) => ({ ...a, messageId: localMessageId })),

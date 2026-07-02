@@ -62,6 +62,7 @@ function getReactionsHandler(): Function {
 // Handlers captured once after initData — they close over the store's set/get,
 // so they always act on the current state regardless of beforeEach resets.
 let msgInsert: (p: unknown) => Promise<void>;
+let attachInsert: (p: unknown) => void;
 let serverInsert: (p: unknown) => void;
 let profileUpdate: (p: unknown) => void;
 let channelInsert: (p: unknown) => void;
@@ -75,6 +76,7 @@ beforeAll(async () => {
   await useServerStore.getState().initData("user-1");
 
   msgInsert = getRealtimeHandler("INSERT", "messages") as typeof msgInsert;
+  attachInsert = getRealtimeHandler("INSERT", "attachments") as typeof attachInsert;
   serverInsert = getRealtimeHandler("INSERT", "servers") as typeof serverInsert;
   profileUpdate = getRealtimeHandler("UPDATE", "profiles") as typeof profileUpdate;
   channelInsert = getRealtimeHandler("INSERT", "channels") as typeof channelInsert;
@@ -161,16 +163,12 @@ describe("realtime: messages INSERT", () => {
       activeChannelId: "ch-1",
       userProfileCache: {},
     });
-    // New behaviour: single joined MESSAGE_SELECT query instead of two separate fetches.
+    // New behaviour: uncached author → a single profiles fetch (no more full
+    // joined MESSAGE_SELECT refetch per incoming message).
     q().single.mockResolvedValueOnce({
       data: {
-        id: "m-1", channel_id: "ch-1", author_id: "author-1",
-        reply_to_id: null, content: "hello", is_edited: false,
-        is_announcement: false, pinned: false,
-        created_at: "2024-01-15T12:00:00Z", updated_at: "2024-01-15T12:00:00Z",
-        author: { id: "author-1", username: "alice", display_name: "Alice", avatar_url: null, accent_color: null, pronouns: null },
-        attachments: [],
-        message_reactions: [],
+        id: "author-1", username: "alice", display_name: "Alice",
+        avatar_url: null, accent_color: null, pronouns: null, created_at: "",
       },
       error: null,
     });
@@ -178,6 +176,21 @@ describe("realtime: messages INSERT", () => {
     await msgInsert(makeMsgPayload());
 
     expect(useServerStore.getState().userProfileCache["author-1"]).toBeDefined();
+    expect(useServerStore.getState().messages["ch-1"][0].author?.username).toBe("alice");
+  });
+
+  it("does not refetch anything when the author is already cached", async () => {
+    useServerStore.setState({
+      messagesLoaded: new Set(["ch-1"]),
+      messages: { "ch-1": [] },
+      messageChannelIndex: {},
+      activeChannelId: "ch-1",
+      userProfileCache: { "author-1": makeUser("author-1", "alice") },
+    });
+
+    await msgInsert(makeMsgPayload());
+
+    expect(q().single).not.toHaveBeenCalled();
     expect(useServerStore.getState().messages["ch-1"][0].author?.username).toBe("alice");
   });
 
@@ -220,7 +233,7 @@ describe("realtime: messages INSERT", () => {
     expect(useServerStore.getState().unreadCounts["ch-2"]).toBeUndefined();
   });
 
-  it("attaches fetched attachments to the message", async () => {
+  it("patches attachments into the message via the attachments INSERT stream", async () => {
     useServerStore.setState({
       messagesLoaded: new Set(["ch-1"]),
       messages: { "ch-1": [] },
@@ -228,29 +241,56 @@ describe("realtime: messages INSERT", () => {
       activeChannelId: "ch-1",
       userProfileCache: { "author-1": makeUser("author-1", "alice") },
     });
-    // New behaviour: attachments arrive via the single joined MESSAGE_SELECT fetch.
-    q().single.mockResolvedValueOnce({
-      data: {
-        id: "m-1", channel_id: "ch-1", author_id: "author-1",
-        reply_to_id: null, content: "hello", is_edited: false,
-        is_announcement: false, pinned: false,
-        created_at: "2024-01-15T12:00:00Z", updated_at: "2024-01-15T12:00:00Z",
-        author: { id: "author-1", username: "alice", display_name: "Alice", avatar_url: null, accent_color: null, pronouns: null },
-        attachments: [{
-          id: "att-1", message_id: "m-1", url: "https://cdn.example.com/file.png",
-          filename: "file.png", media_type: "image/png", size_bytes: 1234, created_at: "",
-        }],
-        message_reactions: [],
-      },
-      error: null,
-    });
-
     await msgInsert(makeMsgPayload());
+
+    // New behaviour: attachments stream over their own realtime INSERT events
+    // instead of a full joined refetch of the message.
+    attachInsert({
+      new: {
+        id: "att-1", message_id: "m-1", url: "https://cdn.example.com/file.png",
+        filename: "file.png", media_type: "image/png", size_bytes: 1234, created_at: "",
+      },
+    });
 
     const msg = useServerStore.getState().messages["ch-1"][0];
     expect(msg.attachments).toHaveLength(1);
     expect(msg.attachments![0].id).toBe("att-1");
     expect(msg.attachments![0].filename).toBe("file.png");
+  });
+
+  it("attachments INSERT dedups against the sender's optimistic copy by url", async () => {
+    useServerStore.setState({
+      messagesLoaded: new Set(["ch-1"]),
+      messages: { "ch-1": [{
+        id: "m-1", channelId: "ch-1", authorId: "user-1", content: "file",
+        isEdited: false, isPinned: false, createdAt: "", updatedAt: "",
+        reactions: [],
+        attachments: [{
+          id: "att-temp-0", messageId: "m-1", url: "https://cdn.example.com/file.png",
+          filename: "file.png", mediaType: "image/png", sizeBytes: 1234, createdAt: "",
+        }],
+      }] },
+      messageChannelIndex: { "m-1": "ch-1" },
+    });
+
+    attachInsert({
+      new: {
+        id: "att-db-1", message_id: "m-1", url: "https://cdn.example.com/file.png",
+        filename: "file.png", media_type: "image/png", size_bytes: 1234, created_at: "",
+      },
+    });
+
+    expect(useServerStore.getState().messages["ch-1"][0].attachments).toHaveLength(1);
+  });
+
+  it("attachments INSERT is a no-op for unknown messages", () => {
+    useServerStore.setState({ messages: {}, messageChannelIndex: {} });
+
+    expect(() =>
+      attachInsert({
+        new: { id: "att-1", message_id: "unknown", url: "https://x/y.png", filename: "y.png", media_type: null, size_bytes: null, created_at: "" },
+      }),
+    ).not.toThrow();
   });
 });
 

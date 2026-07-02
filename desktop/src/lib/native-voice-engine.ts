@@ -191,12 +191,26 @@ function _notifyIceFailure(): void {
   });
 }
 
-function attachPcDiagnostics(pc: RTCPeerConnection, label: string): void {
+/**
+ * Log ICE/connection state transitions and surface failures. When `onFailed`
+ * is provided it fires exactly once per PC on the first "failed" signal —
+ * used by the engine to rebuild the connection (reconnect after network loss).
+ * "disconnected" is intentionally NOT treated as failed: WebRTC recovers from
+ * it on its own most of the time; a genuine loss transitions to "failed".
+ */
+function attachPcDiagnostics(pc: RTCPeerConnection, label: string, onFailed?: () => void): void {
+  let failedFired = false;
+  const fireFailed = () => {
+    if (failedFired) return;
+    failedFired = true;
+    _notifyIceFailure();
+    onFailed?.();
+  };
   pc.oniceconnectionstatechange = () => {
     const s = pc.iceConnectionState;
     if (s === "failed" || s === "disconnected") {
       console.warn(`[voice] ${label}: ICE ${s} — media can't connect. Check the TURN relay (Cloudflare creds via the 'turn' Edge Function, or VITE_TURN_*).`);
-      if (s === "failed") _notifyIceFailure();
+      if (s === "failed") fireFailed();
     } else {
       console.info(`[voice] ${label}: ICE ${s}`);
     }
@@ -204,7 +218,7 @@ function attachPcDiagnostics(pc: RTCPeerConnection, label: string): void {
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === "failed") {
       console.warn(`[voice] ${label}: connection failed`);
-      _notifyIceFailure();
+      fireFailed();
     }
   };
 }
@@ -233,6 +247,10 @@ export class NativeVoiceEngine {
 
   // WebRTC: viewer side — one PC per sharer
   private _viewerPcs = new Map<string, RTCPeerConnection>();
+  // When each viewer PC was created — lets a re-broadcast screenshare_start
+  // rebuild a PC that's been stuck in "connecting" too long (TURN timeout can
+  // hang there without ever reaching "failed").
+  private _viewerPcCreatedAt = new Map<string, number>();
 
   // Camera video — sender side: one PC per viewer
   private _videoSenderPcs = new Map<string, RTCPeerConnection>();
@@ -307,12 +325,30 @@ export class NativeVoiceEngine {
         void this.handleSignal(payload as NativeSignalMsg);
       })
       .subscribe((status) => {
-        if (status === "SUBSCRIBED" && !this._subscribed) {
-          this._subscribed = true;
-          this._subscribeResolve?.();
-          this.broadcast({ type: "join", from: this.userId });
+        if (status === "SUBSCRIBED") {
+          if (!this._subscribed) {
+            this._subscribed = true;
+            this._subscribeResolve?.();
+            this.broadcast({ type: "join", from: this.userId });
+          } else if (this.realtimeCh) {
+            // Rejoined after a network drop (supabase-js auto-rejoins channels
+            // once the socket reconnects). Re-announce so peers rebuild anything
+            // that died during the outage: their join-handler sends hello back
+            // (→ _ensureAudioPc rebuilds dead audio PCs) and re-broadcasts their
+            // screenshare/video. Healthy PCs ignore all of it.
+            console.info("[voice] realtime channel rejoined — re-announcing");
+            void this.broadcast({ type: "join", from: this.userId });
+            if (this.isScreenSharing()) void this.broadcast({ type: "screenshare_start", from: this.userId });
+            if (this._cameraStream) void this.broadcast({ type: "video_start", from: this.userId });
+          }
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          this._subscribeReject?.(new Error(`Voice channel subscription failed: ${status}`));
+          if (!this._subscribed) {
+            this._subscribeReject?.(new Error(`Voice channel subscription failed: ${status}`));
+          } else {
+            // Transient outage after a successful join — the client retries the
+            // rejoin with backoff; the SUBSCRIBED branch above handles recovery.
+            console.warn(`[voice] realtime channel ${status} — waiting for auto-rejoin`);
+          }
         }
       });
 
@@ -385,7 +421,15 @@ export class NativeVoiceEngine {
 
   /** Establish the audio PC with a peer. Smaller userId offers (avoids glare). */
   private _ensureAudioPc(peerId: string): void {
-    if (this._audioPcs.has(peerId)) return;
+    const existing = this._audioPcs.get(peerId);
+    if (existing) {
+      const s = existing.connectionState;
+      // A live or still-negotiating PC — leave it alone.
+      if (s !== "failed" && s !== "disconnected" && s !== "closed") return;
+      // Dead PC (e.g. the peer's network blipped and they re-sent hello) —
+      // tear it down so the offer below rebuilds the audio path.
+      this._closeAudioPc(peerId);
+    }
     if (this.userId < peerId) void this._createAudioOffer(peerId);
     // else: wait for their audio_offer (their _ensureAudioPc offers to us).
   }
@@ -393,7 +437,16 @@ export class NativeVoiceEngine {
   private async _newAudioPc(peerId: string): Promise<RTCPeerConnection> {
     const pc = new RTCPeerConnection(await getIceConfig());
     this._audioPcs.set(peerId, pc);
-    attachPcDiagnostics(pc, `audio↔${peerId.slice(0, 8)}`);
+    attachPcDiagnostics(pc, `audio↔${peerId.slice(0, 8)}`, () => {
+      // Network died mid-call: tear down and rebuild. The smaller userId
+      // re-offers (glare rule); the other side just clears its dead PC and
+      // waits for the incoming offer. Pacing is natural — ICE takes ~15s to
+      // reach "failed", so a dead TURN can't cause a tight rebuild loop.
+      if (this._audioPcs.get(peerId) !== pc) return; // already replaced
+      console.warn(`[voice] audio↔${peerId.slice(0, 8)} failed — rebuilding`);
+      this._closeAudioPc(peerId);
+      this._ensureAudioPc(peerId);
+    });
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
         this.broadcast({ type: "audio_ice", from: this.userId, to: peerId, candidate: candidate.toJSON() }).catch(() => {});
@@ -433,9 +486,16 @@ export class NativeVoiceEngine {
 
   private async _handleAudioAnswer(peerId: string, sdp: string): Promise<void> {
     const pc = this._audioPcs.get(peerId);
-    if (!pc) return;
-    await pc.setRemoteDescription({ type: "answer", sdp });
-    await this._flushIceQueue(pc, this._pendingAudioIce, peerId);
+    // A stale answer (we already re-created the PC, or it settled) would throw
+    // InvalidStateError from setRemoteDescription — guard by signaling state.
+    if (!pc || pc.signalingState !== "have-local-offer") return;
+    try {
+      await pc.setRemoteDescription({ type: "answer", sdp });
+      await this._flushIceQueue(pc, this._pendingAudioIce, peerId);
+    } catch (e) {
+      console.warn("[voice] stale audio_answer ignored:", e);
+      this._closeAudioPc(peerId); // next join/hello rebuilds via _ensureAudioPc
+    }
   }
 
   /** Wire a peer's audio DataChannel: incoming PCM → native playback. */
@@ -584,7 +644,16 @@ export class NativeVoiceEngine {
   private async _setupViewerPc(sharerId: string): Promise<void> {
     const pc = new RTCPeerConnection(await getIceConfig());
     this._viewerPcs.set(sharerId, pc);
-    attachPcDiagnostics(pc, `screen-viewer→${sharerId.slice(0, 8)}`);
+    this._viewerPcCreatedAt.set(sharerId, Date.now());
+    attachPcDiagnostics(pc, `screen-viewer→${sharerId.slice(0, 8)}`, () => {
+      // Viewer initiates the rebuild by re-offering; the sharer rebuilds its
+      // side on the incoming offer (_handleShareeOffer). If they stopped
+      // sharing during the outage the offer is simply ignored.
+      if (this._viewerPcs.get(sharerId) !== pc) return;
+      console.warn(`[voice] screen-viewer→${sharerId.slice(0, 8)} failed — rebuilding`);
+      this._closeViewerPc(sharerId);
+      void this._setupViewerPc(sharerId);
+    });
 
     // Request the sharer's screen video + system audio.
     pc.addTransceiver("video", { direction: "recvonly" });
@@ -668,6 +737,7 @@ export class NativeVoiceEngine {
   private _closeViewerPc(sharerId: string): void {
     this._viewerPcs.get(sharerId)?.close();
     this._viewerPcs.delete(sharerId);
+    this._viewerPcCreatedAt.delete(sharerId);
     this._pendingViewerIce.delete(sharerId);
   }
 
@@ -678,7 +748,13 @@ export class NativeVoiceEngine {
     this._closeVideoReceiverPc(senderId);
     const pc = new RTCPeerConnection(await getIceConfig());
     this._videoReceiverPcs.set(senderId, pc);
-    attachPcDiagnostics(pc, `camera-receiver←${senderId.slice(0, 8)}`);
+    attachPcDiagnostics(pc, `camera-receiver←${senderId.slice(0, 8)}`, () => {
+      // Receiver initiates the rebuild; the sender answers the fresh offer
+      // (or ignores it if the camera was turned off during the outage).
+      if (this._videoReceiverPcs.get(senderId) !== pc) return;
+      console.warn(`[voice] camera-receiver←${senderId.slice(0, 8)} failed — rebuilding`);
+      void this._setupVideoReceiverPc(senderId);
+    });
 
     pc.addTransceiver("video", { direction: "recvonly" });
 
@@ -796,9 +872,17 @@ export class NativeVoiceEngine {
         // channel. If we already have a healthy viewer connection, ignore it —
         // rebuilding would interrupt the live stream. A genuine re-share is
         // always preceded by screenshare_stop, which clears the connection.
+        // Exception: a PC stuck in "connecting"/"new" past the grace window is
+        // treated as dead (TURN timeouts can hang there without ever failing).
         const existingPc = this._viewerPcs.get(msg.from);
+        const createdAt = this._viewerPcCreatedAt.get(msg.from) ?? 0;
+        const stuckConnecting =
+          existingPc !== undefined &&
+          (existingPc.connectionState === "connecting" || existingPc.connectionState === "new") &&
+          Date.now() - createdAt > 15_000;
         if (
           existingPc &&
+          !stuckConnecting &&
           existingPc.connectionState !== "failed" &&
           existingPc.connectionState !== "disconnected" &&
           existingPc.connectionState !== "closed"
@@ -823,10 +907,15 @@ export class NativeVoiceEngine {
       case "screenshare_answer": {
         if (msg.to !== this.userId) break;
         const pc = this._viewerPcs.get(msg.from);
-        if (pc) {
-          await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-          // Flush sharer ICE candidates that arrived before this answer was processed.
-          await this._flushIceQueue(pc, this._pendingViewerIce, msg.from);
+        if (pc && pc.signalingState === "have-local-offer") {
+          try {
+            await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+            // Flush sharer ICE candidates that arrived before this answer was processed.
+            await this._flushIceQueue(pc, this._pendingViewerIce, msg.from);
+          } catch (e) {
+            console.warn("[voice] stale screenshare_answer ignored:", e);
+            this._closeViewerPc(msg.from); // next screenshare_start rebuilds
+          }
         }
         break;
       }
@@ -860,10 +949,15 @@ export class NativeVoiceEngine {
       case "video_answer": {
         if (msg.to !== this.userId) break;
         const vpc = this._videoReceiverPcs.get(msg.from);
-        if (vpc) {
-          await vpc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-          // Flush sender ICE candidates that arrived before this answer was processed.
-          await this._flushIceQueue(vpc, this._pendingVideoReceiverIce, msg.from);
+        if (vpc && vpc.signalingState === "have-local-offer") {
+          try {
+            await vpc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+            // Flush sender ICE candidates that arrived before this answer was processed.
+            await this._flushIceQueue(vpc, this._pendingVideoReceiverIce, msg.from);
+          } catch (e) {
+            console.warn("[voice] stale video_answer ignored:", e);
+            this._closeVideoReceiverPc(msg.from); // next video_start rebuilds
+          }
         }
         break;
       }

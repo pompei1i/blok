@@ -270,7 +270,23 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       ch.on("presence", { event: "sync" }, syncPresence)
         .on("presence", { event: "join" }, syncPresence)
         .on("presence", { event: "leave" }, syncPresence)
-        .subscribe();
+        .subscribe((status) => {
+          // Presence state on the server dies with the socket. After the
+          // client auto-rejoins (SUBSCRIBED fires again), re-announce our
+          // voice state or our tile silently vanishes for everyone else.
+          // First SUBSCRIBED is a no-op: activeVoiceChannelId is null at init.
+          if (status !== "SUBSCRIBED") return;
+          const s = get();
+          if (s.activeVoiceChannelId && s._currentUserId) {
+            void ch.track({
+              userId: s._currentUserId,
+              voiceChannelId: s.activeVoiceChannelId,
+              isMuted: s.isMuted,
+              isDeafened: s.isDeafened,
+              isScreenSharing: s.isScreenSharing,
+            });
+          }
+        });
 
       trackDataChannel(
         supabase.channel("public:servers").on(
@@ -368,6 +384,34 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
                 },
               };
             });
+          },
+        ).on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "server_members" },
+          (payload) => {
+            // Kick / ban / leave from another client. DELETE payloads carry only
+            // the PK, so locate the member entry in local state by row id.
+            const deletedId = (payload.old as any)?.id;
+            if (!deletedId) return;
+            let removed: ServerMember | undefined;
+            for (const list of Object.values(get().members)) {
+              removed = list.find((m) => m.id === deletedId);
+              if (removed) break;
+            }
+            if (!removed) return; // acting client already dropped it locally
+            const { serverId, userId } = removed;
+            set((state) => ({
+              members: {
+                ...state.members,
+                [serverId]: (state.members[serverId] ?? []).filter((m) => m.id !== deletedId),
+              },
+              memberUserIndex: {
+                ...state.memberUserIndex,
+                [userId]: (state.memberUserIndex[userId] ?? []).filter((e) => e.memberId !== deletedId),
+              },
+            }));
+            // If *we* were removed, drop the whole server from this client too.
+            if (userId === get()._currentUserId) get().removeServer(serverId);
           },
         ).subscribe(),
       );
@@ -738,16 +782,18 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   },
 
   generateInviteCode: async (serverId, opts) => {
-    const bytes = new Uint8Array(5);
-    crypto.getRandomValues(bytes);
-    const code = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""); // 10 hex chars, CSPRNG
-    const { error } = await supabase.from("servers").update({
-      invite_code: code,
-      invite_expires_at: opts?.expiresAt ?? null,
-      invite_max_uses: opts?.maxUses ?? null,
-      invite_used_count: 0,
-    }).eq("id", serverId);
-    if (error) return null;
+    // Code is generated server-side by rotate_invite_code (SECURITY DEFINER) —
+    // it checks owner/INVITE_MEMBER; direct UPDATEs on servers are closed by RLS.
+    const { data, error } = await supabase.rpc("rotate_invite_code", {
+      p_server_id: serverId,
+      p_expires_at: opts?.expiresAt ?? null,
+      p_max_uses: opts?.maxUses ?? null,
+    });
+    if (error || !data?.ok) {
+      console.error("rotate_invite_code failed", error ?? data?.reason);
+      return null;
+    }
+    const code = data.code as string;
     set((state) => ({
       servers: state.servers.map((s) => s.id === serverId ? {
         ...s,
