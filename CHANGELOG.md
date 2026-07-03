@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.42] — 2026-07-03
+
+### Fixed
+- **Linux desktop crash on launch**: the single-instance plugin used the app's
+  numeric `identifier` ("2303") verbatim as its D-Bus well-known name, which
+  D-Bus rejects (segments can't start with a digit) — panicked on every start.
+  Now passes an explicit `dbus_id`.
+
 ## [0.9.41] — 2026-07-02
 
 ### Added

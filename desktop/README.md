@@ -18,15 +18,21 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ### Linux
 
-Install the system packages Tauri needs before `npm install`/`tauri dev`/`tauri build` (same list the `release-linux` CI job uses):
+Install the system packages Tauri needs before `npm install`/`tauri dev`/`tauri build` (same list the `release-linux` CI job uses, plus `libasound2-dev` for audio — CI's Ubuntu runner image ships that one preinstalled, a fresh desktop won't):
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-  libayatana-appindicator3-dev patchelf
+  libayatana-appindicator3-dev patchelf libasound2-dev
 ```
 
 `npm run tauri build` produces `.deb`, `.rpm`, and `.AppImage` under `src-tauri/target/release/bundle/`.
+
+Or via the build script (installs the packages above and Rust automatically):
+
+```bash
+./build.sh
+```
 
 ## Environment (`desktop/.env.local`)
 

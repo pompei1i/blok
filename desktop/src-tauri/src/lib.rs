@@ -560,13 +560,21 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default();
     if !multi {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }));
+        // The app's `identifier` ("2303") is numeric-only, which is not a valid D-Bus
+        // well-known name (each dot-separated segment must start with a letter) — the
+        // Linux backend of this plugin uses it verbatim and panics without an override.
+        builder = builder.plugin(
+            tauri_plugin_single_instance::Builder::new()
+                .callback(|app, _args, _cwd| {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                })
+                .dbus_id("com.blok.app")
+                .build(),
+        );
     }
 
     builder
