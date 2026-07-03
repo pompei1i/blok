@@ -16,6 +16,18 @@ Or via the build script (installs Rust automatically):
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
+### Linux
+
+Install the system packages Tauri needs before `npm install`/`tauri dev`/`tauri build` (same list the `release-linux` CI job uses):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+  libayatana-appindicator3-dev patchelf
+```
+
+`npm run tauri build` produces `.deb`, `.rpm`, and `.AppImage` under `src-tauri/target/release/bundle/`.
+
 ## Environment (`desktop/.env.local`)
 
 ```
