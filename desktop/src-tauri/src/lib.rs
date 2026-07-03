@@ -259,12 +259,94 @@ fn autostart_set_impl(enabled: bool) -> Result<(), String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+// ── autostart (Linux XDG autostart) ──────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+fn autostart_dir() -> Result<std::path::PathBuf, String> {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return Ok(std::path::PathBuf::from(xdg).join("autostart"));
+        }
+    }
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+    Ok(std::path::PathBuf::from(home).join(".config").join("autostart"))
+}
+
+#[cfg(target_os = "linux")]
+fn autostart_desktop_file() -> Result<std::path::PathBuf, String> {
+    Ok(autostart_dir()?.join("blok.desktop"))
+}
+
+// AppImages re-exec themselves from a throwaway FUSE mount, so `current_exe()` inside one
+// resolves to that ephemeral path. AppImage sets $APPIMAGE to the real, stable file path —
+// prefer it so the autostart entry doesn't point at a mount that's gone on next boot.
+#[cfg(target_os = "linux")]
+fn autostart_exec_path() -> Result<String, String> {
+    if let Ok(appimage) = std::env::var("APPIMAGE") {
+        return Ok(appimage);
+    }
+    std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn autostart_is_enabled_impl() -> bool {
+    autostart_desktop_file().map(|p| p.exists()).unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn autostart_set_impl(enabled: bool) -> Result<(), String> {
+    let file = autostart_desktop_file()?;
+    if enabled {
+        let dir = autostart_dir()?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let exec = autostart_exec_path()?;
+        let contents = format!(
+            "[Desktop Entry]\nType=Application\nName=$blok\nExec={exec}\nIcon=blok\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+        );
+        std::fs::write(&file, contents).map_err(|e| e.to_string())
+    } else {
+        match std::fs::remove_file(&file) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn autostart_is_enabled_impl() -> bool { false }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn autostart_set_impl(_enabled: bool) -> Result<(), String> {
-    Err("Autostart is only supported on Windows".to_string())
+    Err("Autostart is only supported on Windows and Linux".to_string())
+}
+
+// ── Linux media permissions (WebKitGTK) ──────────────────────────────────────
+
+// WebKitGTK denies every getUserMedia/getDisplayMedia request by default and never shows
+// its own prompt — unlike WebView2 (Windows) and WKWebView (macOS), which auto-grant. Our
+// in-app UI is already the consent gate (mic/camera/screen-share are explicit user actions),
+// so auto-allow exactly the user-media request class here; anything else (geolocation,
+// notifications, etc. — unused by this app) falls through to WebKitGTK's default deny.
+#[cfg(target_os = "linux")]
+fn allow_linux_media_permissions(window: &tauri::WebviewWindow) {
+    use webkit2gtk::glib::prelude::*;
+    use webkit2gtk::{PermissionRequestExt, UserMediaPermissionRequest, WebViewExt};
+    let _ = window.with_webview(|webview| {
+        webview.inner().connect_permission_request(|_wv, request| {
+            if request
+                .dynamic_cast_ref::<UserMediaPermissionRequest>()
+                .is_some()
+            {
+                request.allow();
+                true
+            } else {
+                false
+            }
+        });
+    });
 }
 
 // ── screen frame capture ──────────────────────────────────────────────────────
@@ -494,6 +576,11 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                allow_linux_media_permissions(&window);
+            }
+
             let show_item = MenuItem::with_id(app, "show", "Show $blok", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
@@ -785,5 +872,23 @@ mod tests {
         assert!(autostart_is_enabled_impl(), "should be enabled after set(true)");
         autostart_set_impl(false).expect("should disable autostart");
         assert!(!autostart_is_enabled_impl(), "should be disabled after set(false)");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_round_trip_enable_then_disable() {
+        // Redirects XDG_CONFIG_HOME to a scratch dir so this doesn't touch the
+        // real ~/.config/autostart — cleans up after itself.
+        let tmp = std::env::temp_dir().join(format!("blok-autostart-test-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", &tmp);
+
+        autostart_set_impl(true).expect("should enable autostart");
+        assert!(autostart_is_enabled_impl(), "should be enabled after set(true)");
+        autostart_set_impl(false).expect("should disable autostart");
+        assert!(!autostart_is_enabled_impl(), "should be disabled after set(false)");
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

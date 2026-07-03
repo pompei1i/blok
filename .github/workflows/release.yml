@@ -124,3 +124,90 @@ jobs:
           gh release upload "${{ github.ref_name }}" `
             --repo pompei1i/blok-releases `
             "$exe" "$sig" "latest.json" "blok-installer.exe"
+
+  # ── Linux (.deb / .rpm / AppImage) ──────────────────────────────────────────
+  # Runs after the Windows job so tauri-action's built-in updater-manifest merge
+  # (it fetches the existing latest.json off the private release by tag and merges
+  # `platforms` before re-uploading — see tauri-action's uploadVersionJSON) sees the
+  # windows-x86_64 entry already there and folds linux-x86_64 in alongside it,
+  # instead of two parallel jobs racing to create/delete the same private release.
+  release-linux:
+    needs: release
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache (desktop)
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./desktop/src-tauri -> target"
+
+      - name: Install frontend deps
+        working-directory: desktop
+        run: npm install
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_TENOR_API_KEY: ${{ secrets.VITE_TENOR_API_KEY }}
+          VITE_TURN_URLS: ${{ secrets.VITE_TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "$blok ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download the installer."
+          releaseDraft: false
+          prerelease: false
+
+      - name: Download Linux artifacts + merged latest.json from private release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" --clobber \
+            --pattern "*.deb" --pattern "*.rpm" --pattern "*.AppImage" \
+            --pattern "*.AppImage.sig" --pattern "latest.json"
+
+      - name: Rewrite latest.json URLs for public repo
+        run: |
+          sed -i 's#/pompei1i/blok/releases/download/#/pompei1i/blok-releases/releases/download/#g' latest.json
+
+      - name: Verify latest.json has no BOM
+        run: |
+          python3 -c "
+          data = open('latest.json', 'rb').read(3)
+          assert data != b'\xef\xbb\xbf', 'latest.json contains UTF-8 BOM — updater will break. Aborting.'
+          print('latest.json OK — no BOM')
+          "
+
+      - name: Publish to blok-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          gh release upload "${{ github.ref_name }}" --repo pompei1i/blok-releases --clobber \
+            *.deb *.rpm *.AppImage *.AppImage.sig latest.json

@@ -38,3 +38,9 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Gdi",
 ] }
 
+# Matches the webkit2gtk version wry/tauri already pulls in on Linux (see Cargo.lock) — must
+# stay in lockstep with that transitive version or the two `WebView`/`PermissionRequest`
+# types (ours vs wry's) won't be interchangeable.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+
