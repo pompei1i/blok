@@ -18,7 +18,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ### Linux
 
-Install the system packages Tauri needs before `npm install`/`tauri dev`/`tauri build` (same list the `release-linux` CI job uses, plus `libasound2-dev` for audio — CI's Ubuntu runner image ships that one preinstalled, a fresh desktop won't):
+Install the system packages Tauri needs before `npm install`/`tauri dev`/`tauri build` (same list the `release-linux` CI job uses, including `libasound2-dev` for audio):
 
 ```bash
 sudo apt-get update
