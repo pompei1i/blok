@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FishHookIcon } from "./fish-hook-icon";
 import { useI18n } from "@/lib/i18n";
-import { useBaitStore, baitDailyRemaining, BAIT_DAILY_LIMIT } from "@/lib/store/bait-store";
+import { useBaitStore, baitDailyRemaining, BAIT_DAILY_LIMIT, BAIT_DISABLED } from "@/lib/store/bait-store";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -45,11 +45,17 @@ export function BaitView() {
         <span
           className={cn(
             "ml-auto text-[10px] font-mono tabular-nums tracking-wider",
-            !isAdmin && remaining <= 3 ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]",
+            BAIT_DISABLED
+              ? "text-[var(--afk)]"
+              : !isAdmin && remaining <= 3 ? "text-[var(--accent-red)]" : "text-[var(--text-muted)]",
           )}
-          title={isAdmin ? "Admin — unlimited during beta" : `Beta limit: ${BAIT_DAILY_LIMIT} b.ai.t prompts per day`}
+          title={
+            BAIT_DISABLED
+              ? t("bait.offlineTitle")
+              : isAdmin ? "Admin — unlimited during beta" : `Beta limit: ${BAIT_DAILY_LIMIT} b.ai.t prompts per day`
+          }
         >
-          {isAdmin ? "∞ admin" : `${remaining}/${BAIT_DAILY_LIMIT} left today`}
+          {BAIT_DISABLED ? t("bait.comingSoon") : isAdmin ? "∞ admin" : `${remaining}/${BAIT_DAILY_LIMIT} left today`}
         </span>
         {messages.length > 0 && (
           <button
@@ -112,15 +118,15 @@ export function BaitView() {
         <div className="flex items-center gap-3 border-b border-[var(--border)] focus-within:border-[var(--text-primary)] transition-colors pb-1">
           <span className="text-[var(--text-muted)] font-mono text-sm flex-shrink-0">&gt;</span>
           <input
-            disabled={isLoading}
+            disabled={isLoading || BAIT_DISABLED}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={t("bait.placeholder")}
+            placeholder={BAIT_DISABLED ? t("bait.comingSoonPlaceholder") : t("bait.placeholder")}
             className="flex-1 bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[#444] font-mono disabled:cursor-not-allowed py-1"
           />
           <button
-            disabled={isLoading || !input.trim()}
+            disabled={isLoading || BAIT_DISABLED || !input.trim()}
             onClick={handleSend}
             className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >

@@ -5,6 +5,7 @@ import { ChatArea } from "./chat-area";
 import { DMPortal } from "./dm-portal";
 import { TopBar } from "./top-bar";
 import { ScreenShareOverlay } from "./screen-share-overlay";
+import { ScreenPickerModal } from "./screen-picker-modal";
 import { VideoCallOverlay } from "./video-call-overlay";
 import { IncomingCallBanner } from "./incoming-call-banner";
 import { OfflineBanner } from "./offline-banner";
@@ -112,6 +113,7 @@ export function AppLayout() {
 
       <DMPortal />
       <ScreenShareOverlay />
+      <ScreenPickerModal />
       <VideoCallOverlay />
       <IncomingCallBanner />
       <ToastHost />

@@ -1,5 +1,6 @@
 import type { StateCreator } from "zustand";
 import { MonitorOff } from "lucide-react";
+import { translate } from "../../i18n";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
 import { playMuteSound, playUnmuteSound, playCaptureStartSound, playCaptureStopSound, playJoinSound, playLeaveSound, playWatchSound } from "../../sounds";
@@ -17,6 +18,8 @@ export interface VoiceSlice {
   isScreenSharing: boolean;
   /** All peers currently sharing their screen: userId → MediaStream */
   screenSharers: Record<string, MediaStream>;
+  /** Our own outgoing screen-share stream, for the local self-preview tile. */
+  localScreenStream: MediaStream | null;
   /** Which sharer the local user is currently watching (null = none) */
   watchingUserId: string | null;
   isCameraOn: boolean;
@@ -47,6 +50,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
   isDeafened: false,
   isScreenSharing: false,
   screenSharers: {},
+  localScreenStream: null,
   watchingUserId: null,
   isCameraOn: false,
   cameraUsers: {},
@@ -142,6 +146,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
             voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: false });
             set((state) => ({
               isScreenSharing: false,
+              localScreenStream: null,
               voiceParticipants: {
                 ...state.voiceParticipants,
                 [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
@@ -150,7 +155,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
               },
             }));
           } else {
-            set({ isScreenSharing: false });
+            set({ isScreenSharing: false, localScreenStream: null });
           }
           return;
         }
@@ -299,6 +304,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
         voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: false });
         set((state) => ({
           isScreenSharing: false,
+          localScreenStream: null,
           voiceParticipants: {
             ...state.voiceParticipants,
             [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
@@ -307,16 +313,18 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
           },
         }));
       } else {
-        set({ isScreenSharing: false });
+        set({ isScreenSharing: false, localScreenStream: null });
       }
     } else {
       try {
         playCaptureStartSound();
         await engine.startScreenShare();
+        const localScreenStream = engine.getScreenStream();
         if (activeVoiceChannelId && _currentUserId) {
           voicePresenceCh?.track({ userId: _currentUserId, voiceChannelId: activeVoiceChannelId, isMuted, isDeafened, isScreenSharing: true });
           set((state) => ({
             isScreenSharing: true,
+            localScreenStream,
             voiceParticipants: {
               ...state.voiceParticipants,
               [activeVoiceChannelId]: (state.voiceParticipants[activeVoiceChannelId] ?? []).map((p) =>
@@ -325,7 +333,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
             },
           }));
         } else {
-          set({ isScreenSharing: true });
+          set({ isScreenSharing: true, localScreenStream });
         }
       } catch (err) {
         // NotAllowedError / AbortError = the user dismissed the picker → stay silent.
@@ -336,7 +344,7 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
           console.error("startScreenShare failed", err);
           useToastStore.getState().showToast({
             icon: MonitorOff,
-            title: "Couldn't start screen share",
+            title: translate("screenShare.couldntStart"),
             message: err instanceof Error ? err.message : "Unknown error",
           });
         }

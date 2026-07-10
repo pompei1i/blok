@@ -6,14 +6,19 @@ import type { VoiceCallbacks } from "./voice-types";
 import { WifiOff } from "lucide-react";
 import { useUiSettingsStore } from "./store/ui-settings-store";
 import { useToastStore } from "./store/toast-store";
+import { useScreenPickerStore, type CaptureSource, type PickResult } from "./store/screen-picker-store";
+import { SCREEN_RES_TO_MAX_WIDTH, SCREEN_QUALITY_TO_JPEG } from "@/lib/constants";
+import { translate } from "./i18n";
 
 type NativeSignalMsg =
   | { type: "join"; from: string }
   | { type: "hello"; from: string }
   | { type: "leave"; from: string }
-  | { type: "audio_offer"; from: string; to: string; sdp: string }
-  | { type: "audio_answer"; from: string; to: string; sdp: string }
-  | { type: "audio_ice"; from: string; to: string; candidate: RTCIceCandidateInit }
+  // Native (Rust) transport signaling: one peer connection per pair carries
+  // voice + screen + camera as data channels; payload is SDP or ICE JSON.
+  | { type: "rtc_offer"; from: string; to: string; payload: string }
+  | { type: "rtc_answer"; from: string; to: string; payload: string }
+  | { type: "rtc_ice"; from: string; to: string; payload: string }
   | { type: "screenshare_start"; from: string }
   | { type: "screenshare_stop"; from: string }
   | { type: "screenshare_offer"; from: string; to: string; sdp: string }
@@ -137,8 +142,45 @@ export async function testTurnConnectivity(timeoutMs = 10000): Promise<TurnTestR
     return { ok: false, detail: "No TURN server in config (STUN only — cross-NAT will fail)", hasTurn: false, relayReachable: false, usingFallback: false, turnHost, candidateTypes: [] };
   }
 
+  // Desktop app: probe natively via rtc.rs (WebKitGTK on Linux has no
+  // RTCPeerConnection at all, and the native transport is what actually
+  // carries calls now — so it's also the more honest thing to test).
+  if ("__TAURI_INTERNALS__" in window) {
+    try {
+      const probe = await invoke<{ relay_reachable: boolean; candidate_types: string[] }>(
+        "rtc_test_turn",
+        { iceServersJson: JSON.stringify(config.iceServers ?? []) },
+      );
+      const seen = probe.candidate_types.length ? `got ${probe.candidate_types.join("/")}` : "no candidates at all";
+      if (probe.relay_reachable) {
+        return {
+          ok: true,
+          detail: usingFallback ? "Relay OK (public fallback — set up Cloudflare)" : "TURN relay reachable — connections should work",
+          hasTurn, relayReachable: true, usingFallback, turnHost,
+          candidateTypes: probe.candidate_types,
+        };
+      }
+      return {
+        ok: false,
+        detail: usingFallback
+          ? `Cloudflare TURN unavailable — fell back to a dead public relay (${seen})`
+          : `TURN unreachable — no relay candidate (${seen})`,
+        hasTurn, relayReachable: false, usingFallback, turnHost,
+        candidateTypes: probe.candidate_types,
+      };
+    } catch (e) {
+      return { ok: false, detail: `Native probe failed: ${e instanceof Error ? e.message : e}`, hasTurn, relayReachable: false, usingFallback, turnHost, candidateTypes: [] };
+    }
+  }
+
   return await new Promise<TurnTestResult>((resolve) => {
-    const pc = new RTCPeerConnection(config);
+    let pc: RTCPeerConnection;
+    try {
+      pc = new RTCPeerConnection(config);
+    } catch (e) {
+      resolve({ ok: false, detail: `WebRTC unavailable: ${e instanceof Error ? e.message : e}`, hasTurn, relayReachable: false, usingFallback, turnHost, candidateTypes: [] });
+      return;
+    }
     const types = new Set<string>();
     let done = false;
     const failMsg = () => {
@@ -174,54 +216,6 @@ export async function testTurnConnectivity(timeoutMs = 10000): Promise<TurnTestR
   });
 }
 
-/**
- * Surface ICE/connection failures that would otherwise be silent (the symptom is
- * just a black video). Logs the state transitions for each media PeerConnection.
- */
-// Throttle so 4 simultaneous PCs failing don't stack 4 identical toasts.
-let _lastIceFailToast = 0;
-function _notifyIceFailure(): void {
-  const now = Date.now();
-  if (now - _lastIceFailToast < 8000) return;
-  _lastIceFailToast = now;
-  useToastStore.getState().showToast({
-    icon: WifiOff,
-    title: "Video couldn't connect",
-    message: "Screen share / camera failed to establish a connection (TURN relay).",
-  });
-}
-
-/**
- * Log ICE/connection state transitions and surface failures. When `onFailed`
- * is provided it fires exactly once per PC on the first "failed" signal —
- * used by the engine to rebuild the connection (reconnect after network loss).
- * "disconnected" is intentionally NOT treated as failed: WebRTC recovers from
- * it on its own most of the time; a genuine loss transitions to "failed".
- */
-function attachPcDiagnostics(pc: RTCPeerConnection, label: string, onFailed?: () => void): void {
-  let failedFired = false;
-  const fireFailed = () => {
-    if (failedFired) return;
-    failedFired = true;
-    _notifyIceFailure();
-    onFailed?.();
-  };
-  pc.oniceconnectionstatechange = () => {
-    const s = pc.iceConnectionState;
-    if (s === "failed" || s === "disconnected") {
-      console.warn(`[voice] ${label}: ICE ${s} — media can't connect. Check the TURN relay (Cloudflare creds via the 'turn' Edge Function, or VITE_TURN_*).`);
-      if (s === "failed") fireFailed();
-    } else {
-      console.info(`[voice] ${label}: ICE ${s}`);
-    }
-  };
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed") {
-      console.warn(`[voice] ${label}: connection failed`);
-      fireFailed();
-    }
-  };
-}
 
 export class NativeVoiceEngine {
   private channelId: string;
@@ -235,46 +229,32 @@ export class NativeVoiceEngine {
   private speakingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   private screenStream: MediaStream | null = null;
-  private localRate = 48000;
+  private _nativeCaptureCleanup: (() => void) | null = null;
+  /** Active native (Linux) capture session — lets source/quality/fps change mid-share. */
+  private _nativeCapture: {
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D;
+    sourceId: string;
+  } | null = null;
   private _subscribed = false;
   private _subscribeResolve: (() => void) | null = null;
   private _subscribeReject: ((err: Error) => void) | null = null;
   private subscribePromise: Promise<void>;
 
-  // WebRTC: screen share — sharer side: one PC per viewer
-  private _shareePcs = new Map<string, RTCPeerConnection>();
-
-  // WebRTC: viewer side — one PC per sharer
-  private _viewerPcs = new Map<string, RTCPeerConnection>();
-  // When each viewer PC was created — lets a re-broadcast screenshare_start
-  // rebuild a PC that's been stuck in "connecting" too long (TURN timeout can
-  // hang there without ever reaching "failed").
-  private _viewerPcCreatedAt = new Map<string, number>();
-
-  // Camera video — sender side: one PC per viewer
-  private _videoSenderPcs = new Map<string, RTCPeerConnection>();
-  // Camera video — receiver side: one PC per sender
-  private _videoReceiverPcs = new Map<string, RTCPeerConnection>();
   private _cameraStream: MediaStream | null = null;
 
-  // ── Voice audio transport: WebRTC DataChannel (P2P/TURN), not Supabase relay ──
-  // Native Rust still captures/plays the PCM (good mic quality on WebView2); we
-  // just carry it peer-to-peer over an unreliable/unordered DataChannel (UDP-like)
-  // → low latency. One bidirectional PC+channel per peer; smaller userId offers.
-  private _audioPcs = new Map<string, RTCPeerConnection>();
-  private _audioChannels = new Map<string, RTCDataChannel>();
-  private _pendingAudioIce = new Map<string, RTCIceCandidateInit[]>();
+  // ── Voice/media transport: native Rust webrtc (rtc.rs), NOT browser WebRTC ──
+  // WebKitGTK on Linux ships without RTCPeerConnection entirely, so the peer
+  // connections live in Rust (same path on Windows — universal). JS only relays
+  // signaling strings and receives events over one binary channel. Voice, screen
+  // and camera all ride one connection per peer as data channels.
+  private _rtcPeers = new Set<string>();
+  private _rtcStarted = false;
 
-  // Per-user local controls (not synced to remote)
+  // Per-user local controls (not synced to remote); effective volume (0 when
+  // locally muted) is pushed down into the Rust mixer via rtc_set_user_volume.
   private _userVolumes = new Map<string, number>();
   private _localMuted = new Set<string>();
-
-  // ICE candidate queues — candidates that arrived before setRemoteDescription completed.
-  // Keyed by peer id. Flushed immediately after each setRemoteDescription call.
-  private _pendingViewerIce = new Map<string, RTCIceCandidateInit[]>();
-  private _pendingShareeIce = new Map<string, RTCIceCandidateInit[]>();
-  private _pendingVideoReceiverIce = new Map<string, RTCIceCandidateInit[]>();
-  private _pendingVideoSenderIce = new Map<string, RTCIceCandidateInit[]>();
 
   constructor(channelId: string, userId: string, cb: VoiceCallbacks) {
     this.channelId = channelId;
@@ -293,20 +273,13 @@ export class NativeVoiceEngine {
     }
     const { inputDevice, outputDevice, noiseSuppression, echoCancellation } = useUiSettingsStore.getState();
 
-    // Captured PCM frames arrive as raw i16-LE ArrayBuffers over a binary IPC
-    // channel (no JSON number-array serialization) and go straight onto the
-    // per-peer DataChannels (binary, unreliable). No Supabase relay → low latency.
+    // Captured PCM is fanned out to peers entirely inside Rust (audio.rs →
+    // rtc.rs) — this channel is kept only because audio_start requires it; the
+    // frames it carries are unused in JS now.
     const onChunk = new Channel<ArrayBuffer>();
-    onChunk.onmessage = (buf) => {
-      if (this._audioChannels.size === 0) return;
-      for (const ch of this._audioChannels.values()) {
-        if (ch.readyState === "open") {
-          try { ch.send(buf); } catch { /* channel closing */ }
-        }
-      }
-    };
+    onChunk.onmessage = () => {};
 
-    this.localRate = await invoke<number>("audio_start", {
+    await invoke<number>("audio_start", {
       inputDevice: inputDevice || null,
       outputDevice: outputDevice || null,
       noiseSuppression,
@@ -314,6 +287,10 @@ export class NativeVoiceEngine {
       onChunk,
     });
     invoke("disable_audio_ducking").catch(() => {});
+
+    // Bring up the native P2P transport before announcing ourselves — peers
+    // respond to our join immediately with signaling we must be able to accept.
+    await this._startRtc();
 
     this.unlistenSpeaking = await listen<boolean>("audio-speaking", (event) => {
       this.updateSpeaking(this.userId, event.payload);
@@ -380,12 +357,15 @@ export class NativeVoiceEngine {
     this.speakingTimers.clear();
     this.speakingState.clear();
 
-    // Close all WebRTC connections
-    for (const id of [...this._audioPcs.keys()]) this._closeAudioPc(id);
-    for (const id of [...this._shareePcs.keys()]) this._closeShareePc(id);
-    for (const id of [...this._viewerPcs.keys()]) this._closeViewerPc(id);
-    for (const id of [...this._videoSenderPcs.keys()]) this._closeVideoSenderPc(id);
-    for (const id of [...this._videoReceiverPcs.keys()]) this._closeVideoReceiverPc(id);
+    // Close all native P2P connections + local media.
+    this._rtcPeers.clear();
+    invoke("rtc_close_all").catch(() => {});
+    for (const key of [...this._remoteVideo.keys()]) {
+      const rv = this._remoteVideo.get(key);
+      if (rv) { rv.canvas.width = 0; rv.canvas.height = 0; }
+    }
+    this._remoteVideo.clear();
+    this._stopCameraEncode();
     if (this._cameraStream) { this._cameraStream.getTracks().forEach((t) => t.stop()); this._cameraStream = null; }
     if (this.screenStream) { this.screenStream.getTracks().forEach((t) => t.stop()); this.screenStream = null; }
 
@@ -411,126 +391,166 @@ export class NativeVoiceEngine {
 
   setUserVolume(userId: string, volume: number): void {
     this._userVolumes.set(userId, volume);
+    this._pushUserVolume(userId);
   }
 
   setLocalMute(userId: string, muted: boolean): void {
     if (muted) this._localMuted.add(userId);
     else this._localMuted.delete(userId);
+    this._pushUserVolume(userId);
   }
 
-  // ── Voice audio mesh (PCM over WebRTC DataChannel) ──────────────────────────
-
-  /** Establish the audio PC with a peer. Smaller userId offers (avoids glare). */
-  private _ensureAudioPc(peerId: string): void {
-    const existing = this._audioPcs.get(peerId);
-    if (existing) {
-      const s = existing.connectionState;
-      // A live or still-negotiating PC — leave it alone.
-      if (s !== "failed" && s !== "disconnected" && s !== "closed") return;
-      // Dead PC (e.g. the peer's network blipped and they re-sent hello) —
-      // tear it down so the offer below rebuilds the audio path.
-      this._closeAudioPc(peerId);
-    }
-    if (this.userId < peerId) void this._createAudioOffer(peerId);
-    // else: wait for their audio_offer (their _ensureAudioPc offers to us).
+  /** Effective per-user volume (0 when locally muted) → Rust mixer. */
+  private _pushUserVolume(userId: string): void {
+    const vol = this._localMuted.has(userId) ? 0 : (this._userVolumes.get(userId) ?? 100) / 100;
+    invoke("rtc_set_user_volume", { peerId: userId, volume: vol }).catch(() => {});
   }
 
-  private async _newAudioPc(peerId: string): Promise<RTCPeerConnection> {
-    const pc = new RTCPeerConnection(await getIceConfig());
-    this._audioPcs.set(peerId, pc);
-    attachPcDiagnostics(pc, `audio↔${peerId.slice(0, 8)}`, () => {
-      // Network died mid-call: tear down and rebuild. The smaller userId
-      // re-offers (glare rule); the other side just clears its dead PC and
-      // waits for the incoming offer. Pacing is natural — ICE takes ~15s to
-      // reach "failed", so a dead TURN can't cause a tight rebuild loop.
-      if (this._audioPcs.get(peerId) !== pc) return; // already replaced
-      console.warn(`[voice] audio↔${peerId.slice(0, 8)} failed — rebuilding`);
-      this._closeAudioPc(peerId);
-      this._ensureAudioPc(peerId);
-    });
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this.broadcast({ type: "audio_ice", from: this.userId, to: peerId, candidate: candidate.toJSON() }).catch(() => {});
-      }
-    };
-    // Answerer receives the channel the offerer created.
-    pc.ondatachannel = ({ channel }) => this._attachAudioChannel(peerId, channel);
-    return pc;
-  }
-
-  private async _createAudioOffer(peerId: string): Promise<void> {
-    const pc = await this._newAudioPc(peerId);
-    // Offerer creates the unreliable/unordered (UDP-like) channel for low latency.
-    this._attachAudioChannel(peerId, pc.createDataChannel("audio", { ordered: false, maxRetransmits: 0 }));
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await this.broadcast({ type: "audio_offer", from: this.userId, to: peerId, sdp: offer.sdp! });
-    } catch {
-      this._closeAudioPc(peerId);
-    }
-  }
-
-  private async _handleAudioOffer(peerId: string, sdp: string): Promise<void> {
-    this._closeAudioPc(peerId);
-    const pc = await this._newAudioPc(peerId);
-    try {
-      await pc.setRemoteDescription({ type: "offer", sdp });
-      await this._flushIceQueue(pc, this._pendingAudioIce, peerId);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await this.broadcast({ type: "audio_answer", from: this.userId, to: peerId, sdp: answer.sdp! });
-    } catch {
-      this._closeAudioPc(peerId);
-    }
-  }
-
-  private async _handleAudioAnswer(peerId: string, sdp: string): Promise<void> {
-    const pc = this._audioPcs.get(peerId);
-    // A stale answer (we already re-created the PC, or it settled) would throw
-    // InvalidStateError from setRemoteDescription — guard by signaling state.
-    if (!pc || pc.signalingState !== "have-local-offer") return;
-    try {
-      await pc.setRemoteDescription({ type: "answer", sdp });
-      await this._flushIceQueue(pc, this._pendingAudioIce, peerId);
-    } catch (e) {
-      console.warn("[voice] stale audio_answer ignored:", e);
-      this._closeAudioPc(peerId); // next join/hello rebuilds via _ensureAudioPc
-    }
-  }
+  // ── Native transport (rtc.rs): peer lifecycle + event channel ───────────────
 
   /**
-   * Wire a peer's audio DataChannel: incoming PCM → native playback.
-   * The frame is forwarded to Rust as raw bytes (binary IPC) with metadata in
-   * headers; per-user volume is applied in Rust — the old path deserialized,
-   * copied and volume-mapped a JS number array per frame per peer.
+   * Start the Rust transport runtime and subscribe to its multiplexed event
+   * channel. Framing (first byte = event type) mirrors rtc.rs:
+   *   0x01 signal-out, 0x02 conn-state, 0x03 video frame, 0x04 speaking.
    */
-  private _attachAudioChannel(peerId: string, ch: RTCDataChannel): void {
-    ch.binaryType = "arraybuffer";
-    this._audioChannels.set(peerId, ch);
-    ch.onmessage = (ev) => {
-      if (this._localMuted.has(peerId)) return;
-      const vol = (this._userVolumes.get(peerId) ?? 100) / 100;
-      void invoke<boolean>("audio_receive", new Uint8Array(ev.data as ArrayBuffer), {
-        headers: {
-          "x-from": peerId,
-          "x-rate": String(this.localRate),
-          "x-volume": vol.toFixed(2),
-        },
-      })
-        .then((speaking) => this.updateSpeaking(peerId, speaking))
-        .catch(() => {});
+  private async _startRtc(): Promise<void> {
+    if (this._rtcStarted) return;
+    this._rtcStarted = true;
+
+    const onEvent = new Channel<ArrayBuffer>();
+    onEvent.onmessage = (buf) => {
+      const d = new Uint8Array(buf);
+      if (d.length < 4) return;
+      const kindByte = d[1];
+      const idLen = d[2] | (d[3] << 8);
+      if (d.length < 4 + idLen) return;
+      const peerId = new TextDecoder().decode(d.subarray(4, 4 + idLen));
+      switch (d[0]) {
+        case 0x01: { // outbound signaling → Supabase
+          const payload = new TextDecoder().decode(d.subarray(4 + idLen));
+          const type = kindByte === 1 ? "rtc_offer" : kindByte === 2 ? "rtc_answer" : "rtc_ice";
+          void this.broadcast({ type, from: this.userId, to: peerId, payload });
+          break;
+        }
+        case 0x02: { // connection state
+          // 3 = failed: rebuild via the same glare rule (Rust replaces the peer).
+          if (kindByte === 3 && this._rtcPeers.has(peerId)) {
+            console.warn(`[voice] rtc↔${peerId.slice(0, 8)} failed — rebuilding`);
+            void invoke("rtc_create_peer", { peerId, initiator: this.userId < peerId }).catch(() => {});
+          }
+          break;
+        }
+        case 0x03: { // video frame (screen/camera) — wired up in later phases
+          const body = d.subarray(4 + idLen);
+          this._onRtcVideoFrame(peerId, kindByte, body);
+          break;
+        }
+        case 0x04: // speaking indicator (Rust debounces transitions)
+          this.updateSpeaking(peerId, kindByte === 1);
+          break;
+      }
     };
-    ch.onclose = () => { if (this._audioChannels.get(peerId) === ch) this._audioChannels.delete(peerId); };
+
+    await invoke("rtc_start", { onEvent });
+    const config = await getIceConfig();
+    await invoke("rtc_set_ice_servers", { json: JSON.stringify(config.iceServers ?? []) }).catch((e) =>
+      console.warn("[voice] rtc_set_ice_servers failed:", e),
+    );
   }
 
-  private _closeAudioPc(peerId: string): void {
-    this._audioChannels.get(peerId)?.close();
-    this._audioChannels.delete(peerId);
-    this._audioPcs.get(peerId)?.close();
-    this._audioPcs.delete(peerId);
-    this._pendingAudioIce.delete(peerId);
-    invoke("audio_remove_peer", { peerId }).catch(() => {});
+  // Per-remote-source incoming video: a hidden canvas fed by the transport's
+  // JPEG frames, exposed to the UI as a MediaStream via captureStream(). Keyed
+  // by `${peerId}:${tag}` (tag 1 = screen, 2 = camera).
+  private _remoteVideo = new Map<
+    string,
+    { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; lastSeq: number; drawing: boolean; pending: Uint8Array | null }
+  >();
+
+  /**
+   * Handle an inbound video frame from the native transport. Body layout:
+   * [u32-LE seq][u32-LE w][u32-LE h][jpeg]. Decodes to a per-source canvas and,
+   * on the first frame, hands a captureStream() MediaStream to the UI via the
+   * same callbacks the old media-track path used.
+   */
+  private _onRtcVideoFrame(peerId: string, tag: number, body: Uint8Array): void {
+    if (body.length <= 12) return;
+    const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+    const seq = dv.getUint32(0, true);
+    const w = dv.getUint32(4, true);
+    const h = dv.getUint32(8, true);
+    const jpeg = body.subarray(12);
+    const key = `${peerId}:${tag}`;
+
+    let rv = this._remoteVideo.get(key);
+    if (!rv) {
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      rv = { canvas, ctx, lastSeq: 0, drawing: false, pending: null };
+      this._remoteVideo.set(key, rv);
+      const stream = canvas.captureStream();
+      if (tag === 1) this.cb.onScreenShareStart?.(peerId, stream);
+      else this.cb.onVideoStart?.(peerId, stream);
+    }
+
+    // Drop out-of-order stragglers; coalesce backlog to the newest frame.
+    if (seq < rv.lastSeq) return;
+    rv.lastSeq = seq;
+    if (rv.drawing) {
+      rv.pending = jpeg.slice();
+      return;
+    }
+    void this._drawRemote(rv, jpeg);
+  }
+
+  private async _drawRemote(
+    rv: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; drawing: boolean; pending: Uint8Array | null },
+    jpeg: Uint8Array,
+  ): Promise<void> {
+    rv.drawing = true;
+    let next: Uint8Array | null = jpeg;
+    while (next) {
+      const cur: Uint8Array = next;
+      next = null;
+      try {
+        const bitmap = await createImageBitmap(new Blob([cur], { type: "image/jpeg" }));
+        if (rv.canvas.width !== bitmap.width) rv.canvas.width = bitmap.width;
+        if (rv.canvas.height !== bitmap.height) rv.canvas.height = bitmap.height;
+        rv.ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+      } catch {
+        /* skip undecodable frame */
+      }
+      next = rv.pending;
+      rv.pending = null;
+    }
+    rv.drawing = false;
+  }
+
+  private _teardownRemoteVideo(peerId: string, tag: number): void {
+    const key = `${peerId}:${tag}`;
+    const rv = this._remoteVideo.get(key);
+    if (rv) {
+      rv.canvas.width = 0;
+      rv.canvas.height = 0;
+      this._remoteVideo.delete(key);
+    }
+  }
+
+  /** Ensure a native peer connection exists. Smaller userId offers (glare rule). */
+  private _ensureRtcPeer(peerId: string): void {
+    if (this._rtcPeers.has(peerId)) return;
+    this._rtcPeers.add(peerId);
+    void invoke("rtc_create_peer", { peerId, initiator: this.userId < peerId }).catch(() => {});
+  }
+
+  private _closeRtcPeer(peerId: string): void {
+    this._rtcPeers.delete(peerId);
+    invoke("rtc_close_peer", { peerId }).catch(() => {});
+    this._teardownRemoteVideo(peerId, 1);
+    this._teardownRemoteVideo(peerId, 2);
     this.clearPeerSpeaking(peerId);
   }
 
@@ -538,56 +558,229 @@ export class NativeVoiceEngine {
     return this.screenStream !== null;
   }
 
+  /** Our own outgoing screen-share stream, for the local self-preview tile. */
+  getScreenStream(): MediaStream | null {
+    return this.screenStream;
+  }
+
   /**
-   * True while we hold a non-dead viewer PC to this sharer. Used by the
-   * presence reconciliation to tell a briefly-lagging presence flag apart
-   * from a genuinely stale stream (sharer stopped while we were offline).
+   * True while we're actively receiving this sharer's screen (a live decode
+   * canvas exists). Used by presence reconciliation to tell a briefly-lagging
+   * presence flag apart from a genuinely stale stream.
    */
   hasLiveViewerPc(sharerId: string): boolean {
-    const pc = this._viewerPcs.get(sharerId);
-    return !!pc
-      && pc.connectionState !== "failed"
-      && pc.connectionState !== "disconnected"
-      && pc.connectionState !== "closed";
+    return this._remoteVideo.has(`${sharerId}:1`);
   }
 
   async startScreenShare(): Promise<void> {
     if (this.screenStream) return;
 
-    const { screenShareFps } = useUiSettingsStore.getState();
-    const video = { frameRate: { ideal: screenShareFps } } as MediaTrackConstraints;
-    // Real video (+ system audio) track over WebRTC. The OS picker lets the user
-    // choose a screen, window or tab. Windows/Chromium can't capture audio for a
-    // single *window*, and some WebView2 builds reject the whole request instead
-    // of returning video-only — so on failure we retry without audio. A genuine
-    // user-cancel (NotAllowedError/AbortError) is rethrown.
-    // Called synchronously from the click gesture (no await before getDisplayMedia).
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: true });
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "AbortError")) throw err;
-      stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
+    // One universal path on both OSes: our own picker (list_capture_sources) +
+    // native capture (X11 on Linux, GDI on Windows), fanned out to peers from
+    // Rust. getDisplayMedia is retired — its OS picker differed per platform and
+    // doesn't exist at all on Linux/WebKitGTK.
+    if (!("__TAURI_INTERNALS__" in window)) {
+      throw new Error(translate("screenShare.requiresDesktop"));
     }
+    const stream = await this._startNativeScreenCapture();
     this.screenStream = stream;
 
     const [videoTrack] = stream.getVideoTracks();
-    // Tell the encoder to favour sharpness over framerate — screen text/UI stays
-    // crisp instead of getting smeared (the default "motion" hint blurs detail).
     if (videoTrack) videoTrack.contentHint = "detail";
-    // The OS "Stop sharing" control ends the track outside our UI — sync state.
     videoTrack?.addEventListener("ended", () => { void this.stopScreenShare(); }, { once: true });
 
     await this.broadcast({ type: "screenshare_start", from: this.userId });
   }
 
+  /**
+   * Native-capture fallback for platforms with no browser-level screen capture
+   * (currently: Linux without a portal ScreenCast backend). Rust runs its own
+   * capture loop (direct X11, no portal) and pushes raw JPEG frames over a
+   * binary channel; each frame is drawn onto a hidden canvas whose
+   * captureStream() output plugs into the exact same WebRTC/broadcast pipeline
+   * as a getDisplayMedia() stream downstream.
+   */
+  /**
+   * (Re)start the Rust push-capture loop for `sourceId` with the current user
+   * settings, drawing into the given canvas. Each `screen_capture_start` bumps a
+   * generation counter Rust-side, so any previous loop dies on its own — calling
+   * this again IS the "change source / change quality / change fps" operation,
+   * with no WebRTC renegotiation (the canvas track just keeps flowing).
+   */
+  private async _startNativePush(
+    sourceId: string,
+    canvas: HTMLCanvasElement,
+    ctx: CanvasRenderingContext2D,
+  ): Promise<boolean> {
+    const { screenShareFps, screenShareResolution, screenShareQuality } = useUiSettingsStore.getState();
+    const maxWidth = SCREEN_RES_TO_MAX_WIDTH[screenShareResolution];
+    const jpegQuality = Math.round(SCREEN_QUALITY_TO_JPEG[screenShareQuality] * 100);
+
+    // Rust pushes frames as [u32-LE w][u32-LE h][JPEG bytes]. Decode with
+    // createImageBitmap (off-main-thread in WebKit) and draw. If a frame arrives
+    // while a decode is in flight, park it as `pending` and draw it right after —
+    // dropping it outright (the previous behaviour) halved the effective fps as
+    // soon as decode time approached the frame period.
+    let drawing = false;
+    let pending: ArrayBuffer | null = null;
+    let firstFrame: ((ok: boolean) => void) | null = null;
+    const drawFrame = async (buf: ArrayBuffer): Promise<void> => {
+      drawing = true;
+      let next: ArrayBuffer | null = buf;
+      while (next) {
+        const cur: ArrayBuffer = next;
+        next = null;
+        const dv = new DataView(cur);
+        const w = dv.getUint32(0, true);
+        const h = dv.getUint32(4, true);
+        try {
+          const bitmap = await createImageBitmap(new Blob([new Uint8Array(cur, 8)], { type: "image/jpeg" }));
+          if (canvas.width !== w) canvas.width = w;
+          if (canvas.height !== h) canvas.height = h;
+          ctx.drawImage(bitmap, 0, 0, w, h);
+          bitmap.close();
+          firstFrame?.(true);
+          firstFrame = null;
+        } catch {
+          /* skip undecodable frame */
+        }
+        next = pending;
+        pending = null;
+      }
+      drawing = false;
+    };
+    const onFrame = new Channel<ArrayBuffer>();
+    onFrame.onmessage = (buf) => {
+      if (buf.byteLength <= 8) return;
+      if (drawing) {
+        pending = buf; // keep only the newest backlog frame
+        return;
+      }
+      void drawFrame(buf);
+    };
+
+    const firstFramePromise = new Promise<boolean>((resolve) => {
+      firstFrame = resolve;
+      setTimeout(() => { firstFrame = null; resolve(false); }, 3000);
+    });
+
+    await invoke("screen_capture_start", { sourceId, maxWidth, jpegQuality, fps: screenShareFps, onFrame });
+    return await firstFramePromise;
+  }
+
+  /** True when the current share runs on the native (Linux) capture path. */
+  isNativeScreenShare(): boolean {
+    return this._nativeCapture !== null;
+  }
+
+  /**
+   * Mid-share source switch: re-opens the picker (audio checkbox pre-seeded with
+   * the current state) and repoints the capture. If only the source changed, the
+   * Rust loop is repointed with zero interruption; if the audio choice changed,
+   * the share is restarted internally (tracks can't be added/removed from a
+   * negotiated PC without renegotiation) — viewers reconnect after a brief blip.
+   * Native path only; on getDisplayMedia the OS picker owns source selection.
+   */
+  async changeScreenShareSource(): Promise<void> {
+    const nc = this._nativeCapture;
+    if (!nc) return;
+    const hadAudio = (this.screenStream?.getAudioTracks().length ?? 0) > 0;
+    const sources = await invoke<CaptureSource[]>("list_capture_sources").catch(() => []);
+    const choice = await useScreenPickerStore.getState().requestPick(sources, { initialAudio: hadAudio });
+    if (!choice) return; // cancelled — keep sharing the current source
+
+    if (choice.withAudio === hadAudio) {
+      nc.sourceId = choice.sourceId;
+      await this._startNativePush(choice.sourceId, nc.canvas, nc.ctx);
+      return;
+    }
+
+    // Audio toggled → internal restart (stop without the onScreenShareStop
+    // callback so the local "I'm sharing" UI state stays on).
+    this._nativeCaptureCleanup?.();
+    this._nativeCaptureCleanup = null;
+    this.screenStream?.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+    await this.broadcast({ type: "screenshare_stop", from: this.userId });
+
+    const stream = await this._startNativeScreenCapture(choice);
+    this.screenStream = stream;
+    const [videoTrack] = stream.getVideoTracks();
+    if (videoTrack) videoTrack.contentHint = "detail";
+    await this.broadcast({ type: "screenshare_start", from: this.userId });
+  }
+
+  /**
+   * Re-apply quality/resolution/fps from the settings store to the running
+   * native capture — takes effect immediately, no renegotiation.
+   */
+  async applyNativeCaptureSettings(): Promise<void> {
+    const nc = this._nativeCapture;
+    if (!nc) return;
+    await this._startNativePush(nc.sourceId, nc.canvas, nc.ctx);
+  }
+
+  private async _startNativeScreenCapture(presetChoice?: PickResult): Promise<MediaStream> {
+    // Ask the user which monitor/window to share (+ whether to include desktop
+    // audio) via our own picker — there's no OS-level getDisplayMedia picker here.
+    // `presetChoice` skips the picker (used by mid-share restarts).
+    let choice = presetChoice ?? null;
+    if (!choice) {
+      const sources = await invoke<CaptureSource[]>("list_capture_sources").catch(() => []);
+      choice = await useScreenPickerStore.getState().requestPick(sources);
+    }
+    if (!choice) {
+      // User dismissed the picker → mirror getDisplayMedia's cancel so the caller
+      // stays silent instead of showing a "couldn't start" toast.
+      throw new DOMException("User cancelled screen share", "AbortError");
+    }
+    const sourceId = choice.sourceId;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Native screen capture is unavailable on this system");
+
+    if (!(await this._startNativePush(sourceId, canvas, ctx))) {
+      invoke("screen_capture_stop").catch(() => {});
+      throw new Error("Native screen capture produced no frames");
+    }
+    this._nativeCapture = { canvas, ctx, sourceId };
+
+    // No fps argument: capture every draw — the Rust loop's pacing decides the
+    // actual rate, so fps changes mid-share need no new track.
+    const track = canvas.captureStream().getVideoTracks()[0];
+    const stream = new MediaStream([track]);
+
+    // Optional desktop audio: Rust captures the monitor source (parec) and fans
+    // it out to peers over the transport directly — no local playback (the user
+    // already hears it) and no MediaStream plumbing. Non-fatal on failure.
+    if (choice.withAudio) {
+      const onChunk = new Channel<ArrayBuffer>(); // unused; command requires it
+      invoke("desktop_audio_start", { onChunk }).catch((e) => {
+        useToastStore.getState().showToast({
+          icon: WifiOff,
+          title: translate("screenShare.desktopAudioUnavailable"),
+          message: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }
+
+    this._nativeCaptureCleanup = () => {
+      invoke("screen_capture_stop").catch(() => {});
+      this._nativeCapture = null;
+      track.stop();
+      if (choice.withAudio) invoke("desktop_audio_stop").catch(() => {});
+    };
+    return stream;
+  }
+
   async stopScreenShare(): Promise<void> {
+    this._nativeCaptureCleanup?.();
+    this._nativeCaptureCleanup = null;
     if (this.screenStream) {
       this.screenStream.getTracks().forEach((t) => t.stop());
       this.screenStream = null;
     }
-    // Close all viewer peer connections (we were the sharer).
-    for (const id of [...this._shareePcs.keys()]) this._closeShareePc(id);
     await this.broadcast({ type: "screenshare_stop", from: this.userId });
     this.cb.onScreenShareStop?.(this.userId);
   }
@@ -612,237 +805,65 @@ export class NativeVoiceEngine {
     };
     const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
     this._cameraStream = stream;
+    this.cb.onVideoStart?.(this.userId, stream); // local self-preview
     await this.broadcast({ type: "video_start", from: this.userId });
-    this.cb.onVideoStart?.(this.userId, stream);
+    this._startCameraEncode(stream);
   }
 
   async stopCamera(): Promise<void> {
     if (!this._cameraStream) return;
+    this._stopCameraEncode();
     this._cameraStream.getTracks().forEach((t) => t.stop());
     this._cameraStream = null;
-    for (const id of [...this._videoSenderPcs.keys()]) this._closeVideoSenderPc(id);
     await this.broadcast({ type: "video_stop", from: this.userId });
     this.cb.onVideoStop?.(this.userId);
   }
 
-  // ── ICE queue helpers ────────────────────────────────────────────────────────
+  // Camera frames ride the same native transport as screen share: draw the
+  // getUserMedia stream to a hidden canvas ~15fps, JPEG-encode via toBlob, and
+  // ship each frame to peers tagged as camera. getUserMedia itself works on both
+  // OSes (only RTCPeerConnection is missing on Linux), so capture is unchanged.
+  private _cameraEncodeStop: (() => void) | null = null;
 
-  /**
-   * Queue an ICE candidate if the PC has no remote description yet, otherwise
-   * add it immediately. Candidates queued here are flushed by _flushIceQueue
-   * right after the corresponding setRemoteDescription call completes.
-   */
-  private _queueOrAddIce(
-    pc: RTCPeerConnection,
-    candidate: RTCIceCandidateInit,
-    queue: Map<string, RTCIceCandidateInit[]>,
-    peerId: string,
-  ): void {
-    if (!pc.remoteDescription) {
-      const pending = queue.get(peerId) ?? [];
-      pending.push(candidate);
-      queue.set(peerId, pending);
-      return;
-    }
-    pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+  private _startCameraEncode(stream: MediaStream): void {
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    void video.play().catch(() => {});
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { screenShareQuality } = useUiSettingsStore.getState();
+    const quality = SCREEN_QUALITY_TO_JPEG[screenShareQuality] ?? 0.7;
+    let busy = false;
+    const interval = setInterval(() => {
+      if (busy || video.videoWidth === 0) return;
+      busy = true;
+      if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+      if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { busy = false; return; }
+          blob.arrayBuffer()
+            .then((buf) =>
+              invoke("rtc_broadcast_video", new Uint8Array(buf), {
+                headers: { "x-tag": "camera", "x-w": String(canvas.width), "x-h": String(canvas.height) },
+              }),
+            )
+            .catch(() => {})
+            .finally(() => { busy = false; });
+        },
+        "image/jpeg",
+        quality,
+      );
+    }, 1000 / 15);
+    this._cameraEncodeStop = () => { clearInterval(interval); video.srcObject = null; };
   }
 
-  /** Drain queued ICE candidates after setRemoteDescription has completed. */
-  private async _flushIceQueue(
-    pc: RTCPeerConnection,
-    queue: Map<string, RTCIceCandidateInit[]>,
-    peerId: string,
-  ): Promise<void> {
-    const candidates = queue.get(peerId);
-    if (!candidates?.length) return;
-    queue.delete(peerId);
-    for (const c of candidates) {
-      await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-    }
-  }
-
-  // ── WebRTC helpers ───────────────────────────────────────────────────────────
-
-  /** Viewer: initiate WebRTC connection to a sharer. */
-  private async _setupViewerPc(sharerId: string): Promise<void> {
-    const pc = new RTCPeerConnection(await getIceConfig());
-    this._viewerPcs.set(sharerId, pc);
-    this._viewerPcCreatedAt.set(sharerId, Date.now());
-    attachPcDiagnostics(pc, `screen-viewer→${sharerId.slice(0, 8)}`, () => {
-      // Viewer initiates the rebuild by re-offering; the sharer rebuilds its
-      // side on the incoming offer (_handleShareeOffer). If they stopped
-      // sharing during the outage the offer is simply ignored.
-      if (this._viewerPcs.get(sharerId) !== pc) return;
-      console.warn(`[voice] screen-viewer→${sharerId.slice(0, 8)} failed — rebuilding`);
-      this._closeViewerPc(sharerId);
-      void this._setupViewerPc(sharerId);
-    });
-
-    // Request the sharer's screen video + system audio.
-    pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addTransceiver("audio", { direction: "recvonly" });
-
-    pc.ontrack = ({ streams }) => {
-      // Fires once media arrives → the overlay shows the live picture (not black).
-      if (streams[0]) this.cb.onScreenShareStart?.(sharerId, streams[0]);
-    };
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this.broadcast({ type: "screenshare_ice", from: this.userId, to: sharerId, candidate: candidate.toJSON() }).catch(() => {});
-      }
-    };
-
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await this.broadcast({ type: "screenshare_offer", from: this.userId, to: sharerId, sdp: offer.sdp! });
-    } catch {
-      this._pendingViewerIce.delete(sharerId);
-      this._closeViewerPc(sharerId);
-    }
-  }
-
-  /** Sharer: handle an offer from a viewer, send back an answer. */
-  private async _handleShareeOffer(viewerId: string, sdp: string): Promise<void> {
-    if (!this.screenStream) return;
-    // Notify only on a genuinely new viewer — renegotiation re-sends an offer for
-    // a viewer we already have a connection to, and shouldn't re-chime.
-    const isNewViewer = !this._shareePcs.has(viewerId);
-    this._closeShareePc(viewerId);
-    if (isNewViewer) this.cb.onScreenWatched?.(viewerId);
-
-    const pc = new RTCPeerConnection(await getIceConfig());
-    this._shareePcs.set(viewerId, pc);
-    attachPcDiagnostics(pc, `screen-sharer→${viewerId.slice(0, 8)}`);
-
-    // Send our screen video + system audio tracks to this viewer.
-    for (const track of this.screenStream.getTracks()) {
-      pc.addTrack(track, this.screenStream);
-    }
-
-    // Raise the video bitrate ceiling so high-res screen content stays sharp —
-    // WebRTC's ~2.5 Mbps default blurs text. Congestion control still scales down
-    // on slow links, so this is a ceiling, not a floor.
-    const videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
-    if (videoSender) {
-      const params = videoSender.getParameters();
-      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-      params.encodings[0].maxBitrate = 8_000_000;
-      videoSender.setParameters(params).catch(() => {});
-    }
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this.broadcast({ type: "screenshare_ice", from: this.userId, to: viewerId, candidate: candidate.toJSON() }).catch(() => {});
-      }
-    };
-
-    try {
-      await pc.setRemoteDescription({ type: "offer", sdp });
-      // Flush any viewer ICE candidates that arrived before this setRemoteDescription.
-      await this._flushIceQueue(pc, this._pendingShareeIce, viewerId);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await this.broadcast({ type: "screenshare_answer", from: this.userId, to: viewerId, sdp: answer.sdp! });
-    } catch {
-      this._pendingShareeIce.delete(viewerId);
-      this._closeShareePc(viewerId);
-    }
-  }
-
-  private _closeShareePc(viewerId: string): void {
-    this._shareePcs.get(viewerId)?.close();
-    this._shareePcs.delete(viewerId);
-    this._pendingShareeIce.delete(viewerId);
-  }
-
-  private _closeViewerPc(sharerId: string): void {
-    this._viewerPcs.get(sharerId)?.close();
-    this._viewerPcs.delete(sharerId);
-    this._viewerPcCreatedAt.delete(sharerId);
-    this._pendingViewerIce.delete(sharerId);
-  }
-
-  // ── Video WebRTC helpers ────────────────────────────────────────────────────
-
-  /** Receiver: create PC that requests video from a remote camera sender. */
-  private async _setupVideoReceiverPc(senderId: string): Promise<void> {
-    this._closeVideoReceiverPc(senderId);
-    const pc = new RTCPeerConnection(await getIceConfig());
-    this._videoReceiverPcs.set(senderId, pc);
-    attachPcDiagnostics(pc, `camera-receiver←${senderId.slice(0, 8)}`, () => {
-      // Receiver initiates the rebuild; the sender answers the fresh offer
-      // (or ignores it if the camera was turned off during the outage).
-      if (this._videoReceiverPcs.get(senderId) !== pc) return;
-      console.warn(`[voice] camera-receiver←${senderId.slice(0, 8)} failed — rebuilding`);
-      void this._setupVideoReceiverPc(senderId);
-    });
-
-    pc.addTransceiver("video", { direction: "recvonly" });
-
-    pc.ontrack = ({ streams }) => {
-      if (streams[0]) this.cb.onVideoStart?.(senderId, streams[0]);
-    };
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this.broadcast({ type: "video_ice", from: this.userId, to: senderId, candidate: candidate.toJSON() }).catch(() => {});
-      }
-    };
-
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await this.broadcast({ type: "video_offer", from: this.userId, to: senderId, sdp: offer.sdp! });
-    } catch {
-      this._pendingVideoReceiverIce.delete(senderId);
-      this._closeVideoReceiverPc(senderId);
-    }
-  }
-
-  /** Sender: handle an offer from a viewer, answer with our camera track. */
-  private async _handleVideoOffer(viewerId: string, sdp: string): Promise<void> {
-    if (!this._cameraStream) return;
-    this._closeVideoSenderPc(viewerId);
-
-    const pc = new RTCPeerConnection(await getIceConfig());
-    this._videoSenderPcs.set(viewerId, pc);
-    attachPcDiagnostics(pc, `camera-sender→${viewerId.slice(0, 8)}`);
-
-    for (const track of this._cameraStream.getVideoTracks()) {
-      pc.addTrack(track, this._cameraStream);
-    }
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this.broadcast({ type: "video_ice", from: this.userId, to: viewerId, candidate: candidate.toJSON() }).catch(() => {});
-      }
-    };
-
-    try {
-      await pc.setRemoteDescription({ type: "offer", sdp });
-      // Flush any viewer ICE candidates that arrived before this setRemoteDescription.
-      await this._flushIceQueue(pc, this._pendingVideoSenderIce, viewerId);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await this.broadcast({ type: "video_answer", from: this.userId, to: viewerId, sdp: answer.sdp! });
-    } catch {
-      this._pendingVideoSenderIce.delete(viewerId);
-      this._closeVideoSenderPc(viewerId);
-    }
-  }
-
-  private _closeVideoSenderPc(viewerId: string): void {
-    this._videoSenderPcs.get(viewerId)?.close();
-    this._videoSenderPcs.delete(viewerId);
-    this._pendingVideoSenderIce.delete(viewerId);
-  }
-
-  private _closeVideoReceiverPc(senderId: string): void {
-    this._videoReceiverPcs.get(senderId)?.close();
-    this._videoReceiverPcs.delete(senderId);
-    this._pendingVideoReceiverIce.delete(senderId);
+  private _stopCameraEncode(): void {
+    this._cameraEncodeStop?.();
+    this._cameraEncodeStop = null;
   }
 
   // ── Signal handling ─────────────────────────────────────────────────────────
@@ -855,7 +876,7 @@ export class NativeVoiceEngine {
       case "join":
         this.cb.onParticipantJoin(msg.from, true);
         await this.broadcast({ type: "hello", from: this.userId });
-        this._ensureAudioPc(msg.from);
+        this._ensureRtcPeer(msg.from);
         if (this.isScreenSharing()) {
           await this.broadcast({ type: "screenshare_start", from: this.userId });
         }
@@ -865,138 +886,45 @@ export class NativeVoiceEngine {
         break;
       case "hello":
         this.cb.onParticipantJoin(msg.from, false);
-        this._ensureAudioPc(msg.from);
+        this._ensureRtcPeer(msg.from);
         break;
       case "leave":
         this.cb.onParticipantLeave(msg.from);
         this.clearPeerSpeaking(msg.from);
-        this._closeAudioPc(msg.from);
-        this._closeShareePc(msg.from);
-        this._closeViewerPc(msg.from);
-        this._closeVideoSenderPc(msg.from);
-        this._closeVideoReceiverPc(msg.from);
+        this._closeRtcPeer(msg.from);
+        this._teardownRemoteVideo(msg.from, 1);
+        this._teardownRemoteVideo(msg.from, 2);
         break;
-      case "audio_offer":
+      case "rtc_offer":
+      case "rtc_answer":
+      case "rtc_ice": {
         if (msg.to !== this.userId) break;
-        await this._handleAudioOffer(msg.from, msg.sdp);
-        break;
-      case "audio_answer":
-        if (msg.to !== this.userId) break;
-        await this._handleAudioAnswer(msg.from, msg.sdp);
-        break;
-      case "audio_ice": {
-        if (msg.to !== this.userId) break;
-        const apc = this._audioPcs.get(msg.from);
-        if (apc) this._queueOrAddIce(apc, msg.candidate, this._pendingAudioIce, msg.from);
-        break;
-      }
-      case "screenshare_start": {
-        // A sharer re-broadcasts screenshare_start whenever anyone new joins the
-        // channel. If we already have a healthy viewer connection, ignore it —
-        // rebuilding would interrupt the live stream. A genuine re-share is
-        // always preceded by screenshare_stop, which clears the connection.
-        // Exception: a PC stuck in "connecting"/"new" past the grace window is
-        // treated as dead (TURN timeouts can hang there without ever failing).
-        const existingPc = this._viewerPcs.get(msg.from);
-        const createdAt = this._viewerPcCreatedAt.get(msg.from) ?? 0;
-        const stuckConnecting =
-          existingPc !== undefined &&
-          (existingPc.connectionState === "connecting" || existingPc.connectionState === "new") &&
-          Date.now() - createdAt > 15_000;
-        if (
-          existingPc &&
-          !stuckConnecting &&
-          existingPc.connectionState !== "failed" &&
-          existingPc.connectionState !== "disconnected" &&
-          existingPc.connectionState !== "closed"
-        ) {
-          break;
+        // An incoming offer always means the remote (re)created its peer — a
+        // fresh DTLS session. Recreate ours as responder before applying it
+        // (Rust's CreatePeer replaces any existing peer for this id).
+        if (msg.type === "rtc_offer") {
+          this._rtcPeers.add(msg.from);
+          await invoke("rtc_create_peer", { peerId: msg.from, initiator: false }).catch(() => {});
         }
-        this._closeViewerPc(msg.from);
-        this._pendingViewerIce.delete(msg.from);
-        // onScreenShareStart fires from ontrack once media arrives (_setupViewerPc).
-        await this._setupViewerPc(msg.from);
+        const kind = msg.type === "rtc_offer" ? "offer" : msg.type === "rtc_answer" ? "answer" : "ice";
+        await invoke("rtc_signal_remote", { peerId: msg.from, kind, payload: msg.payload }).catch(() => {});
         break;
       }
+      // Screen-share / camera are now pure presence signals — the actual frames
+      // ride the native transport's video data channel (see _onRtcVideoFrame).
+      case "screenshare_start":
+        // Frames create the stream on arrival; nothing to set up here.
+        break;
       case "screenshare_stop":
-        this._pendingViewerIce.delete(msg.from);
-        this._closeViewerPc(msg.from);
+        this._teardownRemoteVideo(msg.from, 1);
         this.cb.onScreenShareStop?.(msg.from);
         break;
-      case "screenshare_offer":
-        if (msg.to !== this.userId) break;
-        await this._handleShareeOffer(msg.from, msg.sdp);
-        break;
-      case "screenshare_answer": {
-        if (msg.to !== this.userId) break;
-        const pc = this._viewerPcs.get(msg.from);
-        if (pc && pc.signalingState === "have-local-offer") {
-          try {
-            await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-            // Flush sharer ICE candidates that arrived before this answer was processed.
-            await this._flushIceQueue(pc, this._pendingViewerIce, msg.from);
-          } catch (e) {
-            console.warn("[voice] stale screenshare_answer ignored:", e);
-            this._closeViewerPc(msg.from); // next screenshare_start rebuilds
-          }
-        }
-        break;
-      }
-      case "screenshare_ice": {
-        if (msg.to !== this.userId) break;
-        const viewerPc = this._viewerPcs.get(msg.from);
-        if (viewerPc) {
-          this._queueOrAddIce(viewerPc, msg.candidate, this._pendingViewerIce, msg.from);
-          break;
-        }
-        const shareePc = this._shareePcs.get(msg.from);
-        if (shareePc) {
-          this._queueOrAddIce(shareePc, msg.candidate, this._pendingShareeIce, msg.from);
-        }
-        break;
-      }
       case "video_start":
-        this._pendingVideoReceiverIce.delete(msg.from);
-        this._closeVideoReceiverPc(msg.from);
-        await this._setupVideoReceiverPc(msg.from);
         break;
       case "video_stop":
-        this._pendingVideoReceiverIce.delete(msg.from);
-        this._closeVideoReceiverPc(msg.from);
+        this._teardownRemoteVideo(msg.from, 2);
         this.cb.onVideoStop?.(msg.from);
         break;
-      case "video_offer":
-        if (msg.to !== this.userId) break;
-        await this._handleVideoOffer(msg.from, msg.sdp);
-        break;
-      case "video_answer": {
-        if (msg.to !== this.userId) break;
-        const vpc = this._videoReceiverPcs.get(msg.from);
-        if (vpc && vpc.signalingState === "have-local-offer") {
-          try {
-            await vpc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-            // Flush sender ICE candidates that arrived before this answer was processed.
-            await this._flushIceQueue(vpc, this._pendingVideoReceiverIce, msg.from);
-          } catch (e) {
-            console.warn("[voice] stale video_answer ignored:", e);
-            this._closeVideoReceiverPc(msg.from); // next video_start rebuilds
-          }
-        }
-        break;
-      }
-      case "video_ice": {
-        if (msg.to !== this.userId) break;
-        const vReceiverPc = this._videoReceiverPcs.get(msg.from);
-        if (vReceiverPc) {
-          this._queueOrAddIce(vReceiverPc, msg.candidate, this._pendingVideoReceiverIce, msg.from);
-          break;
-        }
-        const vSenderPc = this._videoSenderPcs.get(msg.from);
-        if (vSenderPc) {
-          this._queueOrAddIce(vSenderPc, msg.candidate, this._pendingVideoSenderIce, msg.from);
-        }
-        break;
-      }
     }
   }
 

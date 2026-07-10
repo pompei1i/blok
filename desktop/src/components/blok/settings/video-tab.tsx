@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle, AlertCircle } from "lucide-react";
-import type { CameraQuality, ScreenShareFps } from "@/lib/store/ui-settings-store";
+import type { CameraQuality, ScreenShareFps, ScreenShareResolution, ScreenShareQuality } from "@/lib/store/ui-settings-store";
 import { SCREEN_SHARE_FPS_OPTIONS } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -131,6 +131,37 @@ export function VideoTab({ draft, setDraft }: DraftTabProps) {
             {SCREEN_SHARE_FPS_OPTIONS.map((fps) => (
               <option key={fps} value={fps}>{fps} FPS</option>
             ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+            <span className="mr-1">&gt;</span>{t("settings.video.screenShareResolution")}
+          </span>
+          <select
+            value={draft.screenShareResolution}
+            onChange={(e) => setDraft((prev) => ({ ...prev, screenShareResolution: e.target.value as ScreenShareResolution }))}
+            className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
+          >
+            <option value="720p">720p</option>
+            <option value="1080p">1080p</option>
+            <option value="1440p">1440p</option>
+            <option value="native">Native</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="block text-[10px] font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
+            <span className="mr-1">&gt;</span>{t("settings.video.screenShareQuality")}
+          </span>
+          <select
+            value={draft.screenShareQuality}
+            onChange={(e) => setDraft((prev) => ({ ...prev, screenShareQuality: e.target.value as ScreenShareQuality }))}
+            className="w-full bg-[var(--bg-base)] border-b border-[var(--border)] text-sm text-[var(--text-primary)] font-mono py-2 focus:outline-none focus:border-[var(--text-primary)] transition-colors"
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
           </select>
         </label>
 

@@ -1,6 +1,8 @@
 mod audio;
+mod rtc;
 
 use audio::{Cmd, NativeAudio};
+use rtc::RtcState;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{
@@ -13,6 +15,14 @@ use tauri::{
 // ── native audio state ────────────────────────────────────────────────────────
 
 struct AudioState(Mutex<Option<NativeAudio>>);
+
+/// Running desktop-audio loopback capture (`parec` child), if any. Kept so a stop
+/// command (or a fresh start) can kill the previous recorder.
+struct DesktopAudioState(Mutex<Option<std::process::Child>>);
+
+/// Generation counter for the push-based screen-capture loop. Bumping it stops
+/// the currently running capture thread (it checks the counter every frame).
+struct ScreenCastState(std::sync::Arc<std::sync::atomic::AtomicU64>);
 
 /// Returns the actual input sample rate so the JS side can include it in
 /// every audio packet, enabling correct resampling on remote peers.
@@ -333,9 +343,22 @@ fn autostart_set_impl(_enabled: bool) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn allow_linux_media_permissions(window: &tauri::WebviewWindow) {
     use webkit2gtk::glib::prelude::*;
-    use webkit2gtk::{PermissionRequestExt, UserMediaPermissionRequest, WebViewExt};
+    use webkit2gtk::{PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt};
     let _ = window.with_webview(|webview| {
-        webview.inner().connect_permission_request(|_wv, request| {
+        let wv = webview.inner();
+        // WebKitGTK ships WebRTC disabled by default — without this, the page has
+        // no RTCPeerConnection at all (voice/screen-share/camera between peers
+        // simply can't connect on Linux). The window starts loading before this
+        // setup hook runs and JS globals are fixed per page load, so reload once
+        // right after enabling to get a page that actually has the API.
+        if let Some(settings) = WebViewExt::settings(&wv) {
+            if !settings.enables_webrtc() {
+                settings.set_enable_webrtc(true);
+                settings.set_enable_media_stream(true);
+                wv.reload();
+            }
+        }
+        wv.connect_permission_request(|_wv, request| {
             if request
                 .dynamic_cast_ref::<UserMediaPermissionRequest>()
                 .is_some()
@@ -382,23 +405,61 @@ fn frame_hash(data: &[u8]) -> u64 {
 }
 
 fn encode_bgra_to_frame(bgra: Vec<u8>, w: u32, h: u32, max_width: u32, jpeg_quality: u8) -> Option<ScreenFrame> {
-    let rgb: Vec<u8> = bgra.chunks(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
-    let img = image::RgbImage::from_raw(w, h, rgb)?;
-    let img = if max_width > 0 && w > max_width {
-        let new_h = (h as f64 * max_width as f64 / w as f64).round() as u32;
-        image::imageops::resize(&img, max_width, new_h, image::imageops::FilterType::Nearest)
-    } else {
-        img
-    };
-    let (fw, fh) = img.dimensions();
-    let mut buf = std::io::Cursor::new(Vec::new());
-    let dynamic: image::DynamicImage = img.into();
-    let quality = jpeg_quality.clamp(1, 100);
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
-    dynamic.write_with_encoder(encoder).ok()?;
+    let (jpeg, tw, th) = encode_bgra_to_jpeg(bgra, w, h, max_width, jpeg_quality)?;
     use base64::Engine as _;
-    let data = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
-    Some(ScreenFrame { data, w: fw, h: fh })
+    let data = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+    Some(ScreenFrame { data, w: tw, h: th })
+}
+
+/// BGRA/BGR frame → (JPEG bytes, out_w, out_h), downscaling to `max_width` if set.
+fn encode_bgra_to_jpeg(bgra: Vec<u8>, w: u32, h: u32, max_width: u32, jpeg_quality: u8) -> Option<(Vec<u8>, u32, u32)> {
+    if w == 0 || h == 0 {
+        return None;
+    }
+    // Target size (downscale only). `image`'s generic resize was ~50ms/frame even for
+    // Nearest; a fused BGRA→RGB + nearest-neighbour downscale in one integer-math pass
+    // is ~10x faster and drops the full-res RGB intermediate allocation entirely.
+    let (tw, th) = if max_width > 0 && w > max_width {
+        (max_width, ((h as u64 * max_width as u64 / w as u64) as u32).max(1))
+    } else {
+        (w, h)
+    };
+
+    // Bytes per source pixel: X11 GetImage returns 4 (BGRX) on 32-bit visuals but
+    // may return 3 (BGR) on a depth-24 drawable — deriving it from the buffer length
+    // (instead of assuming 4) keeps the indexing in-bounds and avoids a panic/crash.
+    let pixels = (w as usize) * (h as usize);
+    if pixels == 0 {
+        return None;
+    }
+    let bpp = bgra.len() / pixels;
+    if bpp < 3 {
+        return None; // unexpected/truncated buffer — bail instead of indexing OOB
+    }
+    let stride = w as usize * bpp;
+
+    let mut rgb = vec![0u8; (tw as usize) * (th as usize) * 3];
+    // Precompute source X byte-offset for each target X (integer nearest-neighbour).
+    let src_x: Vec<usize> = (0..tw).map(|tx| ((tx as u64 * w as u64) / tw as u64) as usize * bpp).collect();
+    for ty in 0..th as usize {
+        let sy = (ty as u64 * h as u64) / th as u64;
+        let src_row = sy as usize * stride;
+        let dst_row = ty * tw as usize * 3;
+        for tx in 0..tw as usize {
+            let s = src_row + src_x[tx];
+            let d = dst_row + tx * 3;
+            // First three bytes are B, G, R for both BGRX and BGR → emit R, G, B.
+            rgb[d] = bgra[s + 2];
+            rgb[d + 1] = bgra[s + 1];
+            rgb[d + 2] = bgra[s];
+        }
+    }
+
+    let quality = jpeg_quality.clamp(1, 100);
+    let mut buf = Vec::new();
+    let encoder = jpeg_encoder::Encoder::new(&mut buf, quality);
+    encoder.encode(&rgb, tw as u16, th as u16, jpeg_encoder::ColorType::Rgb).ok()?;
+    Some((buf, tw, th))
 }
 
 fn capture_raw_frame(source_id: &str) -> Option<RawFrame> {
@@ -413,17 +474,531 @@ fn capture_raw_frame(source_id: &str) -> Option<RawFrame> {
     }
 }
 
+/// A pickable capture source (a whole monitor or a single window) for the
+/// screen-share picker. `id` matches the `source_id` format `capture_screen_frame`
+/// expects (`screen:<index>` / `window:<xid>`).
+#[derive(serde::Serialize)]
+struct CaptureSource {
+    id: String,
+    name: String,
+    kind: String, // "screen" | "window"
+}
+
+#[cfg(target_os = "linux")]
+fn list_x11_windows(
+    conn: &x11rb::rust_connection::RustConnection,
+    root: x11rb::protocol::xproto::Window,
+) -> Vec<CaptureSource> {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+
+    let intern = |name: &[u8]| -> Option<u32> {
+        conn.intern_atom(true, name).ok()?.reply().ok().map(|r| r.atom).filter(|a| *a != 0)
+    };
+    let (Some(client_list), Some(net_wm_name), Some(utf8)) =
+        (intern(b"_NET_CLIENT_LIST"), intern(b"_NET_WM_NAME"), intern(b"UTF8_STRING"))
+    else {
+        return Vec::new();
+    };
+
+    let Ok(prop) = conn.get_property(false, root, client_list, AtomEnum::WINDOW, 0, u32::MAX) else {
+        return Vec::new();
+    };
+    let Ok(prop) = prop.reply() else { return Vec::new() };
+    let Some(wins) = prop.value32() else { return Vec::new() };
+
+    let mut out = Vec::new();
+    for win in wins {
+        // Skip windows too small to be worth sharing (tooltips, docks, etc.).
+        let Ok(geom) = conn.get_geometry(win) else { continue };
+        let Ok(geom) = geom.reply() else { continue };
+        if geom.width < 32 || geom.height < 32 {
+            continue;
+        }
+        // Title: prefer _NET_WM_NAME (UTF-8), fall back to legacy WM_NAME.
+        let title = conn
+            .get_property(false, win, net_wm_name, utf8, 0, 1024)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .map(|r| r.value)
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                conn.get_property(false, win, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 1024)
+                    .ok()
+                    .and_then(|c| c.reply().ok())
+                    .map(|r| r.value)
+                    .filter(|v| !v.is_empty())
+            })
+            .map(|v| String::from_utf8_lossy(&v).into_owned())
+            .unwrap_or_else(|| format!("Window {win}"));
+
+        out.push(CaptureSource { id: format!("window:{win}"), name: title, kind: "window".into() });
+    }
+    out
+}
+
+/// Enumerate shareable sources (monitors + top-level windows) for the in-app
+/// picker. Implemented natively on Linux (X11/RandR) and Windows (Win32) so the
+/// exact same picker UI and capture path run on both.
+#[tauri::command]
+fn list_capture_sources() -> Vec<CaptureSource> {
+    #[cfg(target_os = "linux")]
+    {
+        use x11rb::connection::Connection;
+        let Ok((conn, screen_num)) = x11rb::connect(None) else { return Vec::new() };
+        let Some(screen) = conn.setup().roots.get(screen_num) else { return Vec::new() };
+        let root = screen.root;
+
+        let mut sources: Vec<CaptureSource> = x11_monitors(&conn, root)
+            .iter()
+            .enumerate()
+            .map(|(i, m)| CaptureSource {
+                id: format!("screen:{i}"),
+                name: if i == 0 {
+                    format!("Whole screen ({}×{})", m.w, m.h)
+                } else {
+                    format!("Screen {} ({}×{})", i + 1, m.w, m.h)
+                },
+                kind: "screen".into(),
+            })
+            .collect();
+        sources.extend(list_x11_windows(&conn, root));
+        sources
+    }
+    #[cfg(target_os = "windows")]
+    {
+        win_list_capture_sources()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        Vec::new()
+    }
+}
+
+/// Windows source enumeration: monitors via EnumDisplayMonitors (index-ordered,
+/// primary first to match `capture_raw_monitor`), then visible top-level windows
+/// with a title that aren't cloaked (UWP ghosts / other virtual desktops).
+#[cfg(target_os = "windows")]
+fn win_list_capture_sources() -> Vec<CaptureSource> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{LPARAM, RECT};
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows::Win32::Graphics::Gdi::{
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+    };
+    const MONITORINFOF_PRIMARY: u32 = 1;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible,
+    };
+
+    // ── monitors ──
+    struct MList {
+        primary: Vec<(RECT, ())>,
+        others: Vec<RECT>,
+    }
+    unsafe extern "system" fn mon_cb(hm: HMONITOR, _: HDC, _: *mut RECT, param: LPARAM) -> BOOL {
+        let list = &mut *(param.0 as *mut MList);
+        let mut mi = MONITORINFO {
+            cbSize: core::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if GetMonitorInfoW(hm, &mut mi).as_bool() {
+            if mi.dwFlags & MONITORINFOF_PRIMARY != 0 {
+                list.primary.push((mi.rcMonitor, ()));
+            } else {
+                list.others.push(mi.rcMonitor);
+            }
+        }
+        BOOL(1)
+    }
+
+    let mut mlist = MList { primary: Vec::new(), others: Vec::new() };
+    unsafe {
+        let _ = EnumDisplayMonitors(None, None, Some(mon_cb), LPARAM(&mut mlist as *mut _ as isize));
+    }
+    let mut rects: Vec<RECT> = mlist.primary.into_iter().map(|(r, _)| r).collect();
+    rects.extend(mlist.others);
+
+    let mut sources: Vec<CaptureSource> = rects
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let (w, h) = ((r.right - r.left), (r.bottom - r.top));
+            CaptureSource {
+                id: format!("screen:{i}"),
+                name: if i == 0 {
+                    format!("Whole screen ({w}×{h})")
+                } else {
+                    format!("Screen {} ({w}×{h})", i + 1)
+                },
+                kind: "screen".into(),
+            }
+        })
+        .collect();
+
+    // ── windows ──
+    unsafe extern "system" fn win_cb(hwnd: windows::Win32::Foundation::HWND, param: LPARAM) -> BOOL {
+        let out = &mut *(param.0 as *mut Vec<CaptureSource>);
+        if !IsWindowVisible(hwnd).as_bool() {
+            return BOOL(1);
+        }
+        // Skip cloaked windows (other virtual desktops, suspended UWP shells).
+        let mut cloaked: u32 = 0;
+        let _ = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut _ as *mut _,
+            core::mem::size_of::<u32>() as u32,
+        );
+        if cloaked != 0 {
+            return BOOL(1);
+        }
+        let len = GetWindowTextLengthW(hwnd);
+        if len <= 0 {
+            return BOOL(1);
+        }
+        let mut buf = vec![0u16; len as usize + 1];
+        let n = GetWindowTextW(hwnd, &mut buf);
+        if n <= 0 {
+            return BOOL(1);
+        }
+        let title = String::from_utf16_lossy(&buf[..n as usize]);
+        let hwnd_val = hwnd.0 as isize;
+        out.push(CaptureSource { id: format!("window:{hwnd_val}"), name: title, kind: "window".into() });
+        BOOL(1)
+    }
+
+    let mut windows_out: Vec<CaptureSource> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(win_cb), LPARAM(&mut windows_out as *mut _ as isize));
+    }
+    sources.extend(windows_out);
+    sources
+}
+
+/// Hint for which monitor audio source is the desktop-audio loopback of the
+/// *currently active* output, so the frontend can pick the right one (a machine
+/// can expose many monitor sources — HDMI ports, speakers, Bluetooth — most of
+/// them silent). Returns the PulseAudio/PipeWire Description of the default sink's
+/// `.monitor` source, which matches the device label WebKitGTK reports. `None` if
+/// pactl is unavailable or the default sink can't be resolved (frontend then falls
+/// back to a generic "first monitor" heuristic).
+#[tauri::command]
+fn default_audio_monitor_hint() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        let sink = Command::new("pactl").arg("get-default-sink").output().ok()?;
+        let sink = String::from_utf8_lossy(&sink.stdout).trim().to_string();
+        if sink.is_empty() {
+            return None;
+        }
+        let monitor_name = format!("{sink}.monitor");
+        let out = Command::new("pactl").args(["list", "sources"]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut in_target = false;
+        for line in text.lines() {
+            let l = line.trim();
+            if let Some(name) = l.strip_prefix("Name: ") {
+                in_target = name == monitor_name;
+            } else if in_target {
+                if let Some(desc) = l.strip_prefix("Description: ") {
+                    return Some(desc.to_string());
+                }
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+/// Start native desktop-audio loopback capture: records the default sink's
+/// `.monitor` source via `parec` (PulseAudio/PipeWire CLI) and streams raw
+/// s16le 48kHz stereo PCM chunks to the frontend over a binary channel — the
+/// same Channel pattern the voice pipeline uses. This bypasses WebKitGTK's
+/// getUserMedia entirely (it doesn't expose monitor sources and crashes when
+/// asked for one). Returns the sample rate.
+#[tauri::command]
+fn desktop_audio_start(
+    state: tauri::State<DesktopAudioState>,
+    on_chunk: Channel<InvokeResponseBody>,
+) -> Result<u32, String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Read;
+
+        // Kill any previous recorder first (e.g. share restarted quickly).
+        if let Some(mut old) = state.0.lock().unwrap().take() {
+            let _ = old.kill();
+            let _ = old.wait();
+        }
+
+        let sink = std::process::Command::new("pactl")
+            .arg("get-default-sink")
+            .output()
+            .map_err(|e| format!("pactl not available: {e}"))?;
+        let sink = String::from_utf8_lossy(&sink.stdout).trim().to_string();
+        if sink.is_empty() {
+            return Err("no default audio output (pactl get-default-sink returned nothing)".into());
+        }
+        let device = format!("{sink}.monitor");
+
+        let mut child = std::process::Command::new("parec")
+            .args([
+                "--device", &device,
+                "--format=s16le",
+                "--rate=48000",
+                "--channels=2",
+                "--latency-msec=20",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("parec failed to start: {e}"))?;
+        let mut stdout = child.stdout.take().ok_or("parec has no stdout")?;
+        *state.0.lock().unwrap() = Some(child);
+
+        // on_chunk is unused now that desktop audio rides the native transport
+        // (it fans out to peers in Rust, not through the webview).
+        let _ = on_chunk;
+        std::thread::spawn(move || {
+            // 20ms of s16le stereo @48kHz = 48000 * 0.02 * 2ch * 2B = 3840 bytes.
+            let mut buf = vec![0u8; 3840];
+            loop {
+                let mut filled = 0;
+                while filled < buf.len() {
+                    match stdout.read(&mut buf[filled..]) {
+                        Ok(0) => return, // parec exited (killed by desktop_audio_stop)
+                        Ok(n) => filled += n,
+                        Err(_) => return,
+                    }
+                }
+                // Downmix stereo → mono i16-LE (the mixer, like the mic path, is
+                // mono), then fan out to remote peers as desktop-audio (tag 2).
+                let mut mono = Vec::with_capacity(buf.len() / 2);
+                for st in buf.chunks_exact(4) {
+                    let l = i16::from_le_bytes([st[0], st[1]]) as i32;
+                    let r = i16::from_le_bytes([st[2], st[3]]) as i32;
+                    mono.extend_from_slice(&(((l + r) / 2) as i16).to_le_bytes());
+                }
+                rtc::broadcast_desktop_audio(48000, mono);
+            }
+        });
+        Ok(48000)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, on_chunk);
+        Err("desktop audio loopback capture is only needed/supported on Linux".into())
+    }
+}
+
+#[tauri::command]
+fn desktop_audio_stop(state: tauri::State<DesktopAudioState>) {
+    if let Some(mut child) = state.0.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+// ── native P2P transport commands (see rtc.rs for the architecture) ───────────
+
+/// Open the multiplexed rtc event channel and (re)start the transport runtime.
+/// Must be called before any other rtc_* command.
+#[tauri::command]
+fn rtc_start(state: tauri::State<RtcState>, on_event: Channel<InvokeResponseBody>) {
+    let handle = rtc::start(on_event);
+    *state.0.lock().unwrap() = Some(handle);
+}
+
+#[tauri::command]
+fn rtc_set_ice_servers(state: tauri::State<RtcState>, json: String) -> Result<(), String> {
+    let handle = state.0.lock().unwrap().clone();
+    handle.ok_or("rtc not started")?.set_ice_servers_json(&json)
+}
+
+#[tauri::command]
+fn rtc_create_peer(state: tauri::State<RtcState>, peer_id: String, initiator: bool) -> Result<(), String> {
+    let handle = state.0.lock().unwrap().clone();
+    handle.ok_or("rtc not started")?.create_peer(peer_id, initiator);
+    Ok(())
+}
+
+#[tauri::command]
+fn rtc_signal_remote(
+    state: tauri::State<RtcState>,
+    peer_id: String,
+    kind: String,
+    payload: String,
+) -> Result<(), String> {
+    let handle = state.0.lock().unwrap().clone();
+    handle.ok_or("rtc not started")?.signal_remote(peer_id, kind, payload);
+    Ok(())
+}
+
+#[tauri::command]
+fn rtc_close_peer(state: tauri::State<RtcState>, peer_id: String) {
+    if let Some(h) = state.0.lock().unwrap().clone() {
+        h.close_peer(peer_id);
+    }
+}
+
+#[tauri::command]
+fn rtc_close_all(state: tauri::State<RtcState>) {
+    if let Some(h) = state.0.lock().unwrap().clone() {
+        h.close_all();
+    }
+}
+
+#[tauri::command]
+fn rtc_set_user_volume(state: tauri::State<RtcState>, peer_id: String, volume: f32) {
+    if let Some(h) = state.0.lock().unwrap().clone() {
+        h.set_user_volume(peer_id, volume);
+    }
+}
+
+/// Broadcast one JPEG video frame to all peers (camera path; screen share fans
+/// out inside Rust directly). Body = raw JPEG; headers: x-tag ("screen"|"camera"),
+/// x-w, x-h.
+#[tauri::command]
+fn rtc_broadcast_video(request: Request<'_>) -> Result<(), String> {
+    let InvokeBody::Raw(jpeg) = request.body() else {
+        return Err("expected raw JPEG body".into());
+    };
+    let header = |name: &str| -> Option<&str> {
+        request.headers().get(name).and_then(|v| v.to_str().ok())
+    };
+    let tag = match header("x-tag") {
+        Some("screen") => 1u8,
+        Some("camera") => 2u8,
+        _ => return Err("bad x-tag".into()),
+    };
+    let w: u32 = header("x-w").and_then(|v| v.parse().ok()).ok_or("bad x-w")?;
+    let h: u32 = header("x-h").and_then(|v| v.parse().ok()).ok_or("bad x-h")?;
+    rtc::broadcast_video_frame(tag, w, h, jpeg.clone());
+    Ok(())
+}
+
+/// Probe TURN reachability natively (replaces the browser testTurnConnectivity
+/// internals — WebKitGTK has no RTCPeerConnection). Returns a summary the JS
+/// wrapper reshapes for the settings UI.
+#[tauri::command]
+async fn rtc_test_turn(ice_servers_json: String) -> Result<rtc::TurnProbe, String> {
+    rtc::test_turn(ice_servers_json).await
+}
+
+/// Push-based native screen capture: spawns a worker thread that grabs, encodes
+/// and ships frames at the requested rate over a binary channel — replacing the
+/// old JS-driven poll (`capture_screen_frame`), whose per-frame invoke + base64
+/// round-trip capped the effective frame rate at roughly half the target.
+///
+/// Each message is: 8-byte header (u32-LE width, u32-LE height) + raw JPEG bytes.
+/// An unchanged frame (hash dedup) sends nothing. The loop exits when a newer
+/// start bumps the generation counter, or `screen_capture_stop` is called, or
+/// the channel dies (webview reloaded).
+#[tauri::command]
+fn screen_capture_start(
+    source_id: String,
+    max_width: u32,
+    jpeg_quality: u8,
+    fps: u32,
+    state: tauri::State<ScreenCastState>,
+    on_frame: Channel<InvokeResponseBody>,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+
+    let generation = state.0.clone();
+    let my_gen = generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let frame_budget = std::time::Duration::from_millis(1000 / fps.clamp(1, 60) as u64);
+
+    // Two-stage pipeline: a capture thread grabs frames at the target rate and a
+    // separate encode thread compresses + ships them. Sequentially (the previous
+    // design), capture+encode summed to ~30ms/frame at 1080p — a hard ~25fps
+    // ceiling regardless of the requested fps. Pipelined, the ceiling is the
+    // slowest single stage instead of the sum. The depth-1 channel drops the
+    // newest frame when the encoder is behind (fresher > complete).
+    let (tx, rx) = std::sync::mpsc::sync_channel::<RawFrame>(1);
+
+    let cap_gen = generation.clone();
+    std::thread::spawn(move || {
+        while cap_gen.load(Ordering::SeqCst) == my_gen {
+            let started = std::time::Instant::now();
+            if let Some(raw) = capture_raw_frame(&source_id) {
+                if tx.send(raw).is_err() {
+                    return; // encoder side gone
+                }
+            }
+            let elapsed = started.elapsed();
+            if elapsed < frame_budget {
+                std::thread::sleep(frame_budget - elapsed);
+            }
+        }
+    });
+
+    std::thread::spawn(move || {
+        let mut last_hash: Option<u64> = None;
+        // Lightweight throughput log while a share is running (frames actually
+        // sent to the webview) — makes fps regressions diagnosable from the console.
+        let mut sent: u32 = 0;
+        let mut window = std::time::Instant::now();
+        while generation.load(Ordering::SeqCst) == my_gen {
+            let Ok(raw) = rx.recv_timeout(std::time::Duration::from_millis(250)) else {
+                continue; // idle poll so a generation bump still exits the loop
+            };
+            let hash = frame_hash(&raw.bgra);
+            if last_hash == Some(hash) {
+                continue;
+            }
+            last_hash = Some(hash);
+            if let Some((jpeg, w, h)) =
+                encode_bgra_to_jpeg(raw.bgra, raw.w, raw.h, max_width, jpeg_quality)
+            {
+                // Fan out to remote viewers over the native transport (screen tag),
+                // then to the local self-preview canvas via on_frame.
+                rtc::broadcast_video_frame(1, w, h, jpeg.clone());
+                let mut msg = Vec::with_capacity(8 + jpeg.len());
+                msg.extend_from_slice(&w.to_le_bytes());
+                msg.extend_from_slice(&h.to_le_bytes());
+                msg.extend_from_slice(&jpeg);
+                if on_frame.send(InvokeResponseBody::Raw(msg)).is_err() {
+                    return; // frontend went away
+                }
+                sent += 1;
+                if window.elapsed() >= std::time::Duration::from_secs(5) {
+                    eprintln!("[screencast] {} fps sent", sent / 5);
+                    sent = 0;
+                    window = std::time::Instant::now();
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn screen_capture_stop(state: tauri::State<ScreenCastState>) {
+    // Bumping the generation makes the worker loop exit on its next iteration.
+    state.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[tauri::command]
 fn capture_screen_frame(
     source_id: String,
     max_width: u32,
     jpeg_quality: u8,
+    force: bool,
     state: tauri::State<ScreenCaptureState>,
 ) -> Option<ScreenFrame> {
     let raw = capture_raw_frame(&source_id)?;
     let hash = frame_hash(&raw.bgra);
     let mut hashes = state.last_hashes.lock().unwrap();
-    let unchanged = hashes.get(&source_id).copied() == Some(hash);
+    // `force` bypasses the unchanged-frame check: last_hashes lives for the whole
+    // app process, so without it, re-sharing an unchanged screen right after
+    // stopping a previous share would wrongly look like a capture failure on the
+    // very first frame of the new session.
+    let unchanged = !force && hashes.get(&source_id).copied() == Some(hash);
     hashes.insert(source_id, hash);
     drop(hashes);
     if unchanged {
@@ -432,113 +1007,323 @@ fn capture_screen_frame(
     encode_bgra_to_frame(raw.bgra, raw.w, raw.h, max_width, jpeg_quality)
 }
 
+/// Monitor rects, primary first — the ordering the picker's `screen:<i>` ids and
+/// `capture_raw_monitor(i)` must agree on.
 #[cfg(target_os = "windows")]
-fn capture_raw_monitor(index: u32) -> Option<RawFrame> {
+fn win_monitor_rects() -> Vec<windows::Win32::Foundation::RECT> {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
-        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
-        EnumDisplayMonitors, GetDC, GetDIBits, ReleaseDC, SelectObject,
-        BITMAPINFO, BITMAPINFOHEADER, HDC, HGDIOBJ, HMONITOR, DIB_RGB_COLORS, SRCCOPY,
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
     };
-
-    struct MData { idx: u32, cur: u32, rect: RECT }
-
-    unsafe extern "system" fn mon_cb(
-        _: HMONITOR, _: HDC, lp: *mut RECT, param: LPARAM,
-    ) -> BOOL {
-        let d = &mut *(param.0 as *mut MData);
-        if d.cur == d.idx { d.rect = *lp; }
-        d.cur += 1;
+    const MONITORINFOF_PRIMARY: u32 = 1;
+    struct Acc { primary: Vec<RECT>, others: Vec<RECT> }
+    unsafe extern "system" fn cb(hm: HMONITOR, _: HDC, _: *mut RECT, param: LPARAM) -> BOOL {
+        let acc = &mut *(param.0 as *mut Acc);
+        let mut mi = MONITORINFO { cbSize: core::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if GetMonitorInfoW(hm, &mut mi).as_bool() {
+            if mi.dwFlags & MONITORINFOF_PRIMARY != 0 { acc.primary.push(mi.rcMonitor); }
+            else { acc.others.push(mi.rcMonitor); }
+        }
         BOOL(1)
     }
+    let mut acc = Acc { primary: Vec::new(), others: Vec::new() };
+    unsafe { let _ = EnumDisplayMonitors(None, None, Some(cb), LPARAM(&mut acc as *mut _ as isize)); }
+    let mut out = acc.primary;
+    out.extend(acc.others);
+    out
+}
 
-    let mut mdata = MData { idx: index, cur: 0, rect: RECT::default() };
+/// Draw the current mouse cursor onto a memory DC at (cursor - origin), so the
+/// captured frame includes it (GDI BitBlt never captures the cursor). Matches
+/// the XFixes cursor overlay on Linux.
+#[cfg(target_os = "windows")]
+unsafe fn win_draw_cursor(mdc: windows::Win32::Graphics::Gdi::HDC, origin_x: i32, origin_y: i32) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DrawIconEx, GetCursorInfo, GetIconInfo, CURSORINFO, CURSOR_SHOWING, DI_NORMAL, HICON, ICONINFO,
+    };
+    let mut ci = CURSORINFO { cbSize: core::mem::size_of::<CURSORINFO>() as u32, ..Default::default() };
+    if GetCursorInfo(&mut ci).is_err() || ci.flags.0 & CURSOR_SHOWING.0 == 0 {
+        return;
+    }
+    // HCURSOR and HICON are the same underlying handle; the windows crate types
+    // them separately, so convert explicitly for GetIconInfo/DrawIconEx.
+    let hicon = HICON(ci.hCursor.0);
+    // Subtract the cursor hotspot so the pointer tip lands correctly.
+    let mut ii = ICONINFO::default();
+    let (mut hx, mut hy) = (0i32, 0i32);
+    if GetIconInfo(hicon, &mut ii).is_ok() {
+        hx = ii.xHotspot as i32;
+        hy = ii.yHotspot as i32;
+        use windows::Win32::Graphics::Gdi::DeleteObject;
+        use windows::Win32::Graphics::Gdi::HGDIOBJ;
+        if !ii.hbmColor.is_invalid() { let _ = DeleteObject(HGDIOBJ(ii.hbmColor.0)); }
+        if !ii.hbmMask.is_invalid() { let _ = DeleteObject(HGDIOBJ(ii.hbmMask.0)); }
+    }
+    let x = ci.ptScreenPos.x - origin_x - hx;
+    let y = ci.ptScreenPos.y - origin_y - hy;
+    let _ = DrawIconEx(mdc, x, y, hicon, 0, 0, 0, None, DI_NORMAL);
+}
+
+/// Shared GDI blit → BGRA readback, with the cursor drawn in. `src` is the DC to
+/// copy from, `(sx, sy)` the top-left within it, `origin` the source rect's
+/// screen coordinates (for placing the cursor).
+#[cfg(target_os = "windows")]
+unsafe fn win_grab_bgra(
+    src: windows::Win32::Graphics::Gdi::HDC,
+    sx: i32,
+    sy: i32,
+    w: u32,
+    h: u32,
+    origin: (i32, i32),
+) -> Option<RawFrame> {
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits,
+        SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HGDIOBJ, SRCCOPY,
+    };
+    if w == 0 || h == 0 { return None; }
+    let mdc = CreateCompatibleDC(Some(src));
+    let bmp = CreateCompatibleBitmap(src, w as i32, h as i32);
+    let old = SelectObject(mdc, HGDIOBJ(bmp.0));
+    let _ = BitBlt(mdc, 0, 0, w as i32, h as i32, Some(src), sx, sy, SRCCOPY);
+    win_draw_cursor(mdc, origin.0, origin.1);
+
+    let mut bmi = core::mem::zeroed::<BITMAPINFO>();
+    bmi.bmiHeader.biSize = core::mem::size_of::<BITMAPINFOHEADER>() as u32;
+    bmi.bmiHeader.biWidth = w as i32;
+    bmi.bmiHeader.biHeight = -(h as i32);
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = 0u32; // BI_RGB
+
+    let mut px = vec![0u8; (w * h * 4) as usize];
+    GetDIBits(mdc, bmp, 0, h, Some(px.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
+
+    let _ = SelectObject(mdc, old);
+    let _ = DeleteObject(HGDIOBJ(bmp.0));
+    let _ = DeleteDC(mdc);
+    Some(RawFrame { bgra: px, w, h })
+}
+
+#[cfg(target_os = "windows")]
+fn capture_raw_monitor(index: u32) -> Option<RawFrame> {
+    use windows::Win32::Graphics::Gdi::{GetDC, ReleaseDC};
+    let rects = win_monitor_rects();
+    let r = rects.get(index as usize)?;
+    let (w, h) = ((r.right - r.left) as u32, (r.bottom - r.top) as u32);
     unsafe {
-        let _ = EnumDisplayMonitors(
-            None,
-            None,
-            Some(mon_cb),
-            LPARAM(&mut mdata as *mut MData as isize),
-        );
-        let r = mdata.rect;
-        let w = (r.right - r.left) as u32;
-        let h = (r.bottom - r.top) as u32;
-        if w == 0 || h == 0 { return None; }
-
         let sdc = GetDC(None);
-        let mdc = CreateCompatibleDC(Some(sdc));
-        let bmp = CreateCompatibleBitmap(sdc, w as i32, h as i32);
-        let old = SelectObject(mdc, HGDIOBJ(bmp.0));
-        let _ = BitBlt(mdc, 0, 0, w as i32, h as i32, Some(sdc), r.left, r.top, SRCCOPY);
-
-        let mut bmi = core::mem::zeroed::<BITMAPINFO>();
-        bmi.bmiHeader.biSize = core::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bmiHeader.biWidth = w as i32;
-        bmi.bmiHeader.biHeight = -(h as i32);
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = 0u32; // BI_RGB
-
-        let mut px = vec![0u8; (w * h * 4) as usize];
-        GetDIBits(mdc, bmp, 0, h, Some(px.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
-
-        let _ = SelectObject(mdc, old);
-        let _ = DeleteObject(HGDIOBJ(bmp.0));
-        let _ = DeleteDC(mdc);
+        let frame = win_grab_bgra(sdc, r.left, r.top, w, h, (r.left, r.top));
         let _ = ReleaseDC(None, sdc);
-
-        Some(RawFrame { bgra: px, w, h })
+        frame
     }
 }
 
 #[cfg(target_os = "windows")]
 fn capture_raw_window(hwnd_val: isize) -> Option<RawFrame> {
-    use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Gdi::{
-        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
-        GetDC, GetDIBits, ReleaseDC, SelectObject,
-        BITMAPINFO, BITMAPINFOHEADER, HGDIOBJ, DIB_RGB_COLORS, SRCCOPY,
-    };
+    use windows::Win32::Foundation::{HWND, POINT, RECT};
+    use windows::Win32::Graphics::Gdi::{ClientToScreen, GetDC, ReleaseDC};
     use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
     unsafe {
         let hwnd = HWND(hwnd_val as *mut _);
         let mut rect = RECT::default();
         let _ = GetClientRect(hwnd, &mut rect);
-        let w = (rect.right - rect.left) as u32;
-        let h = (rect.bottom - rect.top) as u32;
-        if w == 0 || h == 0 { return None; }
-
+        let (w, h) = ((rect.right - rect.left) as u32, (rect.bottom - rect.top) as u32);
+        // Client origin in screen coords, so the cursor overlay lands correctly.
+        let mut origin = POINT { x: 0, y: 0 };
+        let _ = ClientToScreen(hwnd, &mut origin);
         let wdc = GetDC(Some(hwnd));
-        let mdc = CreateCompatibleDC(Some(wdc));
-        let bmp = CreateCompatibleBitmap(wdc, w as i32, h as i32);
-        let old = SelectObject(mdc, HGDIOBJ(bmp.0));
-        let _ = BitBlt(mdc, 0, 0, w as i32, h as i32, Some(wdc), 0, 0, SRCCOPY);
-
-        let mut bmi = core::mem::zeroed::<BITMAPINFO>();
-        bmi.bmiHeader.biSize = core::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bmiHeader.biWidth = w as i32;
-        bmi.bmiHeader.biHeight = -(h as i32);
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = 0u32; // BI_RGB
-
-        let mut px = vec![0u8; (w * h * 4) as usize];
-        GetDIBits(mdc, bmp, 0, h, Some(px.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
-
-        let _ = SelectObject(mdc, old);
-        let _ = DeleteObject(HGDIOBJ(bmp.0));
-        let _ = DeleteDC(mdc);
+        let frame = win_grab_bgra(wdc, 0, 0, w, h, (origin.x, origin.y));
         let _ = ReleaseDC(Some(hwnd), wdc);
-
-        Some(RawFrame { bgra: px, w, h })
+        frame
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+// Direct X11 capture (no xdg-desktop-portal involved) — the fallback path used
+// when the browser's own getDisplayMedia() has no ScreenCast portal to call
+// (e.g. Cinnamon/MATE/XFCE on X11, which ship no portal backend implementing
+// org.freedesktop.portal.ScreenCast at all).
+
+/// One monitor as reported by RandR: its pixel rect on the root window.
+#[cfg(target_os = "linux")]
+struct X11Monitor { x: i16, y: i16, w: u16, h: u16 }
+
+/// Monitors ordered primary-first, so `screen:0` is always the primary display —
+/// both `list_capture_sources` and `capture_raw_monitor` share this ordering so a
+/// picked index means the same thing on both sides.
+#[cfg(target_os = "linux")]
+fn x11_monitors(
+    conn: &x11rb::rust_connection::RustConnection,
+    root: x11rb::protocol::xproto::Window,
+) -> Vec<X11Monitor> {
+    use x11rb::protocol::randr::ConnectionExt as _;
+    let Ok(cookie) = conn.randr_get_monitors(root, true) else { return Vec::new() };
+    let Ok(reply) = cookie.reply() else { return Vec::new() };
+    let mut mons: Vec<(bool, X11Monitor)> = reply
+        .monitors
+        .iter()
+        .map(|m| (m.primary, X11Monitor { x: m.x, y: m.y, w: m.width, h: m.height }))
+        .collect();
+    mons.sort_by(|a, b| b.0.cmp(&a.0)); // primary (true) first
+    mons.into_iter().map(|(_, m)| m).collect()
+}
+
+#[cfg(target_os = "linux")]
+thread_local! {
+    // Reused across frames. Opening a fresh X11 connection per frame (socket +
+    // auth + setup handshake) was the dominant per-frame cost and cratered the
+    // capture frame rate — cache it per worker thread instead.
+    static X11_CONN: std::cell::RefCell<Option<(x11rb::rust_connection::RustConnection, usize)>>
+        = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with a cached X11 connection, (re)connecting on first use or if the
+/// previous connection has died (a `None` from `f` is treated as a possible dead
+/// connection and retried once on a fresh one).
+#[cfg(target_os = "linux")]
+fn with_x11<T>(
+    f: impl Fn(&x11rb::rust_connection::RustConnection, usize) -> Option<T>,
+) -> Option<T> {
+    fn connect() -> Option<(x11rb::rust_connection::RustConnection, usize)> {
+        use x11rb::protocol::xfixes::ConnectionExt as _;
+        let (conn, screen_num) = x11rb::connect(None).ok()?;
+        // XFixes requires a version handshake once per connection before use
+        // (needed for cursor capture); ignore failure — we just skip the cursor then.
+        let _ = conn.xfixes_query_version(5, 0).ok().and_then(|c| c.reply().ok());
+        Some((conn, screen_num))
+    }
+    X11_CONN.with(|cell| {
+        if cell.borrow().is_none() {
+            *cell.borrow_mut() = connect();
+        }
+        if let Some((conn, screen_num)) = cell.borrow().as_ref() {
+            if let Some(v) = f(conn, *screen_num) {
+                return Some(v);
+            }
+        }
+        // Retry once on a fresh connection — the cached one may have dropped.
+        *cell.borrow_mut() = connect();
+        let slot = cell.borrow();
+        let (conn, screen_num) = slot.as_ref()?;
+        f(conn, *screen_num)
+    })
+}
+
+/// Alpha-blend the current mouse cursor into a captured frame (X11's GetImage
+/// never includes it). `region_x/y` is the captured area's origin in root-window
+/// coordinates. Only handles 4-byte-per-pixel buffers (the normal case); silently
+/// skips otherwise — a missing cursor beats a corrupted frame.
+#[cfg(target_os = "linux")]
+fn overlay_cursor(
+    conn: &x11rb::rust_connection::RustConnection,
+    frame: &mut RawFrame,
+    region_x: i32,
+    region_y: i32,
+) {
+    use x11rb::protocol::xfixes::ConnectionExt as _;
+
+    let Ok(cookie) = conn.xfixes_get_cursor_image() else { return };
+    let Ok(cur) = cookie.reply() else { return };
+    let (fw, fh) = (frame.w as i32, frame.h as i32);
+    if frame.bgra.len() != (fw as usize) * (fh as usize) * 4 {
+        return;
+    }
+    // cur.x/y = hotspot position on the root window; top-left of the cursor sprite.
+    let ox = cur.x as i32 - cur.xhot as i32 - region_x;
+    let oy = cur.y as i32 - cur.yhot as i32 - region_y;
+    let cw = cur.width as i32;
+    for row in 0..cur.height as i32 {
+        let fy = oy + row;
+        if fy < 0 || fy >= fh {
+            continue;
+        }
+        for col in 0..cw {
+            let fx = ox + col;
+            if fx < 0 || fx >= fw {
+                continue;
+            }
+            let Some(&p) = cur.cursor_image.get((row * cw + col) as usize) else { continue };
+            let a = p >> 24;
+            if a == 0 {
+                continue;
+            }
+            // Cursor pixels are premultiplied ARGB; frame is BGRX.
+            let (r, g, b) = ((p >> 16) & 0xff, (p >> 8) & 0xff, p & 0xff);
+            let d = ((fy * fw + fx) * 4) as usize;
+            let inv = 255 - a;
+            frame.bgra[d] = (b + frame.bgra[d] as u32 * inv / 255).min(255) as u8;
+            frame.bgra[d + 1] = (g + frame.bgra[d + 1] as u32 * inv / 255).min(255) as u8;
+            frame.bgra[d + 2] = (r + frame.bgra[d + 2] as u32 * inv / 255).min(255) as u8;
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn capture_raw_monitor(index: u32) -> Option<RawFrame> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat};
+
+    with_x11(|conn, screen_num| {
+        let root = conn.setup().roots.get(screen_num)?.root;
+        let mons = x11_monitors(conn, root);
+        let mon = mons.get(index as usize)?;
+        if mon.w == 0 || mon.h == 0 {
+            return None;
+        }
+        let reply = conn
+            .get_image(ImageFormat::Z_PIXMAP, root, mon.x, mon.y, mon.w, mon.h, !0)
+            .ok()?
+            .reply()
+            .ok()?;
+        if reply.depth != 24 && reply.depth != 32 {
+            return None;
+        }
+        let mut frame = RawFrame { bgra: reply.data, w: mon.w as u32, h: mon.h as u32 };
+        overlay_cursor(conn, &mut frame, mon.x as i32, mon.y as i32);
+        Some(frame)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn capture_raw_window(xid: isize) -> Option<RawFrame> {
+    use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, Window};
+
+    let win = xid as u32 as Window;
+    with_x11(move |conn, screen_num| {
+        use x11rb::connection::Connection;
+        let geom = conn.get_geometry(win).ok()?.reply().ok()?;
+        if geom.width == 0 || geom.height == 0 {
+            return None;
+        }
+        // Capture from the window drawable itself (0,0 is its top-left). On a composited
+        // X11 desktop (Cinnamon has a compositor) the server can satisfy this even when
+        // the window is partially occluded.
+        let reply = conn
+            .get_image(ImageFormat::Z_PIXMAP, win, 0, 0, geom.width, geom.height, !0)
+            .ok()?
+            .reply()
+            .ok()?;
+        if reply.depth != 24 && reply.depth != 32 {
+            return None;
+        }
+        let mut frame = RawFrame { bgra: reply.data, w: geom.width as u32, h: geom.height as u32 };
+        // Cursor position is in root coordinates — find the window's origin on root
+        // so the cursor lands at the right spot inside the captured window.
+        if let Some(root) = conn.setup().roots.get(screen_num).map(|s| s.root) {
+            if let Ok(tc) = conn.translate_coordinates(win, root, 0, 0) {
+                if let Ok(tc) = tc.reply() {
+                    overlay_cursor(conn, &mut frame, tc.dst_x as i32, tc.dst_y as i32);
+                }
+            }
+        }
+        Some(frame)
+    })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn capture_raw_monitor(_: u32) -> Option<RawFrame> { None }
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn capture_raw_window(_: isize) -> Option<RawFrame> { None }
 
 // ── app entry point ───────────────────────────────────────────────────────────
@@ -580,6 +1365,9 @@ pub fn run() {
     builder
         .manage(AudioState(Mutex::new(None)))
         .manage(ScreenCaptureState { last_hashes: Mutex::new(HashMap::new()) })
+        .manage(DesktopAudioState(Mutex::new(None)))
+        .manage(ScreenCastState(std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0))))
+        .manage(RtcState(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -656,6 +1444,21 @@ pub fn run() {
             audio_list_input_devices,
             audio_list_output_devices,
             capture_screen_frame,
+            list_capture_sources,
+            default_audio_monitor_hint,
+            desktop_audio_start,
+            desktop_audio_stop,
+            rtc_start,
+            rtc_set_ice_servers,
+            rtc_create_peer,
+            rtc_signal_remote,
+            rtc_close_peer,
+            rtc_close_all,
+            rtc_set_user_volume,
+            rtc_broadcast_video,
+            rtc_test_turn,
+            screen_capture_start,
+            screen_capture_stop,
             autostart_is_enabled,
             autostart_set,
         ])
@@ -666,6 +1469,26 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // TEMP: run with `cargo test bench_encode -- --nocapture --ignored` to time the
+    // JPEG encode path with the current profile (checks whether opt-level is applied).
+    #[test]
+    #[ignore]
+    fn bench_encode() {
+        let (w, h) = (1920u32, 1080u32);
+        // Noisy data so JPEG has realistic entropy (solid colour encodes unrealistically fast).
+        let mut bgra = vec![0u8; (w * h * 4) as usize];
+        for (i, b) in bgra.iter_mut().enumerate() {
+            *b = ((i * 2654435761) >> 13) as u8;
+        }
+        let _ = encode_bgra_to_frame(bgra.clone(), w, h, 1280, 65); // warmup
+        let n = 30;
+        let t = std::time::Instant::now();
+        for _ in 0..n {
+            let _ = encode_bgra_to_frame(bgra.clone(), w, h, 1280, 65);
+        }
+        eprintln!("[bench] encode total = {}ms/frame over {n} iters", t.elapsed().as_millis() / n as u128);
+    }
 
     // ── encode_bgra_to_frame ──────────────────────────────────────────────────
 

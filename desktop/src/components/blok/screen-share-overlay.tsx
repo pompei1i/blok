@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useServerStore } from "@/lib/store/server-store";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { X, Minimize2, Maximize2, Monitor, LayoutGrid, Square, Volume2 } from "lucide-react";
+import { useUiSettingsStore, type ScreenShareFps, type ScreenShareResolution } from "@/lib/store/ui-settings-store";
+import { getActiveNativeVoiceEngine } from "@/lib/native-voice-engine";
+import { X, Minimize2, Maximize2, Monitor, LayoutGrid, Square, Volume2, SwitchCamera, Expand } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 /** A single screen-share <video> that owns its srcObject + audio volume. */
@@ -47,10 +49,15 @@ function ShareVideo({
 
 export function ScreenShareOverlay() {
   const { t } = useI18n();
-  const { screenSharers, watchingUserId, isScreenSharing, members, activeServerId, setWatchingUserId } =
+  const { screenSharers, watchingUserId, isScreenSharing, localScreenStream, members, activeServerId, setWatchingUserId } =
     useServerStore();
   const { user } = useAuthStore();
   const containerRef = useRef<HTMLDivElement>(null);
+  const videoWrapRef = useRef<HTMLDivElement>(null);
+  const { screenShareResolution, screenShareFps, setSetting } = useUiSettingsStore();
+  // Native (Linux) capture exposes live source/quality/fps switching; the
+  // getDisplayMedia path doesn't. Re-evaluated per render — cheap getter.
+  const nativeShare = getActiveNativeVoiceEngine()?.isNativeScreenShare() ?? false;
   const [minimized, setMinimized] = useState(false);
   const [layout, setLayout] = useState<"single" | "grid">("single");
   const [volumes, setVolumes] = useState<Record<string, number>>({});
@@ -138,6 +145,15 @@ export function ScreenShareOverlay() {
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {!minimized && !isSelfSharing && watchingUserId && layout === "single" && (
+              <button
+                onClick={() => { videoWrapRef.current?.requestFullscreen().catch(() => {}); }}
+                className="p-1 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                title={t("screenShare.fullscreen")}
+              >
+                <Expand className="w-3 h-3" />
+              </button>
+            )}
             {!minimized && sharerIds.length > 1 && (
               <button
                 onClick={() => setLayout((l) => (l === "grid" ? "single" : "grid"))}
@@ -188,13 +204,75 @@ export function ScreenShareOverlay() {
         {!minimized && (
           <div className="flex-1 bg-black overflow-hidden">
             {isSelfSharing ? (
-              <div className="flex items-center justify-center h-full text-center text-[var(--text-muted)] font-mono text-sm">
-                <div>
-                  <Monitor className="w-8 h-8 mx-auto mb-2 text-[var(--online-text)]" />
-                  <p>{t("screenShare.beingShared")}</p>
+              <div className="relative flex items-center justify-center h-full">
+                {localScreenStream ? (
+                  // Self-preview: mirror our own outgoing stream so we can see what
+                  // we're sharing. Muted to avoid a desktop-audio feedback loop.
+                  <ShareVideo
+                    stream={localScreenStream}
+                    volume={0}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : (
+                  <div className="text-center text-[var(--text-muted)] font-mono text-sm">
+                    <Monitor className="w-8 h-8 mx-auto mb-2 text-[var(--online-text)]" />
+                    <p>{t("screenShare.beingShared")}</p>
+                  </div>
+                )}
+                {/* Share control bar: source switch + live quality/fps (native
+                    capture only) and stop, grouped bottom-center like a call bar. */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-2 bg-black/70 border border-[var(--border)] rounded font-mono">
+                  {nativeShare && (
+                    <>
+                      <button
+                        onClick={() => {
+                          void (async () => {
+                            await getActiveNativeVoiceEngine()?.changeScreenShareSource();
+                            // The stream object can change when the audio choice
+                            // changes (internal restart) — refresh the self-preview.
+                            useServerStore.setState({
+                              localScreenStream: getActiveNativeVoiceEngine()?.getScreenStream() ?? null,
+                            });
+                          })();
+                        }}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-primary)] border border-[var(--border)] rounded hover:bg-[var(--bg-hover)] transition-colors"
+                        title={t("screenShare.changeSource")}
+                      >
+                        <SwitchCamera className="w-3.5 h-3.5" />
+                        {t("screenShare.source")}
+                      </button>
+                      <select
+                        value={screenShareResolution}
+                        onChange={(e) => {
+                          setSetting("screenShareResolution", e.target.value as ScreenShareResolution);
+                          void getActiveNativeVoiceEngine()?.applyNativeCaptureSettings();
+                        }}
+                        className="bg-[var(--bg-base)] text-xs text-[var(--text-primary)] border border-[var(--border)] rounded px-2 py-1.5 focus:outline-none cursor-pointer"
+                        title={t("screenShare.resolution")}
+                      >
+                        <option value="720p">720p</option>
+                        <option value="1080p">1080p</option>
+                        <option value="1440p">1440p</option>
+                        <option value="native">Native</option>
+                      </select>
+                      <select
+                        value={screenShareFps}
+                        onChange={(e) => {
+                          setSetting("screenShareFps", Number(e.target.value) as ScreenShareFps);
+                          void getActiveNativeVoiceEngine()?.applyNativeCaptureSettings();
+                        }}
+                        className="bg-[var(--bg-base)] text-xs text-[var(--text-primary)] border border-[var(--border)] rounded px-2 py-1.5 focus:outline-none cursor-pointer"
+                        title={t("screenShare.frameRate")}
+                      >
+                        <option value={15}>15 FPS</option>
+                        <option value={30}>30 FPS</option>
+                        <option value={60}>60 FPS</option>
+                      </select>
+                    </>
+                  )}
                   <button
                     onClick={() => useServerStore.getState().toggleScreenShare()}
-                    className="mt-3 px-3 py-1 bg-[var(--destructive)] text-white text-xs rounded hover:opacity-80 transition-opacity"
+                    className="px-3 py-1.5 bg-[var(--destructive)] text-white text-xs rounded hover:opacity-80 transition-opacity"
                   >
                     {t("screenShare.stop")}
                   </button>
@@ -222,7 +300,7 @@ export function ScreenShareOverlay() {
                 ))}
               </div>
             ) : watchingStream ? (
-              <div className="flex items-center justify-center h-full">
+              <div ref={videoWrapRef} className="flex items-center justify-center h-full bg-black">
                 <ShareVideo
                   stream={watchingStream}
                   volume={getVolume(watchingUserId!)}

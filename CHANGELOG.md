@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.9.43] — 2026-07-10
+
+### Added
+- **Native P2P transport (webrtc-rs)** — voice, screen share and camera now run
+  over peer connections owned in Rust instead of the browser's WebRTC. Ubuntu/Mint's
+  system WebKitGTK ships **without** `RTCPeerConnection`, so calls between people
+  never worked on Linux; the native transport is the same code path on Windows and
+  Linux, so it's universal. Data channels only — we ship our own payloads (raw i16
+  PCM for voice, JPEG frames for video); signaling stays on Supabase broadcast.
+- **Unified screen-share picker on both OSes** — our own source picker (monitors +
+  windows, live source switch, realtime resolution/FPS/quality) now runs on Windows
+  too via native GDI capture, replacing the OS getDisplayMedia picker. The mouse
+  cursor is drawn into the frame on both platforms (XFixes on Linux, GDI on Windows).
+- Desktop-audio sharing on Linux is captured natively (parec on the active output's
+  monitor) and fanned out to peers — WebKitGTK can't expose monitor sources at all.
+
+### Changed
+- Screen-capture encode is dramatically faster (fused BGRA→RGB + nearest-neighbour
+  downscale, SIMD JPEG, dependency opt-level in dev) — ~460ms/frame → ~16ms.
+- Native TURN connectivity test (settings → audio) — the browser probe couldn't run
+  on Linux (no `RTCPeerConnection`); it now gathers ICE natively via webrtc-rs.
+
+### Fixed
+- Linux launch/media issues: D-Bus single-instance panic, missing `libasound2-dev`,
+  light-themed native `<select>` dropdowns.
+
+### Note
+- **b.ai.t is paused for the beta** (Anthropic credits) — the assistant shows
+  "coming soon" and is disabled behind a single flag; the whole pipeline is intact.
+
 ## [0.9.42] — 2026-07-03
 
 ### Fixed

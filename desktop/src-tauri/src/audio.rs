@@ -102,6 +102,27 @@ pub fn list_output_devices() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Command handle of the currently running engine, for callers that live outside
+/// Tauri state (the native rtc transport ingests remote PCM straight into the
+/// mixer from its own runtime). Set on engine start; sends after the engine
+/// stops are silently dropped (the channel's receiver is gone).
+static MIXER_TX: std::sync::Mutex<Option<std::sync::mpsc::SyncSender<Cmd>>> =
+    std::sync::Mutex::new(None);
+
+/// Feed a remote participant's samples into the playback mixer (rtc path).
+pub fn mixer_add_samples(from: String, samples: Vec<f32>) {
+    if let Some(tx) = MIXER_TX.lock().unwrap().as_ref() {
+        let _ = tx.try_send(Cmd::AddSamples { from, samples });
+    }
+}
+
+/// Drop a remote participant's mixer buffer (rtc path).
+pub fn mixer_remove_peer(peer_id: &str) {
+    if let Some(tx) = MIXER_TX.lock().unwrap().as_ref() {
+        let _ = tx.try_send(Cmd::RemovePeer(peer_id.to_string()));
+    }
+}
+
 impl NativeAudio {
     /// Start the native audio engine. Returns `(engine, actual_sample_rate)`.
     /// Pass `None` for either device to use the system default.
@@ -114,6 +135,7 @@ impl NativeAudio {
         echo_cancellation: bool,
     ) -> Result<(Self, u32), String> {
         let (tx, rx) = std::sync::mpsc::sync_channel::<Cmd>(128);
+        *MIXER_TX.lock().unwrap() = Some(tx.clone());
         let (rate_tx, rate_rx) = std::sync::mpsc::sync_channel::<u32>(1);
         std::thread::Builder::new()
             .name("blok-audio".into())
@@ -377,6 +399,9 @@ fn run_audio(
                 for &s in frame.iter() {
                     bytes.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32_767.0) as i16).to_le_bytes());
                 }
+                // Fan out the same frame to connected native-rtc peers (no-op
+                // when no rtc session is active). Mute already gated above.
+                crate::rtc::broadcast_mic(actual_rate as u32, bytes.clone());
                 let _ = on_chunk.send(InvokeResponseBody::Raw(bytes));
                 let _ = app_in.emit("audio-speaking", speaking);
             }

@@ -5,6 +5,7 @@ import { BAIT_TOOLS, executeTool } from "../bait-tools";
 import { useServerStore } from "./server-store";
 import { useAuthStore } from "./auth-store";
 import { supabase } from "../supabaseClient";
+import { translate } from "../i18n";
 
 export interface BaitMessage {
   id: string;
@@ -42,6 +43,11 @@ const RATE_WINDOW_MS = 60_000;
 // (the server skips the cap for them as well; see the bait_admin_bypass migration).
 export const BAIT_DAILY_LIMIT = 10;
 const DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Beta gate: b.ai.t is turned off while the Anthropic key has no credits. The
+// whole pipeline (proxy, tools, UI) is left intact — to re-enable, set this to
+// false and top up ANTHROPIC_API_KEY on the "bait" Edge Function.
+export const BAIT_DISABLED = true;
 
 const pruneDaily = (log: number[]): number[] => {
   const cutoff = Date.now() - DAILY_WINDOW_MS;
@@ -127,6 +133,15 @@ export const useBaitStore = create<BaitStore>()(
               [key]: [...(s.messagesByServer[key] ?? []), ...newMsgs],
             },
           }));
+
+        // Beta gate — echo the prompt and a "coming soon" note, skip the proxy.
+        if (BAIT_DISABLED) {
+          addMsgs(
+            { id: crypto.randomUUID(), role: "user", content: text.trim() },
+            { id: crypto.randomUUID(), role: "assistant", content: translate("bait.comingSoonMessage") },
+          );
+          return;
+        }
 
         // Admins bypass every beta limit (the server skips the cap for them too).
         const isAdmin = useAuthStore.getState().user?.isAdmin ?? false;

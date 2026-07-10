@@ -1,4 +1,11 @@
-import type { CameraQuality, Language, ThemeMode, ScreenShareFps } from "@/lib/store/ui-settings-store";
+import type {
+  CameraQuality,
+  Language,
+  ThemeMode,
+  ScreenShareFps,
+  ScreenShareResolution,
+  ScreenShareQuality,
+} from "@/lib/store/ui-settings-store";
 
 /**
  * Working copy of the UI settings edited across the settings tabs. Committed
@@ -9,6 +16,8 @@ export type SettingsDraft = {
   mirrorCamera: boolean;
   cameraQuality: CameraQuality;
   screenShareFps: ScreenShareFps;
+  screenShareResolution: ScreenShareResolution;
+  screenShareQuality: ScreenShareQuality;
   cameraDevice: string;
   noiseSuppression: boolean;
   echoCancellation: boolean;

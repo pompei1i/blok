@@ -14,6 +14,22 @@ edition = "2021"
 name = "blok_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Screen-capture encode (image crate's JPEG + resize) is generic, so its hot code
+# monomorphizes into THIS crate — a plain dev build leaves it unoptimized and screen
+# share crawls (~450ms/frame vs ~50ms optimized). opt-level=2 on our crate fixes that
+# while keeping dev compiles reasonable; deps get full opt too.
+# incremental=false: opt-level>0 + incremental + Rust's bundled lld linker emits
+# unresolved "hidden symbol .llvm.*" link errors on this dependency graph (webrtc).
+# Release already sets incremental=false — matching it here fixes the dev link.
+[profile.dev]
+opt-level = 2
+incremental = false
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test]
+opt-level = 2
+incremental = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -26,8 +42,15 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cpal = "0.15"
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# SIMD JPEG encoder (pure Rust, no system libs) for the screen-capture frame path.
+jpeg-encoder = { version = "0.6", features = ["simd"] }
 base64 = "0.22"
+# Native P2P transport (data channels only) — replaces browser RTCPeerConnection,
+# which Ubuntu/Mint's system WebKitGTK is compiled without. Pure Rust, same code
+# path on Windows and Linux.
+webrtc = "0.17"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+bytes = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = [
@@ -36,6 +59,7 @@ windows = { version = "0.61", features = [
     "Win32_System_Registry",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
 ] }
 
 # Matches the webkit2gtk version wry/tauri already pulls in on Linux (see Cargo.lock) — must
@@ -43,4 +67,5 @@ windows = { version = "0.61", features = [
 # types (ours vs wry's) won't be interchangeable.
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
+x11rb = { version = "0.13", features = ["randr", "xfixes"] }
 
