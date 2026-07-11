@@ -44,10 +44,10 @@ const RATE_WINDOW_MS = 60_000;
 export const BAIT_DAILY_LIMIT = 10;
 const DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-// Beta gate: b.ai.t is turned off while the Anthropic key has no credits. The
-// whole pipeline (proxy, tools, UI) is left intact — to re-enable, set this to
-// false and top up ANTHROPIC_API_KEY on the "bait" Edge Function.
-export const BAIT_DISABLED = true;
+// Beta gate: flip to true to show a "coming soon" state and skip the proxy
+// entirely (the whole pipeline stays intact). b.ai.t now runs on Gemini's free
+// tier via the "bait" Edge Function (GEMINI_API_KEY secret).
+export const BAIT_DISABLED = false;
 
 const pruneDaily = (log: number[]): number[] => {
   const cutoff = Date.now() - DAILY_WINDOW_MS;

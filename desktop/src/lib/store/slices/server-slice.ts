@@ -51,12 +51,12 @@ export interface ServerSlice {
   loadProfilesFor: (userIds: string[]) => Promise<void>;
   setActiveServer: (serverId: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
-  createServer: (data: { name: string; description?: string }) => Promise<void>;
+  createServer: (data: { name: string; description?: string }) => Promise<string>;
   createChannel: (data: { serverId: string; name: string; type: "text" | "voice"; categoryId?: string }) => Promise<void>;
   deleteChannel: (channelId: string) => Promise<void>;
   renameChannel: (channelId: string, name: string) => Promise<void>;
   renameServer: (serverId: string, name: string) => Promise<void>;
-  createCategory: (serverId: string, name: string) => Promise<void>;
+  createCategory: (serverId: string, name: string) => Promise<string>;
   renameCategory: (categoryId: string, name: string) => Promise<void>;
   deleteCategory: (categoryId: string) => Promise<void>;
   reorderCategories: (serverId: string, items: { id: string; position: number }[]) => Promise<void>;
@@ -696,6 +696,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
     if (error) { console.error("Create server failed", error); throw error; }
     if (!result?.ok) { const e = new Error(result?.reason ?? "create_server failed"); console.error(e); throw e; }
     // State update handled by the realtime INSERT subscription to avoid duplicates.
+    return result.server_id as string;
   },
 
   createChannel: async (data) => {
@@ -751,10 +752,11 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
   createCategory: async (serverId, name) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    const { error } = await supabase.rpc("create_category", { p_server_id: serverId, p_name: trimmed });
+    if (!trimmed) throw new Error("empty category name");
+    const { data: row, error } = await supabase.rpc("create_category", { p_server_id: serverId, p_name: trimmed });
     if (error) { console.error("Create category failed", error); throw error; }
     // State update handled by the realtime INSERT subscription to avoid duplicates.
+    return (row?.id ?? row?.[0]?.id) as string;
   },
 
   renameCategory: async (categoryId, name) => {

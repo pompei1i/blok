@@ -16,25 +16,90 @@ export interface ToolResult {
 export const BAIT_TOOLS: Anthropic.Tool[] = [
   {
     name: "create_server",
-    description: "Create a new server (workspace) in Blok.",
+    description:
+      "Create a new server (workspace) in Blok. You may also lay out its initial categories, each with its own channels, in one call — prefer doing this so a new server isn't empty.",
     input_schema: {
       type: "object" as const,
       properties: {
         name: { type: "string", description: "Name for the new server" },
+        categories: {
+          type: "array",
+          description: "Optional initial categories to create inside the new server, in order.",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Category name" },
+              channels: {
+                type: "array",
+                description: "Channels to create inside this category.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string", description: "Channel name (no spaces, lowercase)" },
+                    type: { type: "string", enum: ["text", "voice"], description: "Channel type" },
+                  },
+                  required: ["name", "type"],
+                },
+              },
+            },
+            required: ["name"],
+          },
+        },
       },
       required: ["name"],
     },
   },
   {
     name: "create_channel",
-    description: "Create a new channel in the currently active server.",
+    description: "Create a new channel in the currently active server, optionally inside a category.",
     input_schema: {
       type: "object" as const,
       properties: {
         name: { type: "string", description: "Name for the new channel (no spaces, lowercase)" },
         type: { type: "string", enum: ["text", "voice"], description: "Channel type" },
+        category: { type: "string", description: "Optional category name to place the channel in (must already exist)" },
       },
       required: ["name", "type"],
+    },
+  },
+  {
+    name: "create_category",
+    description: "Create a new category (channel group) in the currently active server.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Category name" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "create_role",
+    description: "Create a new role in the currently active server. Roles are cosmetic here (name + colour); permissions default to none.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Role name" },
+        color: { type: "string", description: "Optional hex colour, e.g. #e74c3c" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "set_server_avatar",
+    description:
+      "Set the active server's avatar to a generated icon. Pick a seed (any text — the server name or a theme works well) and an art style; the icon is deterministic from the seed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        seed: { type: "string", description: "Text seed the avatar is generated from" },
+        style: {
+          type: "string",
+          enum: ["shapes", "identicon", "bottts", "thumbs", "glass", "rings", "icons", "initials"],
+          description: "Avatar art style",
+        },
+      },
+      required: ["seed"],
     },
   },
   {
@@ -129,23 +194,82 @@ export async function executeTool(
   switch (name) {
     case "create_server": {
       const serverName = input.name as string;
-      await useServerStore.getState().createServer({ name: serverName });
-      return { content: `Server "${serverName}" created.`, label: `✓ server "${serverName}" created` };
+      const store = useServerStore.getState();
+      const serverId = await store.createServer({ name: serverName });
+
+      // Optional initial layout: categories, each with its own channels. IDs flow
+      // within this one call (createServer/createCategory return their new ids), so
+      // it works on the brand-new server without waiting for realtime state.
+      const cats = (input.categories as Array<{ name?: string; channels?: Array<{ name?: string; type?: string }> }>) ?? [];
+      let catCount = 0;
+      let chCount = 0;
+      for (const cat of cats) {
+        if (!cat?.name) continue;
+        try {
+          const categoryId = await store.createCategory(serverId, cat.name);
+          catCount++;
+          for (const ch of cat.channels ?? []) {
+            if (!ch?.name) continue;
+            const chName = String(ch.name).toLowerCase().replace(/\s+/g, "-");
+            const chType = ch.type === "voice" ? "voice" : "text";
+            await store.createChannel({ serverId, name: chName, type: chType, categoryId });
+            chCount++;
+          }
+        } catch (e) {
+          console.error("bait create_server: nested creation failed", e);
+        }
+      }
+      const extra = catCount ? ` with ${catCount} categor${catCount === 1 ? "y" : "ies"}, ${chCount} channel${chCount === 1 ? "" : "s"}` : "";
+      return { content: `Server "${serverName}" created${extra}.`, label: `✓ server "${serverName}" created${extra}` };
     }
 
     case "create_channel": {
       const channelName = (input.name as string).toLowerCase().replace(/\s+/g, "-");
       const channelType = (input.type as "text" | "voice") ?? "text";
       if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      let categoryId: string | undefined;
+      const catName = input.category as string | undefined;
+      if (catName) {
+        const cats = useServerStore.getState().categories[ctx.serverId] ?? [];
+        categoryId = cats.find((c) => c.name.toLowerCase() === catName.toLowerCase())?.id;
+        if (!categoryId) return { content: `Category "${catName}" not found. Create it first.`, label: "✗ category not found" };
+      }
       await useServerStore.getState().createChannel({
         serverId: ctx.serverId,
         name: channelName,
         type: channelType,
+        categoryId,
       });
       return {
-        content: `Channel "${channelName}" (${channelType}) created.`,
+        content: `Channel "${channelName}" (${channelType})${catName ? ` in "${catName}"` : ""} created.`,
         label: `✓ channel #${channelName} created`,
       };
+    }
+
+    case "create_category": {
+      if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      const catName = input.name as string;
+      await useServerStore.getState().createCategory(ctx.serverId, catName);
+      return { content: `Category "${catName}" created.`, label: `✓ category "${catName}" created` };
+    }
+
+    case "create_role": {
+      if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      const roleName = input.name as string;
+      const color = (input.color as string | undefined)?.trim() || undefined;
+      await useServerStore.getState().createRole({ serverId: ctx.serverId, name: roleName, color, permissions: 0 });
+      return { content: `Role "${roleName}" created.`, label: `✓ role "${roleName}" created` };
+    }
+
+    case "set_server_avatar": {
+      if (!ctx.serverId) return { content: "No active server.", label: "✗ no active server" };
+      const seed = (input.seed as string) || "blok";
+      const allowed = ["shapes", "identicon", "bottts", "thumbs", "glass", "rings", "icons", "initials"];
+      const style = allowed.includes(input.style as string) ? (input.style as string) : "shapes";
+      // DiceBear: free, keyless, deterministic avatars served as a plain image URL.
+      const url = `https://api.dicebear.com/9.x/${style}/png?seed=${encodeURIComponent(seed)}`;
+      await useServerStore.getState().updateServerIcon(ctx.serverId, url);
+      return { content: `Server avatar updated (${style}).`, label: `✓ server avatar set` };
     }
 
     case "translate": {
