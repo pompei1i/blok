@@ -57,6 +57,7 @@ export function GroupSidebar() {
     deleteCategory,
     reorderCategories,
     reorderChannels,
+    deleteServer,
   } = useServerStore(
     useShallow((s) => ({
       servers: s.servers,
@@ -84,6 +85,7 @@ export function GroupSidebar() {
       deleteCategory: s.deleteCategory,
       reorderCategories: s.reorderCategories,
       reorderChannels: s.reorderChannels,
+      deleteServer: s.deleteServer,
     })),
   );
   const { user } = useAuthStore();
@@ -129,8 +131,20 @@ export function GroupSidebar() {
   const canManageChannels= can("manage_channels",    roleCtx);
   const canCreateChannel = can("create_channel",     roleCtx);
   const canDeleteChannelPerm = can("delete_channel", roleCtx);
+  const isServerOwner = !!user && !!activeServer && activeServer.ownerId === user.id;
+
+  const handleDeleteServer = async () => {
+    if (!activeServer) return;
+    setConfirmDeleteServer(false);
+    try {
+      await deleteServer(activeServer.id);
+    } catch (e) {
+      console.error("delete server failed", e);
+    }
+  };
 
   const [showInviteUser, setShowInviteUser] = useState(false);
+  const [confirmDeleteServer, setConfirmDeleteServer] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -562,23 +576,55 @@ export function GroupSidebar() {
             </h2>
           )}
           <div className="flex items-center gap-1">
-            {canManage && (
-              <button
-                onClick={() => setShowInviteUser(true)}
-                aria-label={t("invite.addMember")}
-                className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                <UserPlus className="w-4 h-4 text-[var(--text-muted)]" />
-              </button>
-            )}
-            {canManage && (
-              <button
-                onClick={() => setShowRoleManager(true)}
-                aria-label="Roles & Permissions"
-                className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                <Settings className="w-4 h-4 text-[var(--text-muted)]" />
-              </button>
+            {confirmDeleteServer ? (
+              <>
+                <span className="text-[10px] font-mono text-[var(--accent-red-text)] truncate">
+                  {t("server.deleteConfirm").replace("{name}", activeServer.name)}
+                </span>
+                <button
+                  onClick={() => void handleDeleteServer()}
+                  className="px-1.5 py-0.5 bg-[var(--destructive)] text-white hover:opacity-90 transition-opacity text-[10px]"
+                >
+                  {t("message.delete")}
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteServer(false)}
+                  className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  aria-label={t("common.cancel")}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <>
+                {canManage && (
+                  <button
+                    onClick={() => setShowInviteUser(true)}
+                    aria-label={t("invite.addMember")}
+                    className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    <UserPlus className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                )}
+                {canManage && (
+                  <button
+                    onClick={() => setShowRoleManager(true)}
+                    aria-label="Roles & Permissions"
+                    className="p-1 hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    <Settings className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                )}
+                {isServerOwner && (
+                  <button
+                    onClick={() => setConfirmDeleteServer(true)}
+                    aria-label={t("server.delete")}
+                    className="p-1 hover:bg-[var(--destructive)]/20 transition-colors group/del"
+                  >
+                    <Trash2 className="w-4 h-4 text-[var(--text-muted)] group-hover/del:text-[var(--accent-red-text)]" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

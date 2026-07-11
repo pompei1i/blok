@@ -464,5 +464,8 @@
   "bait.comingSoonPlaceholder": "b.ai.t is coming soon…",
   "bait.comingSoonMessage": "b.ai.t is coming soon — the assistant is temporarily offline during the beta. Stay tuned!",
   "bait.offlineTitle": "b.ai.t is offline during the beta — coming soon",
-  "screenShare.couldntStart": "Couldn't start screen share"
+  "screenShare.couldntStart": "Couldn't start screen share",
+  "server.delete": "Delete server",
+  "server.deleteConfirm": "Delete \"{name}\"?",
+  "common.cancel": "Cancel"
 }

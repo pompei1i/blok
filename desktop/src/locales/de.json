@@ -464,5 +464,8 @@
   "bait.comingSoonPlaceholder": "b.ai.t ist bald verfügbar…",
   "bait.comingSoonMessage": "b.ai.t ist bald verfügbar — der Assistent ist während der Beta vorübergehend offline. Bleib dran!",
   "bait.offlineTitle": "b.ai.t ist während der Beta offline — bald verfügbar",
-  "screenShare.couldntStart": "Bildschirmfreigabe konnte nicht gestartet werden"
+  "screenShare.couldntStart": "Bildschirmfreigabe konnte nicht gestartet werden",
+  "server.delete": "Server löschen",
+  "server.deleteConfirm": "„{name}“ löschen?",
+  "common.cancel": "Abbrechen"
 }

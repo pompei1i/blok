@@ -62,6 +62,7 @@ export interface ServerSlice {
   reorderCategories: (serverId: string, items: { id: string; position: number }[]) => Promise<void>;
   reorderChannels: (serverId: string, items: { id: string; categoryId: string | null; position: number }[]) => Promise<void>;
   removeServer: (serverId: string) => void;
+  deleteServer: (serverId: string) => Promise<void>;
   inviteUser: (serverId: string, username: string) => Promise<string | null>;
   generateInviteCode: (serverId: string, opts?: { expiresAt?: string | null; maxUses?: number | null }) => Promise<string | null>;
   joinByInviteCode: (code: string, userId: string) => Promise<string | null>;
@@ -364,6 +365,14 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
                   : srv
               ),
             }));
+          }
+        ).on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "servers" },
+          (payload) => {
+            // Owner deleted the server — remove it from every member's client.
+            const deletedId = (payload.old as { id?: string })?.id;
+            if (deletedId) get().removeServer(deletedId);
           }
         ).subscribe()
       );
@@ -749,6 +758,14 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       openTabs: state.openTabs.filter((id) => id !== serverId),
       activeServerId: state.activeServerId === serverId ? null : state.activeServerId,
     })),
+
+  deleteServer: async (serverId) => {
+    const { data: result, error } = await supabase.rpc("delete_server", { p_server_id: serverId });
+    if (error) { console.error("Delete server failed", error); throw error; }
+    if (!result?.ok) { const e = new Error(result?.reason ?? "delete_server failed"); console.error(e); throw e; }
+    // Drop locally immediately; the realtime DELETE also clears it for other members.
+    get().removeServer(serverId);
+  },
 
   createCategory: async (serverId, name) => {
     const trimmed = name.trim();

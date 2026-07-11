@@ -464,5 +464,8 @@
   "bait.comingSoonPlaceholder": "b.ai.t llegará pronto…",
   "bait.comingSoonMessage": "b.ai.t llegará pronto — el asistente está temporalmente desconectado durante la beta. ¡Mantente atento!",
   "bait.offlineTitle": "b.ai.t desconectado durante la beta — próximamente",
-  "screenShare.couldntStart": "No se pudo iniciar la pantalla compartida"
+  "screenShare.couldntStart": "No se pudo iniciar la pantalla compartida",
+  "server.delete": "Eliminar servidor",
+  "server.deleteConfirm": "¿Eliminar «{name}»?",
+  "common.cancel": "Cancelar"
 }

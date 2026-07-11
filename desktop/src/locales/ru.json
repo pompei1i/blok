@@ -464,5 +464,8 @@
   "bait.comingSoonPlaceholder": "b.ai.t скоро появится…",
   "bait.comingSoonMessage": "b.ai.t скоро появится — ассистент временно недоступен во время беты. Оставайтесь с нами!",
   "bait.offlineTitle": "b.ai.t недоступен во время беты — скоро",
-  "screenShare.couldntStart": "Не удалось начать демонстрацию экрана"
+  "screenShare.couldntStart": "Не удалось начать демонстрацию экрана",
+  "server.delete": "Удалить сервер",
+  "server.deleteConfirm": "Удалить «{name}»?",
+  "common.cancel": "Отмена"
 }

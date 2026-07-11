@@ -464,5 +464,8 @@
   "bait.comingSoonPlaceholder": "b.ai.t już wkrótce…",
   "bait.comingSoonMessage": "b.ai.t już wkrótce — asystent jest tymczasowo offline w wersji beta. Bądźcie czujni!",
   "bait.offlineTitle": "b.ai.t offline w wersji beta — wkrótce",
-  "screenShare.couldntStart": "Nie udało się rozpocząć udostępniania ekranu"
+  "screenShare.couldntStart": "Nie udało się rozpocząć udostępniania ekranu",
+  "server.delete": "Usuń serwer",
+  "server.deleteConfirm": "Usunąć „{name}”?",
+  "common.cancel": "Anuluj"
 }
