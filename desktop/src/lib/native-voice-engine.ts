@@ -33,9 +33,11 @@ type NativeSignalMsg =
 const SPEAKING_TIMEOUT_MS = 400;
 
 // ICE servers. TURN is required when both peers are behind NAT (typical home
-// networks) — without a working relay, screen share / camera PCs never connect
-// and the viewer just sees a black screen (audio still works: it goes over the
-// Supabase realtime broadcast, not WebRTC). Provide a real TURN via env:
+// networks) — without a working relay the peer connection never establishes, so
+// nothing comes through: no voice, and a black screen for share/camera. (Audio
+// used to survive a dead relay because it went over the Supabase realtime
+// broadcast; since the native webrtc-rs transport, PCM rides the same peer
+// connection as video.) Provide a real TURN via env:
 //   VITE_TURN_URLS=turn:host:3478,turns:host:5349?transport=tcp
 //   VITE_TURN_USERNAME=...   VITE_TURN_CREDENTIAL=...
 // Falls back to the free Open Relay demo, which is unreliable / often down.
