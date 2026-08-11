@@ -65,6 +65,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     themeMode,
     uiScale,
     language,
+    autoTranslate,
     customCss,
     chatBackground,
     setSetting,
@@ -90,6 +91,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     themeMode,
     uiScale,
     language,
+    autoTranslate,
     customCss,
     chatBackground,
   };
@@ -125,6 +127,7 @@ export function AccountEditModal({ isOpen, onClose }: AccountEditModalProps) {
     themeMode,
     uiScale,
     language,
+    autoTranslate,
     customCss,
     chatBackground,
   ]);

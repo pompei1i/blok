@@ -27,6 +27,8 @@ interface UiSettingsState {
   themeMode: ThemeMode;
   uiScale: number;
   language: Language;
+  /** Auto-translate incoming chat messages into `language` (see translation-store). */
+  autoTranslate: boolean;
   customCss: string;
   /** Custom chat background — data URL or image URL. Empty = no background. */
   chatBackground: string;
@@ -58,6 +60,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       themeMode: "dark",
       uiScale: 100,
       language: "English",
+      autoTranslate: false,
       customCss: "",
       chatBackground: "",
       setSetting: (key, value) => set({ [key]: value } as Partial<UiSettingsState>),

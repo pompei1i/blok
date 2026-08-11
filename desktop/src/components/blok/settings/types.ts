@@ -31,6 +31,7 @@ export type SettingsDraft = {
   themeMode: ThemeMode;
   uiScale: number;
   language: Language;
+  autoTranslate: boolean;
   customCss: string;
   chatBackground: string;
 };

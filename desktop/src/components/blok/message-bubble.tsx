@@ -12,7 +12,9 @@ import { MoreHorizontal, Trash2, Copy, CornerUpLeft, Pin, Smile, Edit2, Check, X
 import { useBaitStore } from "@/lib/store/bait-store";
 import { AudioPlayer } from "./audio-player";
 import { VideoPlayer } from "./video-player";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type TranslationKey } from "@/lib/i18n";
+import { useMessageTranslation, type MessageTranslation } from "@/hooks/useMessageTranslation";
+import type { TranslationScope } from "@/lib/store/translation-store";
 import { useFriendsStore, effectiveStatus } from "@/lib/store/friends-store";
 import { useAuthStore } from "@/lib/store/auth-store";
 import {
@@ -60,6 +62,51 @@ function groupReactions(reactions: Reaction[]): { emoji: string; count: number; 
     map.set(r.emoji, list);
   }
   return Array.from(map.entries()).map(([emoji, userIds]) => ({ emoji, count: userIds.length, userIds }));
+}
+
+// ── Auto-translation ──────────────────────────────────────────────────────────
+
+/**
+ * Footer under an auto-translated message: where it came from, and the way back
+ * to the original. Nothing is rendered when the message needed no translation.
+ */
+function TranslationNote({
+  translation,
+  isOwn,
+  label,
+}: {
+  translation: MessageTranslation;
+  isOwn?: boolean;
+  label: (key: "translating" | "translated" | "original" | "showOriginal" | "showTranslation") => string;
+}) {
+  const { status, sourceLang, showingOriginal, toggleOriginal } = translation;
+  if (status === "off" || status === "error") return null;
+
+  const muted = isOwn ? "text-white/60" : "text-[var(--text-muted)]";
+
+  if (status === "pending") {
+    return (
+      <span className={cn("mt-0.5 flex items-center gap-1 text-[10px] font-mono opacity-70", muted)}>
+        <Languages className="w-2.5 h-2.5" /> {label("translating")}
+      </span>
+    );
+  }
+
+  // The language code reads the same in every UI locale ("переведено с EN"),
+  // which a localized language name would not.
+  const from = sourceLang ? sourceLang.toUpperCase() : null;
+  return (
+    <span className={cn("mt-0.5 flex items-center gap-1 text-[10px] font-mono", muted)}>
+      <Languages className="w-2.5 h-2.5 flex-shrink-0" />
+      {showingOriginal ? label("original") : label("translated").replace("{lang}", from ?? "?")}
+      <button
+        onClick={toggleOriginal}
+        className="underline underline-offset-2 hover:text-[var(--text-primary)] transition-colors"
+      >
+        {showingOriginal ? label("showTranslation") : label("showOriginal")}
+      </button>
+    </span>
+  );
 }
 
 // ── Lazy media ────────────────────────────────────────────────────────────────
@@ -180,6 +227,17 @@ export function MessageBubble({
   const menuRef = useRef<HTMLDivElement>(null);
   const msgRef = useRef<HTMLDivElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  // Auto-translate: asking from the bubble covers every text surface at once,
+  // and the virtualized channel list means only on-screen messages are fetched.
+  const translationScope: TranslationScope | null =
+    "channelId" in message ? "channel" : "dmChannelId" in message ? "dm" : null;
+  const translationParentId =
+    "channelId" in message ? message.channelId : "dmChannelId" in message ? message.dmChannelId : undefined;
+  const translation = useMessageTranslation(translationScope, translationParentId, message.id, message.content);
+  const displayContent = translation.text ?? message.content;
+  const translationLabel = (key: "translating" | "translated" | "original" | "showOriginal" | "showTranslation") =>
+    t(`translation.${key}` as TranslationKey);
 
   const openMenuAt = (clientX: number, clientY: number) => {
     const W = 160; // w-40 = 160px
@@ -321,7 +379,10 @@ export function MessageBubble({
               </button>
             )}
             {message.content && (
-              <p dangerouslySetInnerHTML={{ __html: formatContent(message.content) }} />
+              <>
+                <p dangerouslySetInnerHTML={{ __html: formatContent(displayContent) }} />
+                <TranslationNote translation={translation} isOwn={isOwn} label={translationLabel} />
+              </>
             )}
             {firstUrl && <UrlPreview url={firstUrl} />}
             {"attachments" in message && message.attachments && message.attachments.length > 0 && (
@@ -508,10 +569,13 @@ export function MessageBubble({
             </div>
           </div>
         ) : message.content ? (
-          <p
-            className="text-sm text-[var(--text-primary)] leading-snug"
-            dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-          />
+          <>
+            <p
+              className="text-sm text-[var(--text-primary)] leading-snug"
+              dangerouslySetInnerHTML={{ __html: formatContent(displayContent) }}
+            />
+            <TranslationNote translation={translation} label={translationLabel} />
+          </>
         ) : null}
 
         {"poll" in message && message.poll && onVotePoll && (

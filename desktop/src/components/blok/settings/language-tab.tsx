@@ -29,6 +29,23 @@ export function LanguageTab({ draft, setDraft }: DraftTabProps) {
           </select>
         </label>
       </div>
+
+      <SectionHeader title={t("settings.translation.title")} subtitle={t("settings.translation.subtitle")} />
+      <div className="p-4 bg-[var(--bg-surface)] border border-dashed border-[var(--border)] space-y-3">
+        <label className="flex items-center justify-between gap-4">
+          <span className="text-sm text-[var(--text-primary)] font-mono">
+            {t("settings.translation.autoTranslate")}
+          </span>
+          <input
+            type="checkbox"
+            checked={draft.autoTranslate}
+            onChange={(e) => setDraft((prev) => ({ ...prev, autoTranslate: e.target.checked }))}
+          />
+        </label>
+        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+          {t("settings.translation.hint")}
+        </p>
+      </div>
     </div>
   );
 }

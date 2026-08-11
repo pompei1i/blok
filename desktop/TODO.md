@@ -48,7 +48,12 @@
 
 ## Up next
 
-_(none queued)_
+- [ ] **Translate what I send** — optional preview + confirm before a message goes out, storing the original alongside it (auto-translate currently covers incoming messages only).
+- [ ] **Per-channel auto-translate override** — the toggle is global today (Settings → Language).
+
+## Done (unreleased)
+
+- [x] **Realtime auto-translate** — messages in another language are translated into the reader's UI language in every text chat (channels, DMs, group DMs), with a "show original" toggle under each one. Off by default; Settings → Language → Message Translation. New `translate` Edge Function (Gemini, batched, context-aware prompt with the author's pronouns for gendered forms) + `message_translations` cache shared across users, so a message is paid for once per language. Client-side language detection skips messages already in the reader's language; requests are batched per conversation on a 350 ms debounce, and only rendered (virtualized) messages are ever fetched.
 
 ## Done (v0.9.2)
 
