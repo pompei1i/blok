@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.9.46] — 2026-08-11
+
+### Added
+- **Realtime message translation** — messages written in another language are
+  translated into your UI language as they arrive, in every text chat (channels,
+  DMs, group DMs), with a "show original" toggle under each one. Off by default:
+  Settings → Language → Message Translation. Runs on Gemini through a new
+  `translate` Edge Function; translations are cached per (message, language) and
+  shared across everyone in the channel, so a message is paid for once rather
+  than once per reader. Messages already in your language are skipped before any
+  network call, and the client sends message ids — never text — so content is
+  read back under your own RLS. Accuracy comes from context: the model gets the
+  preceding messages of the conversation plus the author's pronouns, which is
+  what keeps gendered forms and ellipsis correct in Slavic languages.
+
+### Changed
+- CSP now allows Tauri's IPC origins (`ipc:`, `http://ipc.localhost`) in
+  `connect-src`.
+- Project documentation for open source: screenshots, an architecture guide, a
+  self-hosting walkthrough, contribution and security policies, issue and PR
+  templates. Two stale claims corrected — builds ship for Windows **and** Linux,
+  and voice no longer travels over Supabase Realtime (since the webrtc-rs
+  transport, audio and video are peer-to-peer over data channels; Realtime
+  carries only signaling and presence).
+
 ## [0.9.43] — 2026-07-10
 
 ### Added
