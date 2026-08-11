@@ -1,36 +1,115 @@
+<div align="center">
+
 # blok
 
-**A native desktop chat platform — like Discord, but yours.** Voice, video & screen share, an AI that runs your server, and a loot-box economy. Built solo with Tauri 2 + Rust + React + Supabase.
+**A native desktop chat platform — like Discord, but yours.**
+Voice, video & screen share over a Rust P2P core, an AI that runs your server, and a loot-box economy.
 
-> 🧪 **Public beta.** Windows-only for now. Voice & text are stable; screen share and video are **experimental**.
+[![Release](https://img.shields.io/github/v/release/pompei1i/blok-releases?label=download&color=e5484d)](https://github.com/pompei1i/blok-releases/releases/latest)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux-6e7681)](#install)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-6e7681)](LICENSE)
+[![Built with Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
+[![Discussions](https://img.shields.io/github/discussions/pompei1i/blok?color=6e7681)](https://github.com/pompei1i/blok/discussions)
 
-![blok](desktop/public/icon.svg)
+🧪 **Public beta.** Text and voice are stable; screen share and video are experimental.
 
-<!-- TODO: add screenshots / a short demo gif here -->
+![blok — chat](docs/screenshots/02-chat.jpg)
+
+</div>
 
 ---
 
-## Highlights
+## What it is
 
-- 🤖 **b.ai.t — an AI that acts.** A built-in assistant (Claude) that creates polls, summarizes channels and translates — on command, right inside the chat. Runs through a server-side proxy; no API key ships in the client.
-- 🎙️ **Real voice.** Low-latency audio over a native **Rust** engine (cpal), streamed peer-to-peer over WebRTC DataChannels via binary Tauri IPC. Noise suppression, echo cancellation, push-to-talk, per-user volume & local mute.
-- 🖥️ **Screen share & video** *(experimental).* `getDisplayMedia` — share a window, a tab or the whole screen, **up to 60 fps with system audio**; camera & video calls over WebRTC.
-- 🎰 **A game inside your chat.** XP & levels, daily quests, a gacha **loot box** (server-side RNG, two-tier pity — guaranteed Epic at 10 opens, guaranteed Legendary at 90), a coin/dust economy and equippable cosmetics (nameplates, avatar frames, badges, banners).
-- 🛡️ **Built for communities.** Servers, channels & categories, bitfield **roles & permissions**, moderation (bans, timeouts, slow-mode, audit log), invite codes.
-- 💬 **A real messenger.** Realtime messages, attachments & drag-drop, GIFs, emoji & reactions, replies, pins, polls, announcements, in-channel search, `Ctrl+K` quick switcher.
-- 🎨 **Make it yours.** Light/dark/custom themes, Custom CSS, custom chat background, 6 languages (EN · RU · UK · PL · DE · ES).
+blok is a self-contained community platform that runs on **your** Supabase project. There is
+no blok company in the middle: the desktop app talks to your database directly, and voice
+and video go **peer-to-peer** through a native Rust WebRTC core — media never touches a
+server. Fork it, point it at your own backend, and it's yours.
+
+It started as "a Discord I actually control" and grew a personality: a terminal-styled UI,
+an AI assistant that can build channels and roles for you, and an XP/loot-box economy that
+makes a chat feel like a place rather than a log.
+
+## Install
+
+Grab an installer from the [latest release](https://github.com/pompei1i/blok-releases/releases/latest):
+
+| Platform | File |
+|---|---|
+| Windows 10/11 | `blok_x.y.z_x64-setup.exe` |
+| Debian / Ubuntu / Mint | `blok_x.y.z_amd64.deb` |
+| Fedora / RHEL | `blok-x.y.z-1.x86_64.rpm` |
+| Any Linux | `blok_x.y.z_amd64.AppImage` |
+
+Installed clients keep themselves up to date through the signed Tauri updater.
+
+Want to run your own backend instead of joining the public beta? → **[Self-hosting guide](docs/SELF_HOSTING.md)**
+
+## Features
+
+- 🤖 **b.ai.t — an AI that acts.** Not a chatbot bolted on the side: it creates servers,
+  channels, categories, roles and polls, writes announcements, summarizes a channel and
+  sets timers — through tool calls, from inside the chat. The API key lives server-side in
+  an Edge Function; nothing sensitive ships in the client.
+- 🌍 **Realtime translation.** Turn it on once and messages in other languages arrive in
+  yours, in every chat, with "show original" one click away. Translations are cached per
+  message and shared across everyone in the channel, and messages already in your language
+  are skipped before any network call.
+- 🎙️ **Real voice.** A native **Rust** engine (cpal) captures and mixes at 48 kHz with
+  noise suppression, echo cancellation and a noise gate; frames travel peer-to-peer over
+  webrtc-rs data channels. Push-to-talk, per-user volume, local mute, ~150 ms jitter buffer.
+- 🖥️ **Screen share & video** *(experimental).* Pick a window, a screen or a tab — up to
+  **60 fps with desktop audio** — plus camera and video calls, over the same native transport.
+- 🎰 **A game inside your chat.** XP and levels, daily quests, a gacha **loot box** with
+  server-side RNG and two-tier pity (guaranteed Epic at 10, Legendary at 90), a coin/dust
+  economy and equippable cosmetics: nameplates, avatar frames, badges, banners.
+- 🛡️ **Built for communities.** Servers, channels and categories, bitfield **roles &
+  permissions**, moderation (bans, timeouts, slow mode, audit log), invite codes.
+- 💬 **A real messenger.** Realtime messages, attachments and drag-drop, GIFs, emoji
+  reactions, replies, pins, polls, announcements, in-channel search, `Ctrl+K` quick switcher.
+- 🎨 **Make it yours.** Light/dark/custom themes, custom CSS, custom chat background, and a
+  UI in 6 languages (EN · RU · UK · PL · DE · ES).
+
+## Screenshots
+
+|  |  |
+|---|---|
+| **b.ai.t — the assistant panel**<br>![](docs/screenshots/03-bait.jpg) | **Voice rooms**<br>![](docs/screenshots/04-voice.jpg) |
+| **Screen share picker** — window, fps, quality, desktop audio<br>![](docs/screenshots/05-screen-picker.jpg) | **Sharing at 60 fps**<br>![](docs/screenshots/06-screen-share.jpg) |
+| **Loot box & economy**<br>![](docs/screenshots/07-economy.jpg) | **Sign-in**<br>![](docs/screenshots/01-login.jpg) |
 
 ## Tech stack
 
 | Layer | Tech |
 |---|---|
-| Desktop shell | Tauri 2 (WebView2, NSIS installer) |
+| Desktop shell | Tauri 2 (WebView2 / WebKitGTK, NSIS + deb/rpm/AppImage) |
 | Front-end | React 19, TypeScript (strict), Tailwind CSS 4, Zustand |
 | Build | Vite 7 |
-| Native audio | Rust + cpal (capture/playback, noise suppression, echo cancellation) |
-| Transport | Audio → Supabase Realtime (PCM broadcast); video/screen → WebRTC (STUN/TURN) |
-| Backend | Supabase — Auth, Realtime, PostgreSQL (RLS), Storage, Edge Functions |
-| AI | Anthropic Claude via a Supabase Edge Function proxy |
+| Native core | Rust — cpal (audio capture/playback, NS/EC), webrtc-rs (P2P data channels), SIMD JPEG encoding for screen capture |
+| Transport | Voice, screen and camera peer-to-peer over data channels; Supabase Realtime carries signaling and presence only |
+| Backend | Supabase — Auth, Realtime, PostgreSQL (RLS everywhere), Storage, Edge Functions |
+| AI & translation | Google Gemini, behind Supabase Edge Function proxies with per-user rate limits |
+
+## Quick start (development)
+
+```bash
+git clone https://github.com/pompei1i/blok.git
+cd blok/desktop
+npm install
+cp .env.example .env.local      # add your Supabase URL + anon key
+npm run tauri dev               # dev window on localhost:1420
+```
+
+You need your own Supabase project — schema, Edge Functions and secrets are covered in the
+[self-hosting guide](docs/SELF_HOSTING.md). Linux needs a few system packages first; see
+[`desktop/README.md`](desktop/README.md).
+
+```bash
+npm run build         # tsc (strict) + vite build
+npm run test          # Vitest — 420+ tests
+npm run i18n:check    # locale key parity across all 6 languages
+npm run tauri build   # installers for the current platform
+```
 
 ## Project layout
 
@@ -39,71 +118,57 @@ blok/
 ├── desktop/              # The product — Tauri 2 desktop app
 │   ├── src/              # React + TypeScript front-end
 │   │   ├── components/blok/
-│   │   ├── lib/
-│   │   │   ├── native-voice-engine.ts   # Rust audio over Realtime + WebRTC video/screen
-│   │   │   └── store/                    # Zustand slices
-│   │   └── locales/                      # 6 languages
-│   └── src-tauri/        # Rust backend (audio engine, tray, auto-updater)
+│   │   ├── lib/store/    # Zustand stores and slices — the source of truth
+│   │   └── locales/      # 6 languages, identical key sets (enforced by tests)
+│   └── src-tauri/        # Rust: audio.rs · rtc.rs · lib.rs (tray, updater, capture)
+├── supabase/
+│   ├── migrations/       # The whole schema — 46 idempotent SQL files, replay-all model
+│   └── functions/        # Edge Functions: bait (AI) · turn (TURN creds) · translate
+├── infra/coturn/         # Self-hosted TURN relay (Docker)
 ├── installer/            # Tauri updater/installer stub
-├── supabase/             # DB migrations, RLS policies, Edge Functions (b.ai.t proxy)
-├── infra/coturn/         # Self-hosted TURN server (Docker)
-└── .github/workflows/    # CI — release builds
+└── docs/                 # Architecture, self-hosting, signing
 ```
 
-## Getting started
+## Documentation
 
-Prerequisites: Node 18+, Rust toolchain (the build script installs it if missing), and a Supabase project.
+| Doc | What's in it |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | How the pieces fit: native transport, RLS model, Edge Functions, data flow |
+| [Self-hosting](docs/SELF_HOSTING.md) | Standing up your own backend from zero |
+| [Contributing](CONTRIBUTING.md) | Setup, house style, database rules, PR expectations |
+| [Security policy](SECURITY.md) | Threat model and how to report a vulnerability |
+| [Migrations](supabase/migrations/README.md) | Why every migration must be idempotent |
+| [Signing & releases](docs/SIGNING.md) · [RELEASE.md](RELEASE.md) | Updater keys and the release process |
+| [Changelog](CHANGELOG.md) · [Roadmap](desktop/TODO.md) | What shipped, what's next |
 
-```bash
-cd desktop
-npm install
-npm run tauri dev      # dev window (localhost:1420)
-npm run tauri build    # NSIS installer (.exe)
-```
+## Security model in three lines
 
-Configure `desktop/.env.local` (Supabase keys, optional Tenor GIF key, TURN relay for
-screen share). **Full environment & build details live in [`desktop/README.md`](desktop/README.md).**
+Every table has Row-Level Security; membership and permission checks live in Postgres
+helpers, not in the client. Anything a client must not be able to fake — loot box RNG,
+quest rewards, purchases, kicks, invites — goes through `SECURITY DEFINER` RPCs. The only
+key in the binary is the Supabase anon key, which is useless without a session.
 
-## Backend (Supabase)
+Found a hole? [Report it privately](SECURITY.md) rather than opening an issue.
 
-The database schema lives in [`supabase/`](supabase/) as **idempotent migrations** (replay-all model — every migration is safe to re-run) plus RLS policies. Security model:
+## Roadmap
 
-- **Row-Level Security** on every table; helper `has_server_perm(server_id, bit)` / `is_server_owner()`.
-- Economy & moderation mutations go through **`SECURITY DEFINER` RPCs** (`open_loot_box`, `buy_item`, `equip_item`, `claim_quest_reward`, `delete_channel_cascade`, …) — clients get `SELECT`-only on the underlying tables.
-- **b.ai.t** runs in a Deno Edge Function ([`supabase/functions/bait`](supabase/functions/bait)); the Anthropic key is a server secret and requests are rate-limited per user.
+Short version — the full list lives in [`desktop/TODO.md`](desktop/TODO.md):
 
-See [`supabase/migrations/README.md`](supabase/migrations/README.md) for the migration discipline.
-
-## TURN relay
-
-Screen share / video across different networks needs a TURN relay. blok uses
-**Cloudflare TURN**: the [`turn`](supabase/functions/turn) Edge Function mints
-short-lived credentials for authenticated users (the Cloudflare API token stays
-server-side — no static TURN secrets ship in the client). Set `CF_TURN_KEY_ID` /
-`CF_TURN_API_TOKEN` as function secrets. A self-hostable **coturn** package is also
-included in [`infra/coturn/`](infra/coturn/README.md) as an alternative.
-
-## Tests
-
-```bash
-cd desktop
-npm run test          # run once   (Vitest)
-npm run test:watch
-```
-
-Covers store actions, DM/friends/auth/economy stores, message search, poll logic, i18n and utilities.
-
-## Releases & auto-update
-
-Tagging `v*` triggers a GitHub Actions workflow that builds the NSIS installer and
-publishes a GitHub Release. Installed clients silently auto-update via the Tauri updater.
+- Streaming responses for b.ai.t, and cheaper model routing per tool
+- b.ai.t in voice channels: music, soundboard, TTS (a separate bot service)
+- Translate outgoing messages before sending, and per-channel overrides
+- macOS builds
+- Threads, better search, mobile companion — someday, maybe
 
 ## Contributing
 
-Issues and PRs are welcome — it's a solo project, so expect rough edges. Please open an
-issue to discuss anything substantial before a large PR.
+Issues and PRs are welcome. It's a solo project, so open an issue before a large PR — a
+feature that doesn't fit the direction is a bad afternoon for both of us. Small fixes,
+translation corrections and bug reports with repro steps are always worth sending. Start
+with [CONTRIBUTING.md](CONTRIBUTING.md); questions belong in
+[Discussions](https://github.com/pompei1i/blok/discussions).
 
 ## License
 
-[GNU AGPL-3.0](LICENSE). You may use, study, modify and self-host blok freely; if you run
-a modified version as a network service, you must make your source available to its users.
+[GNU AGPL-3.0](LICENSE). Use it, study it, modify it, self-host it. If you run a modified
+version as a network service, you must make your source available to its users.

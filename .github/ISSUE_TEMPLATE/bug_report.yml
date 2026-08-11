@@ -1,0 +1,99 @@
+name: Bug report
+description: Something is broken or behaves differently than it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The two things that make a bug fixable are **steps to
+        reproduce** and **what you expected instead** — everything else is a bonus.
+
+        Found a security hole? Don't file it here — see [SECURITY.md](https://github.com/pompei1i/blok/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected to see instead.
+      placeholder: |
+        Joined a voice channel and my mic stayed muted for everyone else.
+        Expected: other people hear me after I unmute.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Number them. If it only happens sometimes, say how often.
+      placeholder: |
+        1. Open server X, channel #general
+        2. Click the voice channel
+        3. Unmute
+        4. Nobody hears anything; my avatar never lights up
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Voice
+        - Screen share / video
+        - Messages / chat
+        - Servers, channels, roles & permissions
+        - b.ai.t (AI assistant)
+        - Translation
+        - Economy, quests, cosmetics
+        - Installer / auto-update
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: blok version
+      description: Settings → System, or the installer filename. `main@<commit>` if you built it yourself.
+      placeholder: "0.9.45"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux (.deb)
+        - Linux (.rpm)
+        - Linux (AppImage)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-details
+    attributes:
+      label: OS details
+      description: Distro and desktop environment help a lot on Linux (e.g. "Mint 22, Cinnamon, X11").
+      placeholder: "Ubuntu 24.04, GNOME, Wayland"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or console output
+      description: Anything from the devtools console or the terminal. Redact tokens before pasting.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I'm on the latest release (or I said which commit I built)
+          required: true
+        - label: I searched existing issues
+          required: true

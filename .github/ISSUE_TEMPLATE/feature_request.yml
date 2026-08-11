@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest something blok should be able to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        blok is a solo project, so the honest filter is: does this help a lot of people,
+        or is it a fork? Both answers are fine — say which one you think it is.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do today, and what gets in the way?
+      placeholder: |
+        Our server is half Polish, half Brazilian. People stop replying to each other
+        because reading the other half of the chat is work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like instead
+      description: Describe the behaviour, not the implementation — unless you want to talk implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you've tried
+      description: Workarounds, other apps that get this right, prior discussion.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be up for opening a PR if we agree on the shape

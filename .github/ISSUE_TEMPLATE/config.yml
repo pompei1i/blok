@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or idea
+    url: https://github.com/pompei1i/blok/discussions
+    about: Setup help, "is this possible", showing off your server — Discussions is the place.
+  - name: Security vulnerability
+    url: https://github.com/pompei1i/blok/security/advisories/new
+    about: Report it privately. Please do not open a public issue.
