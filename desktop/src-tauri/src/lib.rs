@@ -1,6 +1,8 @@
 mod audio;
 #[cfg(target_os = "windows")]
 mod dxgi_capture;
+#[cfg(target_os = "windows")]
+mod wgc_capture;
 mod rtc;
 
 use audio::{Cmd, NativeAudio};
@@ -951,17 +953,22 @@ struct EncodeJob {
     h: u32,
 }
 
-/// Frame source for the push loop: DXGI Desktop Duplication where it is available
-/// (Windows monitors), otherwise the per-frame grab the legacy command uses.
+/// Frame source for the push loop. On Windows each kind of source has an API that
+/// actually works for it: Desktop Duplication for monitors, Windows.Graphics.
+/// Capture for a single window. The generic grab-per-frame path covers Linux and
+/// anything neither of those can open.
 enum Capturer {
     #[cfg(target_os = "windows")]
     Dxgi(Box<dxgi_capture::Duplicator>),
+    #[cfg(target_os = "windows")]
+    Wgc(Box<wgc_capture::WindowCapture>),
     Generic,
 }
 
 impl Capturer {
-    /// DXGI for `screen:<i>` on Windows; everything else (single windows, Linux,
-    /// any machine where duplication will not initialise) keeps grab-per-frame.
+    /// Picks the best available source. Both Windows paths fall through to the
+    /// generic one if they can't initialise (pre-1903 for WGC, RDP or an odd
+    /// driver for duplication).
     fn for_source(source_id: &str) -> Self {
         #[cfg(target_os = "windows")]
         {
@@ -970,6 +977,19 @@ impl Capturer {
                     if let Some(rect) = dxgi_capture::monitor_rect(idx) {
                         if let Some(d) = dxgi_capture::Duplicator::new(rect) {
                             return Capturer::Dxgi(Box::new(d));
+                        }
+                    }
+                }
+            }
+            // GDI cannot capture a composited window at all — it returns a black,
+            // never-changing surface for anything GPU-drawn — so falling through to
+            // the generic path here is a broken share, not a slower one. It stays
+            // only as the last resort for a Windows old enough to lack WGC.
+            if let Some(rest) = source_id.strip_prefix("window:") {
+                if wgc_capture::is_supported() {
+                    if let Some(hwnd) = rest.split(':').next().and_then(|v| v.parse::<isize>().ok()) {
+                        if let Some(c) = wgc_capture::WindowCapture::new(hwnd) {
+                            return Capturer::Wgc(Box::new(c));
                         }
                     }
                 }
@@ -1006,6 +1026,18 @@ impl Capturer {
                 // `last_work` excludes the wait for the desktop to change, which is
                 // idleness rather than cost; the copy-out above is ours to add.
                 let work = dupl.last_work.as_secs_f64() * 1000.0;
+                Some(Grabbed { bgra, w, h, work_ms: work })
+            }
+            #[cfg(target_os = "windows")]
+            Capturer::Wgc(cap) => {
+                // Same cap as the duplication path, and for the same reason: a stop
+                // must not have to wait out a slow frame budget.
+                let ms = budget.as_millis().min(100) as u32;
+                let (bgra, w, h) = {
+                    let (px, w, h) = cap.grab(ms)?;
+                    (px.to_vec(), w, h)
+                };
+                let work = cap.last_work.as_secs_f64() * 1000.0;
                 Some(Grabbed { bgra, w, h, work_ms: work })
             }
             Capturer::Generic => {
@@ -1925,11 +1957,60 @@ mod tests {
 
     #[test]
     fn capturer_falls_back_to_generic_for_non_monitor_sources() {
-        // Desktop Duplication only covers whole monitors — window shares and
-        // anything unrecognised must stay on the grab-per-frame path.
+        // A source id that resolves to no real monitor or window has nothing for
+        // either native path to open, so it must land on grab-per-frame rather
+        // than fail. (A *valid* window id goes to WGC — see the test below.)
         assert!(matches!(Capturer::for_source("window:12345:0"), Capturer::Generic));
         assert!(matches!(Capturer::for_source("bogus:1"), Capturer::Generic));
         assert!(matches!(Capturer::for_source("screen:notanumber"), Capturer::Generic));
+    }
+
+    /// The regression this path exists for: GDI returns a black, byte-identical
+    /// surface for any composited window, so a window share must not silently end
+    /// up on it. Skips when no window is listed or WGC is unavailable, since
+    /// neither is a defect.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn window_source_uses_wgc_not_the_black_gdi_path() {
+        if !wgc_capture::is_supported() {
+            return;
+        }
+        let sources = list_capture_sources();
+        let Some(win) = sources.iter().find(|s| s.kind == "window") else { return };
+        assert!(
+            matches!(Capturer::for_source(&win.id), Capturer::Wgc(_)),
+            "window share fell back to the GDI path, which captures nothing"
+        );
+    }
+
+    /// Exercises the unsafe WinRT plumbing end to end where a desktop exists.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wgc_frame_is_tightly_packed_bgra_or_declines() {
+        if !wgc_capture::is_supported() {
+            return;
+        }
+        let sources = list_capture_sources();
+        let Some(win) = sources.iter().find(|s| s.kind == "window") else { return };
+        let hwnd: isize = win.id.strip_prefix("window:").unwrap().split(':').next().unwrap().parse().unwrap();
+        let Some(mut cap) = wgc_capture::WindowCapture::new(hwnd) else { return };
+        // A still window may compose nothing inside one timeout; several tries.
+        for _ in 0..10 {
+            if let Some((px, w, h)) = cap.grab(200) {
+                assert_eq!(px.len(), (w * h * 4) as usize, "frame is not tightly packed BGRA");
+                assert!(w > 0 && h > 0);
+                return;
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wgc_declines_an_invalid_window_handle() {
+        // Must return None rather than panic — `for_source` relies on that to fall
+        // back instead of taking down the capture thread.
+        assert!(wgc_capture::WindowCapture::new(0).is_none());
+        assert!(wgc_capture::WindowCapture::new(12345).is_none());
     }
 
     #[test]

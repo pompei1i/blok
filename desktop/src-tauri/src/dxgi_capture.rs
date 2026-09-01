@@ -7,9 +7,10 @@
 //! frame, and it *blocks* until the desktop actually changes, which replaces the
 //! frame-hash dedup with a free, exact "nothing moved" signal.
 //!
-//! Only whole monitors are duplicable; window capture stays on GDI (see `lib.rs`),
-//! as does any machine where duplication is unavailable (some RDP sessions, older
-//! drivers) — `Capturer::new` falls back on its own.
+//! Only whole monitors are duplicable; a single window goes through
+//! Windows.Graphics.Capture instead (see `wgc_capture.rs`). A machine where
+//! duplication is unavailable (some RDP sessions, older drivers) falls back to
+//! GDI on its own via `Capturer::for_source`.
 
 use windows::core::Interface;
 use windows::Win32::Foundation::{HANDLE, HMODULE, RECT};

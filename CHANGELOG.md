@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.48] — 2026-09-01
+
+### Fixed
+- **Sharing a single window actually shows the window.** It was not slow — it was
+  blank: GDI cannot read a composited window's content, so anything drawn by the
+  GPU (browsers, Electron apps, games) came back as a black surface that never
+  changed. The frame-hash dedup then suppressed every frame, leaving viewers with
+  a black or frozen share. Windows now capture through Windows.Graphics.Capture,
+  which asks the compositor for the window's own content and works for occluded
+  and GPU-rendered windows alike, at ~6ms a frame. Measured against the old path
+  on the same windows: 100% black and one distinct colour before, full-colour
+  frames after. Windows without WGC (pre-1903) keep the previous path.
+  Complements 0.9.47, which fixed the monitor half.
+- The capture window's yellow "recording" border is suppressed, so it isn't burned
+  into the frames viewers see, and the frame pool is rebuilt when the shared window
+  is resized instead of continuing to deliver the old dimensions.
+
 ## [0.9.47] — 2026-09-01
 
 ### Fixed
