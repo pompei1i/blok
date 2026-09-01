@@ -17,7 +17,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-const MODEL = "gemini-flash-latest"; // cheap/free Flash; forced regardless of client
+// Cheap/free Flash, forced regardless of what the client asks for. Ordered
+// fallback rather than a single id: a 503 "experiencing high demand" is Google
+// running short of capacity for *that* model, not our quota, so it can't be
+// retried away — but an older, less contended generation usually still answers.
+//
+// `gemini-flash-latest` aliases gemini-3.5-flash, whose free tier is the most
+// oversubscribed of the three; the 2.5 pair are the fallbacks precisely because
+// demand has moved off them. Keep every entry a live id — a retired one (as
+// gemini-2.0-flash now is) answers 404, not 503.
+const MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
 const RATE_MAX = 10;          // burst: requests per window, per user
 const RATE_WINDOW_SECS = 60;  // window = 1 minute
 const DAILY_MAX = 30;         // per-user daily cap (free tier is generous; beta guard)
@@ -31,6 +40,85 @@ const cors = {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "content-type": "application/json" } });
+
+// Free-tier Gemini Flash sheds load with 503 "This model is currently experiencing
+// high demand" noticeably more often than a paid endpoint. Retrying here (rather
+// than only in the client) matters twice over: the caller's rate-limit slot is
+// already spent by the time we reach the upstream call, so bubbling a transient
+// blip up would charge the user a daily request for nothing.
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Deliberately shallow: with a fallback chain behind it, moving to a model that
+// has capacity beats hammering one that doesn't. A deep retry here would just add
+// seconds of latency to every message whenever the primary is having a bad day.
+const MAX_ATTEMPTS = 2;
+const OVERLOAD_MESSAGE = "b.ai.t is busy right now — the model is overloaded. Try again in a moment.";
+
+// Exponential backoff with jitter, so concurrent callers don't retry in lockstep.
+const backoffMs = (attempt: number) => Math.min(400 * 2 ** attempt, 2000) + Math.random() * 250;
+
+// Retries one model through a transient blip. Worst case ~1.3s per model, so the
+// full fallback walk below stays a few seconds — inside the function's wall clock.
+async function fetchGeminiWithRetry(payload: unknown, key: string): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    let resp: Response;
+    try {
+      resp = await fetch(GEMINI_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      // Connection-level failure: same transient class as a 503.
+      lastError = e;
+      if (attempt === MAX_ATTEMPTS - 1) throw e;
+      await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+      continue;
+    }
+    if (resp.ok || !RETRY_STATUSES.has(resp.status) || attempt === MAX_ATTEMPTS - 1) {
+      return resp;
+    }
+    // Prefer the upstream's own pacing hint when it sends one.
+    const retryAfter = Number(resp.headers.get("retry-after"));
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, 8000)
+      : backoffMs(attempt);
+    await resp.body?.cancel().catch(() => {});
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  throw lastError ?? new Error("unreachable");
+}
+
+// Walks the model list, retrying each through a blip and moving on when one is
+// persistently shedding load.
+//
+// The first entry is the configured model and the only one whose failure is ever
+// reported: a fallback that answers 404 because the API version stopped serving
+// that id must not turn a truthful "overloaded" into a misleading "no such model".
+// So a fallback can only ever improve the outcome, never replace the diagnosis.
+async function callGemini(
+  payload: Record<string, unknown>,
+  key: string,
+): Promise<{ resp: Response; model: string }> {
+  let primaryFailure: { resp: Response; model: string } | null = null;
+  for (const [i, model] of MODELS.entries()) {
+    const resp = await fetchGeminiWithRetry({ ...payload, model }, key);
+    if (resp.ok) {
+      await primaryFailure?.resp.body?.cancel().catch(() => {});
+      return { resp, model };
+    }
+    if (i === 0) {
+      // A non-retryable primary failure (bad key, malformed request) is not
+      // something a different model would fix — surface it straight away.
+      if (!RETRY_STATUSES.has(resp.status)) return { resp, model };
+      primaryFailure = { resp, model };
+      continue;
+    }
+    await resp.body?.cancel().catch(() => {});
+  }
+  if (!primaryFailure) throw new Error("no models configured");
+  return primaryFailure;
+}
 
 // ── Anthropic → OpenAI translation ────────────────────────────────────────────
 
@@ -134,7 +222,7 @@ function toOpenAIMessages(system: unknown, messages: AnthropicMsg[]): unknown[] 
 
 // ── OpenAI → Anthropic translation ────────────────────────────────────────────
 
-function toAnthropicResponse(oai: Record<string, unknown>): Record<string, unknown> {
+function toAnthropicResponse(oai: Record<string, unknown>, model: string): Record<string, unknown> {
   const choice = (oai.choices as Array<Record<string, unknown>> | undefined)?.[0];
   const message = (choice?.message ?? {}) as Record<string, unknown>;
   const content: AnthropicBlock[] = [];
@@ -156,7 +244,9 @@ function toAnthropicResponse(oai: Record<string, unknown>): Record<string, unkno
     id: (oai.id as string) ?? crypto.randomUUID(),
     type: "message",
     role: "assistant",
-    model: MODEL,
+    // The model that actually answered, which is not always the first choice once
+    // the fallback walk is involved.
+    model,
     content,
     stop_reason: stop,
     stop_sequence: null,
@@ -214,27 +304,29 @@ Deno.serve(async (req) => {
       }))
     : undefined;
 
+  // `model` is filled in per attempt by the fallback walk.
   const payload: Record<string, unknown> = {
-    model: MODEL,
     messages,
     max_tokens: Math.min(Number(body.max_tokens) || MAX_TOKENS_CAP, MAX_TOKENS_CAP),
   };
   if (tools && tools.length) payload.tools = tools;
 
-  const resp = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${geminiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  let resp: Response;
+  let model: string;
+  try {
+    ({ resp, model } = await callGemini(payload, geminiKey));
+  } catch (e) {
+    return json({ error: "upstream_unreachable", message: OVERLOAD_MESSAGE, detail: String(e).slice(0, 200) }, 503);
+  }
 
   if (!resp.ok) {
     const detail = await resp.text().catch(() => "");
-    return json({ error: "upstream_error", status: resp.status, detail: detail.slice(0, 500) }, resp.status);
+    // `message` is what the user reads; `detail` stays for the console. Without it
+    // an overload surfaced as a wall of escaped upstream JSON in the chat pane.
+    const message = RETRY_STATUSES.has(resp.status) ? OVERLOAD_MESSAGE : undefined;
+    return json({ error: "upstream_error", status: resp.status, message, detail: detail.slice(0, 500) }, resp.status);
   }
 
   const oai = await resp.json();
-  return json(toAnthropicResponse(oai));
+  return json(toAnthropicResponse(oai, model));
 });

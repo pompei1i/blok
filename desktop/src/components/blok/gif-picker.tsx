@@ -35,7 +35,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
 
   const fetchGifs = async (q: string) => {
     if (!GIPHY_KEY) {
-      setError("Set VITE_GIPHY_API_KEY in desktop/.env");
+      setError("Set VITE_GIPHY_API_KEY in desktop/.env.local");
       setLoading(false);
       return;
     }

@@ -1,6 +1,11 @@
 # $blok Desktop
 
-Tauri 2 desktop client. Full documentation: [root README](../README.md) · Changelog: [CHANGELOG](../CHANGELOG.md) · Tasks: [TODO](TODO.md)
+Tauri 2 desktop client — **this page is for building it from source.**
+
+> Just want to *use* blok? You don't need any of this: download an installer and sign up.
+> See **[Getting started](../docs/GETTING_STARTED.md)**.
+
+Full documentation: [root README](../README.md) · Architecture: [ARCHITECTURE](../docs/ARCHITECTURE.md) · Changelog: [CHANGELOG](../CHANGELOG.md) · Tasks: [TODO](TODO.md)
 
 ## Quick start
 
@@ -39,7 +44,7 @@ Or via the build script (installs the packages above and Rust automatically):
 ```
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
-VITE_TENOR_API_KEY=...        # optional — GIF search
+VITE_GIPHY_API_KEY=...       # optional — GIF search
 # b.ai.t no longer uses a client-side key. The Anthropic key lives in the
 # Supabase Edge Function "bait" (supabase/functions/bait): set it server-side with
 #   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...

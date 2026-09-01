@@ -56,7 +56,7 @@ docs:  documentation only
 | `VITE_BAIT_DEFAULT_KEY` | Anthropic API key for b.ai.t |
 | `VITE_SUPABASE_URL` | Supabase URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key |
-| `VITE_TENOR_API_KEY` | Tenor GIF API |
+| `VITE_GIPHY_API_KEY` | GIPHY GIF search API |
 | `TAURI_SIGNING_PRIVATE_KEY` | Update signing |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Key password |
 | `RELEASES_PAT` | PAT for writing to `blok-releases` |

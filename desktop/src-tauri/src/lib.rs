@@ -1,4 +1,6 @@
 mod audio;
+#[cfg(target_os = "windows")]
+mod dxgi_capture;
 mod rtc;
 
 use audio::{Cmd, NativeAudio};
@@ -889,15 +891,153 @@ async fn rtc_test_turn(ice_servers_json: String) -> Result<rtc::TurnProbe, Strin
     rtc::test_turn(ice_servers_json).await
 }
 
-/// Push-based native screen capture: spawns a worker thread that grabs, encodes
-/// and ships frames at the requested rate over a binary channel — replacing the
-/// old JS-driven poll (`capture_screen_frame`), whose per-frame invoke + base64
-/// round-trip capped the effective frame rate at roughly half the target.
+/// Number of parallel JPEG encoders behind the capture thread. A 1080p frame
+/// costs ~35ms to encode even on the AVX2 path, so a single encoder caps the
+/// share at ~28fps no matter how fast capture is; frames are independent JPEGs,
+/// so they parallelise perfectly. Half the cores (2-4) leaves room for the app,
+/// the WebRTC stack and whatever the user is actually sharing.
+fn encode_worker_count() -> usize {
+    (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) / 2).clamp(2, 4)
+}
+
+/// Rolling 5-second window of screen-share throughput, shared by the capture
+/// thread and the encoder pool.
+struct CastStats {
+    window: std::time::Instant,
+    sent: u32,
+    capture_ms: f64,
+    captured: u32,
+    encode_ms: f64,
+    encoded: u32,
+}
+
+impl CastStats {
+    fn new() -> Self {
+        CastStats {
+            window: std::time::Instant::now(),
+            sent: 0,
+            capture_ms: 0.0,
+            captured: 0,
+            encode_ms: 0.0,
+            encoded: 0,
+        }
+    }
+
+    /// Prints and resets once per 5s window. Stage averages are per *frame*, so a
+    /// low fps with small stage numbers means an idle screen, while a stage above
+    /// the frame budget is the thing capping the rate.
+    fn tick(&mut self) {
+        if self.window.elapsed() < std::time::Duration::from_secs(5) {
+            return;
+        }
+        eprintln!(
+            "[screencast] {} fps sent (capture {:.1}ms, encode {:.1}ms x{} workers)",
+            self.sent / 5,
+            self.capture_ms / self.captured.max(1) as f64,
+            self.encode_ms / self.encoded.max(1) as f64,
+            encode_worker_count(),
+        );
+        *self = CastStats::new();
+    }
+}
+
+/// One captured frame on its way to an encoder. `seq` orders the output: an
+/// encoder that finishes after a newer frame has already shipped drops its
+/// result rather than sending the screen backwards.
+struct EncodeJob {
+    seq: u64,
+    bgra: Vec<u8>,
+    w: u32,
+    h: u32,
+}
+
+/// Frame source for the push loop: DXGI Desktop Duplication where it is available
+/// (Windows monitors), otherwise the per-frame grab the legacy command uses.
+enum Capturer {
+    #[cfg(target_os = "windows")]
+    Dxgi(Box<dxgi_capture::Duplicator>),
+    Generic,
+}
+
+impl Capturer {
+    /// DXGI for `screen:<i>` on Windows; everything else (single windows, Linux,
+    /// any machine where duplication will not initialise) keeps grab-per-frame.
+    fn for_source(source_id: &str) -> Self {
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(rest) = source_id.strip_prefix("screen:") {
+                if let Some(idx) = rest.split(':').next().and_then(|v| v.parse::<u32>().ok()) {
+                    if let Some(rect) = dxgi_capture::monitor_rect(idx) {
+                        if let Some(d) = dxgi_capture::Duplicator::new(rect) {
+                            return Capturer::Dxgi(Box::new(d));
+                        }
+                    }
+                }
+            }
+        }
+        let _ = source_id;
+        Capturer::Generic
+    }
+
+    /// Blocks up to `budget` for a changed frame. `None` means nothing new — the
+    /// caller just loops (DXGI reports this exactly; the generic path leans on
+    /// the frame hash instead).
+    fn grab(&mut self, source_id: &str, budget: std::time::Duration) -> Option<Grabbed> {
+        match self {
+            #[cfg(target_os = "windows")]
+            Capturer::Dxgi(dupl) => {
+                // Capped well below a slow frame budget so a stop (or a settings
+                // change, which starts a new generation) takes effect promptly
+                // instead of waiting out a 1fps budget. Missing a change during the
+                // cap costs nothing: the next acquire returns the current desktop.
+                let ms = budget.as_millis().min(100) as u32;
+                let (bgra, w, h) = match dupl.grab(ms) {
+                    dxgi_capture::Grab::Frame(px, w, h) => (px.to_vec(), w, h),
+                    dxgi_capture::Grab::Unchanged => return None,
+                    dxgi_capture::Grab::Lost => {
+                        // Resolution change, UAC/secure desktop, driver reset: the
+                        // duplication object is dead but the device is fine. Retry
+                        // next tick; a persistent failure just yields no frames,
+                        // which is how a failed capture already behaves.
+                        dupl.reacquire();
+                        return None;
+                    }
+                };
+                // `last_work` excludes the wait for the desktop to change, which is
+                // idleness rather than cost; the copy-out above is ours to add.
+                let work = dupl.last_work.as_secs_f64() * 1000.0;
+                Some(Grabbed { bgra, w, h, work_ms: work })
+            }
+            Capturer::Generic => {
+                let started = std::time::Instant::now();
+                let raw = capture_raw_frame(source_id)?;
+                // This path never waits — every millisecond of it is work.
+                let work_ms = started.elapsed().as_secs_f64() * 1000.0;
+                Some(Grabbed { bgra: raw.bgra, w: raw.w, h: raw.h, work_ms })
+            }
+        }
+    }
+}
+
+/// A captured frame plus what the capture stage actually cost, so the throughput
+/// log can tell a slow capture apart from an idle screen.
+struct Grabbed {
+    bgra: Vec<u8>,
+    w: u32,
+    h: u32,
+    work_ms: f64,
+}
+
+/// Push-based native screen capture: a capture thread grabs frames at the
+/// requested rate and hands them to a pool of encoder threads that compress and
+/// ship them — replacing the old JS-driven poll (`capture_screen_frame`), whose
+/// per-frame invoke + base64 round-trip capped the effective frame rate at
+/// roughly half the target.
 ///
 /// Each message is: 8-byte header (u32-LE width, u32-LE height) + raw JPEG bytes.
-/// An unchanged frame (hash dedup) sends nothing. The loop exits when a newer
-/// start bumps the generation counter, or `screen_capture_stop` is called, or
-/// the channel dies (webview reloaded).
+/// An unchanged frame (hash dedup, or DXGI's own no-change signal) sends nothing.
+/// The loop exits when a newer start bumps the generation counter, or
+/// `screen_capture_stop` is called, or the channel dies (webview reloaded).
 #[tauri::command]
 fn screen_capture_start(
     source_id: String,
@@ -908,53 +1048,66 @@ fn screen_capture_start(
     on_frame: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Condvar};
+    use std::time::{Duration, Instant};
 
     let generation = state.0.clone();
     let my_gen = generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let frame_budget = std::time::Duration::from_millis(1000 / fps.clamp(1, 60) as u64);
+    // Sub-millisecond precision matters at the top of the range: integer
+    // `1000 / 60` is 16ms, which asks for 62.5fps and skews the pacing.
+    let frame_budget = Duration::from_secs_f64(1.0 / fps.clamp(1, 60) as f64);
 
-    // Two-stage pipeline: a capture thread grabs frames at the target rate and a
-    // separate encode thread compresses + ships them. Sequentially (the previous
-    // design), capture+encode summed to ~30ms/frame at 1080p — a hard ~25fps
-    // ceiling regardless of the requested fps. Pipelined, the ceiling is the
-    // slowest single stage instead of the sum. The depth-1 channel drops the
-    // newest frame when the encoder is behind (fresher > complete).
-    let (tx, rx) = std::sync::mpsc::sync_channel::<RawFrame>(1);
+    // Single-slot mailbox between capture and the encoder pool. Keeping only the
+    // newest frame is deliberate: when every encoder is busy, a live screen share
+    // wants the freshest frame, not a backlog of stale ones.
+    let mailbox: Arc<(Mutex<Option<EncodeJob>>, Condvar)> =
+        Arc::new((Mutex::new(None), Condvar::new()));
+    // Serialises output and enforces frame order across the pool: an encoder that
+    // finishes out of order sees a newer seq already shipped and drops its frame.
+    let sent_seq = Arc::new(Mutex::new(0u64));
+    // Throughput log while a share is running (frames actually sent to the
+    // webview) — makes fps regressions diagnosable from the console. The per-stage
+    // averages are what tells "the screen was idle" apart from "a stage is too
+    // slow to hit the requested rate".
+    let stats = Arc::new(Mutex::new(CastStats::new()));
 
-    let cap_gen = generation.clone();
-    std::thread::spawn(move || {
-        while cap_gen.load(Ordering::SeqCst) == my_gen {
-            let started = std::time::Instant::now();
-            if let Some(raw) = capture_raw_frame(&source_id) {
-                if tx.send(raw).is_err() {
-                    return; // encoder side gone
+    for _ in 0..encode_worker_count() {
+        let (generation, mailbox, sent_seq, stats) =
+            (generation.clone(), mailbox.clone(), sent_seq.clone(), stats.clone());
+        let on_frame = on_frame.clone();
+        std::thread::spawn(move || {
+            while generation.load(Ordering::SeqCst) == my_gen {
+                let job = {
+                    let (lock, cv) = &*mailbox;
+                    let mut slot = lock.lock().unwrap();
+                    loop {
+                        if generation.load(Ordering::SeqCst) != my_gen {
+                            return;
+                        }
+                        if let Some(job) = slot.take() {
+                            break job;
+                        }
+                        // Timed wait so a generation bump still ends the thread.
+                        slot = cv.wait_timeout(slot, Duration::from_millis(200)).unwrap().0;
+                    }
+                };
+                let encode_started = Instant::now();
+                let encoded = encode_bgra_to_jpeg(job.bgra, job.w, job.h, max_width, jpeg_quality);
+                let encode_ms = encode_started.elapsed().as_secs_f64() * 1000.0;
+                {
+                    // Counted whether or not the frame ships: it's the cost of an
+                    // encode, and a stale-drop still consumed a worker for it.
+                    let mut s = stats.lock().unwrap();
+                    s.encoded += 1;
+                    s.encode_ms += encode_ms;
                 }
-            }
-            let elapsed = started.elapsed();
-            if elapsed < frame_budget {
-                std::thread::sleep(frame_budget - elapsed);
-            }
-        }
-    });
+                let Some((jpeg, w, h)) = encoded else { continue };
 
-    std::thread::spawn(move || {
-        let mut last_hash: Option<u64> = None;
-        // Lightweight throughput log while a share is running (frames actually
-        // sent to the webview) — makes fps regressions diagnosable from the console.
-        let mut sent: u32 = 0;
-        let mut window = std::time::Instant::now();
-        while generation.load(Ordering::SeqCst) == my_gen {
-            let Ok(raw) = rx.recv_timeout(std::time::Duration::from_millis(250)) else {
-                continue; // idle poll so a generation bump still exits the loop
-            };
-            let hash = frame_hash(&raw.bgra);
-            if last_hash == Some(hash) {
-                continue;
-            }
-            last_hash = Some(hash);
-            if let Some((jpeg, w, h)) =
-                encode_bgra_to_jpeg(raw.bgra, raw.w, raw.h, max_width, jpeg_quality)
-            {
+                let mut last = sent_seq.lock().unwrap();
+                if *last >= job.seq {
+                    continue; // a newer frame already went out
+                }
+                *last = job.seq;
                 // Fan out to remote viewers over the native transport (screen tag),
                 // then to the local self-preview canvas via on_frame.
                 rtc::broadcast_video_frame(1, w, h, jpeg.clone());
@@ -963,14 +1116,51 @@ fn screen_capture_start(
                 msg.extend_from_slice(&h.to_le_bytes());
                 msg.extend_from_slice(&jpeg);
                 if on_frame.send(InvokeResponseBody::Raw(msg)).is_err() {
-                    return; // frontend went away
+                    // Frontend went away — end this generation for every thread.
+                    let _ = generation.compare_exchange(
+                        my_gen,
+                        my_gen + 1,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    );
+                    return;
                 }
-                sent += 1;
-                if window.elapsed() >= std::time::Duration::from_secs(5) {
-                    eprintln!("[screencast] {} fps sent", sent / 5);
-                    sent = 0;
-                    window = std::time::Instant::now();
+                drop(last);
+
+                let mut s = stats.lock().unwrap();
+                s.sent += 1;
+                s.tick();
+            }
+        });
+    }
+
+    std::thread::spawn(move || {
+        let mut capturer = Capturer::for_source(&source_id);
+        let mut last_hash: Option<u64> = None;
+        let mut seq = 0u64;
+        while generation.load(Ordering::SeqCst) == my_gen {
+            let started = Instant::now();
+            if let Some(frame) = capturer.grab(&source_id, frame_budget) {
+                let hash = frame_hash(&frame.bgra);
+                if last_hash != Some(hash) {
+                    last_hash = Some(hash);
+                    seq += 1;
+                    let (lock, cv) = &*mailbox;
+                    *lock.lock().unwrap() = Some(EncodeJob {
+                        seq,
+                        bgra: frame.bgra,
+                        w: frame.w,
+                        h: frame.h,
+                    });
+                    cv.notify_one();
                 }
+                let mut s = stats.lock().unwrap();
+                s.captured += 1;
+                s.capture_ms += frame.work_ms;
+            }
+            let elapsed = started.elapsed();
+            if elapsed < frame_budget {
+                std::thread::sleep(frame_budget - elapsed);
             }
         }
     });
@@ -1721,5 +1911,51 @@ mod tests {
 
         std::env::remove_var("XDG_CONFIG_HOME");
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── push-capture pipeline ────────────────────────────────────────────────
+
+    #[test]
+    fn encode_worker_count_stays_within_pool_bounds() {
+        // A single encoder caps a 1080p share at ~28fps; an unbounded pool would
+        // starve the app it's sharing. Both ends of the clamp matter.
+        let n = encode_worker_count();
+        assert!((2..=4).contains(&n), "worker count {n} outside 2..=4");
+    }
+
+    #[test]
+    fn capturer_falls_back_to_generic_for_non_monitor_sources() {
+        // Desktop Duplication only covers whole monitors — window shares and
+        // anything unrecognised must stay on the grab-per-frame path.
+        assert!(matches!(Capturer::for_source("window:12345:0"), Capturer::Generic));
+        assert!(matches!(Capturer::for_source("bogus:1"), Capturer::Generic));
+        assert!(matches!(Capturer::for_source("screen:notanumber"), Capturer::Generic));
+    }
+
+    #[test]
+    fn capturer_grab_on_missing_source_yields_nothing() {
+        let mut cap = Capturer::for_source("screen:9999");
+        assert!(cap.grab("screen:9999", std::time::Duration::from_millis(20)).is_none());
+    }
+
+    /// Exercises the real duplication path end to end where a desktop exists, and
+    /// asserts a clean `None` where it doesn't (headless CI) rather than a panic —
+    /// the module is full of `unsafe`, so "doesn't crash" is the load-bearing part.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn dxgi_duplicator_either_captures_a_real_frame_or_declines() {
+        let Some(rect) = dxgi_capture::monitor_rect(0) else { return };
+        let Some(mut dupl) = dxgi_capture::Duplicator::new(rect) else { return };
+        let (w, h) = ((rect.right - rect.left) as u32, (rect.bottom - rect.top) as u32);
+        // A change may not land inside one timeout on a still desktop, so allow a
+        // few attempts before giving up — an idle screen is not a failure.
+        for _ in 0..5 {
+            if let dxgi_capture::Grab::Frame(px, fw, fh) = dupl.grab(200) {
+                assert_eq!(px.len(), (fw * fh * 4) as usize, "frame is not tightly packed BGRA");
+                assert_eq!((fw, fh), (w, h), "duplicated frame does not match the monitor rect");
+                assert!(dupl.last_work > std::time::Duration::ZERO);
+                return;
+            }
+        }
     }
 }

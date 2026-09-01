@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.9.47] — 2026-09-01
+
+### Fixed
+- **Screen share now actually reaches the frame rate you picked.** Choosing 60fps
+  delivered 22-31. Two stages were each too slow to fit a 16.7ms frame: capture
+  went through GDI `BitBlt` off the screen DC, which costs 22-32ms on a composited
+  desktop, and JPEG encoding ran on a single thread at ~35ms for 1080p. Windows
+  monitor capture now uses DXGI Desktop Duplication (~4ms, reading the frame the
+  compositor already built), and encoding runs on a pool of 2-4 workers. Measured
+  ceiling on a 1080p share went from ~26fps to ~179fps. Window shares, Linux, and
+  any machine where duplication won't initialise keep the previous capture path —
+  now with the encoder pool behind it.
+- **b.ai.t no longer fails on a routine upstream hiccup.** The retry only knew
+  Anthropic's 529 overload code, left over from before the proxy moved to Gemini,
+  whose overload is a 503 — so every "this model is experiencing high demand" spike
+  went straight to the user as a wall of raw JSON. Transient failures are now
+  retried in the proxy (where it also stops a dead request from burning a daily
+  quota slot) and in the client, and the proxy falls back through less contended
+  Gemini Flash models rather than hammering an overloaded one. Overload now reads
+  as a sentence instead of an error dump.
+- **GIF picker works in released builds.** The client reads `VITE_GIPHY_API_KEY`,
+  but the release workflow passed `VITE_TENOR_API_KEY` — a name left behind by the
+  move from Tenor to GIPHY, and one that was never set as a secret. GIF search had
+  therefore never worked in a shipped build. The workflow, `.env.example`, both
+  READMEs and the release guide now all agree on the GIPHY name.
+
+### Changed
+- The screen-share throughput log reports per-stage timings
+  (`59 fps sent (capture 4.2ms, encode 22.4ms x4 workers)`), so a low rate caused
+  by an idle screen is distinguishable from a stage that can't keep up.
+
+### Documentation
+- New reader-facing guides: getting started, user guide, FAQ, troubleshooting and
+  a project overview, with the README rewritten to lead into them.
+
 ## [0.9.46] — 2026-08-11
 
 ### Added

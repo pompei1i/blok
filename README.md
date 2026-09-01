@@ -32,7 +32,9 @@ makes a chat feel like a place rather than a log.
 
 ## Install
 
-Grab an installer from the [latest release](https://github.com/pompei1i/blok-releases/releases/latest):
+**Download it, make an account, you're in.** The installers below are built against the
+project's own backend — that's what "public beta" means here — so there's nothing to
+configure, host, or sign up for anywhere else. It's free, and there is nothing to buy.
 
 | Platform | File |
 |---|---|
@@ -41,16 +43,22 @@ Grab an installer from the [latest release](https://github.com/pompei1i/blok-rel
 | Fedora / RHEL | `blok-x.y.z-1.x86_64.rpm` |
 | Any Linux | `blok_x.y.z_amd64.AppImage` |
 
+Grab one from the [latest release](https://github.com/pompei1i/blok-releases/releases/latest).
 Installed clients keep themselves up to date through the signed Tauri updater.
 
-Want to run your own backend instead of joining the public beta? → **[Self-hosting guide](docs/SELF_HOSTING.md)**
+> 🚀 **First time here?** → **[Getting started](docs/GETTING_STARTED.md)** walks you from
+> download to talking to your friends in about five minutes.
+> Then: **[User guide](docs/USER_GUIDE.md)** · **[FAQ](docs/FAQ.md)** · **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+
+Want it on infrastructure you control instead? → **[Self-hosting guide](docs/SELF_HOSTING.md)**
 
 ## Features
 
 - 🤖 **b.ai.t — an AI that acts.** Not a chatbot bolted on the side: it creates servers,
   channels, categories, roles and polls, writes announcements, summarizes a channel and
   sets timers — through tool calls, from inside the chat. The API key lives server-side in
-  an Edge Function; nothing sensitive ships in the client.
+  an Edge Function; nothing sensitive ships in the client. Capped at 10 prompts per account
+  per day during the beta.
 - 🌍 **Realtime translation.** Turn it on once and messages in other languages arrive in
   yours, in every chat, with "show original" one click away. Translations are cached per
   message and shared across everyone in the channel, and messages already in your language
@@ -62,7 +70,7 @@ Want to run your own backend instead of joining the public beta? → **[Self-hos
   **60 fps with desktop audio** — plus camera and video calls, over the same native transport.
 - 🎰 **A game inside your chat.** XP and levels, daily quests, a gacha **loot box** with
   server-side RNG and two-tier pity (guaranteed Epic at 10, Legendary at 90), a coin/dust
-  economy and equippable cosmetics: nameplates, avatar frames, badges, banners.
+  economy and equippable cosmetics: nameplates, avatar frames, banners.
 - 🛡️ **Built for communities.** Servers, channels and categories, bitfield **roles &
   permissions**, moderation (bans, timeouts, slow mode, audit log), invite codes.
 - 💬 **A real messenger.** Realtime messages, attachments and drag-drop, GIFs, emoji
@@ -131,10 +139,21 @@ blok/
 
 ## Documentation
 
+**Using blok** — start here if you just want to talk to people:
+
 | Doc | What's in it |
 |---|---|
-| [Architecture](docs/ARCHITECTURE.md) | How the pieces fit: native transport, RLS model, Edge Functions, data flow |
+| [Getting started](docs/GETTING_STARTED.md) | Install, account, first server, microphone — five minutes |
+| [User guide](docs/USER_GUIDE.md) | Every feature explained: chat, voice, screen share, b.ai.t, roles, economy, shortcuts |
+| [FAQ](docs/FAQ.md) | Is it free, is it private, how finished is it, what does AGPL mean for me |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Nobody can hear me, black screen share, update won't install |
+
+**Running and building it** — start here if you want your own copy or want to contribute:
+
+| Doc | What's in it |
+|---|---|
 | [Self-hosting](docs/SELF_HOSTING.md) | Standing up your own backend from zero |
+| [Architecture](docs/ARCHITECTURE.md) | How the pieces fit: native transport, RLS model, Edge Functions, data flow |
 | [Contributing](CONTRIBUTING.md) | Setup, house style, database rules, PR expectations |
 | [Security policy](SECURITY.md) | Threat model and how to report a vulnerability |
 | [Migrations](supabase/migrations/README.md) | Why every migration must be idempotent |

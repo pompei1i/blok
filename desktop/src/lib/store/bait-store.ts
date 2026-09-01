@@ -65,8 +65,9 @@ function serverKey(): string {
 
 // Route the Anthropic call through the Supabase Edge Function ("bait") so the API
 // key stays server-side. Auth is the user's Supabase JWT; the function rate-limits
-// per user and forces a cheap model + token cap. Retries once on 529 (overloaded).
-async function callBaitProxy(
+// per user and forces a cheap model + token cap. Transient upstream failures are
+// retried here and inside the proxy. Exported for tests.
+export async function callBaitProxy(
   params: Anthropic.MessageCreateParamsNonStreaming,
 ): Promise<Anthropic.Message> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -83,9 +84,15 @@ async function callBaitProxy(
     body: JSON.stringify(params),
   });
 
+  // Transient upstream failures. 529 is Anthropic's overload code, kept from when
+  // b.ai.t called Anthropic directly; the proxy now fronts Gemini, whose overload
+  // arrives as 503 — which this retry used to miss entirely, so a routine "model
+  // is experiencing high demand" blip went straight to the user. The proxy retries
+  // too; this is the outer net for a blip that outlives its attempts.
+  const TRANSIENT = new Set([500, 502, 503, 504, 529]);
   let res = await doFetch();
-  if (res.status === 529) {
-    await new Promise((r) => setTimeout(r, 2000));
+  for (let attempt = 0; attempt < 2 && TRANSIENT.has(res.status); attempt++) {
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     res = await doFetch();
   }
   if (res.status === 429) {
@@ -96,6 +103,16 @@ async function callBaitProxy(
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    // The proxy sends a plain-language `message` for the classes a user can act on
+    // (overload, upstream down); anything else keeps the raw detail for debugging.
+    const message = (() => {
+      try {
+        return (JSON.parse(detail) as { message?: string }).message;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (message) throw new Error(message);
     throw new Error(`b.ai.t request failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
   }
   return await res.json() as Anthropic.Message;
