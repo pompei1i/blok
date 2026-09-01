@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.49] — 2026-09-01
+
+### Added
+- **Real fullscreen for screen shares.** The fullscreen button used the browser's
+  element fullscreen, which only fills the webview — inside the desktop app the
+  window frame and taskbar stayed on screen, so it never actually went full
+  screen. It now drives the app window itself, and the overlay drops its inset,
+  border, rounding and header so the picture reaches every edge of the display.
+  Escape leaves, and a dimmed exit button sits in the corner for the mouse.
+- The fullscreen button is available in every view. It used to appear only while
+  watching a single remote stream, so your own share and the multi-person grid —
+  the cases people reach for most — had no way to go fullscreen at all.
+
+### Fixed
+- Leaving a share no longer strands the window in fullscreen, and exiting restores
+  a fullscreen the user had set up themselves rather than forcing the window back
+  to a normal size.
+
 ## [0.9.48] — 2026-09-01
 
 ### Fixed

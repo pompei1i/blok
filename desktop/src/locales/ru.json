@@ -469,6 +469,7 @@
   "screenShare.resolution": "Разрешение",
   "screenShare.frameRate": "Частота кадров",
   "screenShare.fullscreen": "На весь экран",
+  "screenShare.exitFullscreen": "Выйти из полноэкранного",
   "screenShare.desktopAudioUnavailable": "Звук рабочего стола недоступен",
   "screenShare.requiresDesktop": "Демонстрация экрана доступна только в десктоп-приложении",
   "bait.comingSoonPlaceholder": "b.ai.t скоро появится…",

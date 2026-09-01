@@ -469,6 +469,7 @@
   "screenShare.resolution": "Rozdzielczość",
   "screenShare.frameRate": "Liczba klatek",
   "screenShare.fullscreen": "Pełny ekran",
+  "screenShare.exitFullscreen": "Zamknij pełny ekran",
   "screenShare.desktopAudioUnavailable": "Dźwięk pulpitu niedostępny",
   "screenShare.requiresDesktop": "Udostępnianie ekranu wymaga aplikacji desktopowej",
   "bait.comingSoonPlaceholder": "b.ai.t już wkrótce…",

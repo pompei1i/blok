@@ -469,6 +469,7 @@
   "screenShare.resolution": "Resolution",
   "screenShare.frameRate": "Frame rate",
   "screenShare.fullscreen": "Fullscreen",
+  "screenShare.exitFullscreen": "Exit fullscreen",
   "screenShare.desktopAudioUnavailable": "Desktop audio unavailable",
   "screenShare.requiresDesktop": "Screen share requires the desktop app",
   "bait.comingSoonPlaceholder": "b.ai.t is coming soon…",

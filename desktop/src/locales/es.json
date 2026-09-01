@@ -469,6 +469,7 @@
   "screenShare.resolution": "Resolución",
   "screenShare.frameRate": "Fotogramas",
   "screenShare.fullscreen": "Pantalla completa",
+  "screenShare.exitFullscreen": "Salir de pantalla completa",
   "screenShare.desktopAudioUnavailable": "Audio del escritorio no disponible",
   "screenShare.requiresDesktop": "Compartir pantalla requiere la app de escritorio",
   "bait.comingSoonPlaceholder": "b.ai.t llegará pronto…",
