@@ -237,6 +237,15 @@ export class NativeVoiceEngine {
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
     sourceId: string;
+    /**
+     * Whether desktop audio is running for this share. Tracked here because it
+     * cannot be read back from `screenStream`: desktop audio is captured in Rust
+     * and fanned out over the native transport, so it never becomes a track on
+     * the MediaStream. Inferring it from `getAudioTracks()` always answered
+     * "no", which unticked the picker's audio box on every source switch and
+     * made an unchanged audio choice look like a change.
+     */
+    withAudio: boolean;
   } | null = null;
   private _subscribed = false;
   private _subscribeResolve: (() => void) | null = null;
@@ -686,7 +695,7 @@ export class NativeVoiceEngine {
   async changeScreenShareSource(): Promise<void> {
     const nc = this._nativeCapture;
     if (!nc) return;
-    const hadAudio = (this.screenStream?.getAudioTracks().length ?? 0) > 0;
+    const hadAudio = nc.withAudio;
     const sources = await invoke<CaptureSource[]>("list_capture_sources").catch(() => []);
     const choice = await useScreenPickerStore.getState().requestPick(sources, { initialAudio: hadAudio });
     if (!choice) return; // cancelled — keep sharing the current source
@@ -746,19 +755,22 @@ export class NativeVoiceEngine {
       invoke("screen_capture_stop").catch(() => {});
       throw new Error("Native screen capture produced no frames");
     }
-    this._nativeCapture = { canvas, ctx, sourceId };
+    this._nativeCapture = { canvas, ctx, sourceId, withAudio: choice.withAudio };
 
     // No fps argument: capture every draw — the Rust loop's pacing decides the
     // actual rate, so fps changes mid-share need no new track.
     const track = canvas.captureStream().getVideoTracks()[0];
     const stream = new MediaStream([track]);
 
-    // Optional desktop audio: Rust captures the monitor source (parec) and fans
-    // it out to peers over the transport directly — no local playback (the user
-    // already hears it) and no MediaStream plumbing. Non-fatal on failure.
+    // Optional desktop audio: Rust captures the system output (parec on Linux,
+    // WASAPI loopback on Windows) and fans it out to peers over the transport
+    // directly — no local playback (the user already hears it) and no MediaStream
+    // plumbing. Non-fatal on failure, but the flag has to come back down so the
+    // picker and a later source switch don't claim audio that isn't running.
     if (choice.withAudio) {
       const onChunk = new Channel<ArrayBuffer>(); // unused; command requires it
       invoke("desktop_audio_start", { onChunk }).catch((e) => {
+        if (this._nativeCapture) this._nativeCapture.withAudio = false;
         useToastStore.getState().showToast({
           icon: WifiOff,
           title: translate("screenShare.desktopAudioUnavailable"),

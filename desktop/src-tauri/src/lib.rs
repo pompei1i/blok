@@ -743,6 +743,99 @@ fn default_audio_monitor_hint() -> Option<String> {
     }
 }
 
+/// Opens a WASAPI loopback capture on the default output device and hands every
+/// chunk to `on_pcm` as (sample rate, mono i16-LE). Returns the rate plus a
+/// sender whose drop stops the capture.
+///
+/// Loopback is cpal's documented behaviour for an *input* stream built on an
+/// *output* device: it sets AUDCLNT_STREAMFLAGS_LOOPBACK, which records what the
+/// endpoint is playing. The callback is a parameter so this can be exercised in a
+/// test without the rtc runtime.
+#[cfg(target_os = "windows")]
+fn start_windows_loopback(
+    on_pcm: impl Fn(u32, Vec<u8>) + Send + Sync + 'static,
+) -> Result<(u32, std::sync::mpsc::Sender<()>), String> {
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .ok_or("no default audio output to capture")?;
+    // The endpoint's own mix format: shared mode rejects anything else, so the
+    // rate travels with the frames rather than being forced to 48k.
+    let default_cfg = device
+        .default_output_config()
+        .map_err(|e| format!("output config unavailable: {e}"))?;
+    let rate = default_cfg.sample_rate().0;
+    let channels = default_cfg.channels() as usize;
+    let sample_format = default_cfg.sample_format();
+    let config: cpal::StreamConfig = default_cfg.into();
+
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+    // cpal's Stream is !Send, so one thread builds, plays and drops it; the
+    // thread parks on `rx` and unwinds when the sender is dropped.
+    std::thread::spawn(move || {
+        let on_pcm = std::sync::Arc::new(on_pcm);
+        let on_err = |e| eprintln!("[desktop-audio] stream error: {e}");
+        let build = || -> Result<cpal::Stream, cpal::BuildStreamError> {
+            // Every format downmixed to the mono i16-LE the mixer expects.
+            macro_rules! stream {
+                ($t:ty, $to_i16:expr) => {{
+                    let cb = on_pcm.clone();
+                    device.build_input_stream(
+                        &config,
+                        move |data: &[$t], _: &_| {
+                            let conv: fn($t) -> i32 = $to_i16;
+                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
+                            for frame in data.chunks(channels) {
+                                let sum: i32 = frame.iter().map(|s| conv(*s)).sum();
+                                let avg = (sum / channels as i32).clamp(i16::MIN as i32, i16::MAX as i32);
+                                mono.extend_from_slice(&(avg as i16).to_le_bytes());
+                            }
+                            cb(rate, mono);
+                        },
+                        on_err,
+                        None,
+                    )
+                }};
+            }
+            match sample_format {
+                cpal::SampleFormat::F32 => {
+                    Ok(stream!(f32, |s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i32)?)
+                }
+                cpal::SampleFormat::I16 => Ok(stream!(i16, |s| s as i32)?),
+                cpal::SampleFormat::U16 => Ok(stream!(u16, |s| s as i32 - 32768)?),
+                other => {
+                    eprintln!("[desktop-audio] unsupported sample format {other:?}");
+                    Err(cpal::BuildStreamError::StreamConfigNotSupported)
+                }
+            }
+        };
+
+        let stream = match build() {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("loopback capture failed: {e}")));
+                return;
+            }
+        };
+        if let Err(e) = stream.play() {
+            let _ = ready_tx.send(Err(format!("loopback stream would not start: {e}")));
+            return;
+        }
+        let _ = ready_tx.send(Ok(()));
+        let _ = rx.recv();
+        drop(stream);
+    });
+
+    ready_rx
+        .recv()
+        .map_err(|_| "loopback capture thread died".to_string())??;
+    Ok((rate, tx))
+}
+
 /// Start native desktop-audio capture and fan it out to peers as tag 2.
 ///
 /// Linux records the default sink's `.monitor` source via `parec`
@@ -826,110 +919,31 @@ fn desktop_audio_start(
     }
     #[cfg(target_os = "windows")]
     {
-        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-
         // on_chunk is unused: desktop audio rides the native transport, fanning
         // out to peers in Rust rather than through the webview.
         let _ = on_chunk;
         if let Some(old) = state.0.lock().unwrap().take() {
             old.stop();
         }
-
-        // WASAPI loopback: cpal opens an *input* stream on an *output* device with
-        // AUDCLNT_STREAMFLAGS_LOOPBACK, which is how you record what the speakers
-        // are playing. Use the endpoint's own mix format — shared mode rejects
-        // anything else, so the rate travels with the frames instead of being
-        // forced to 48k like the parec path can.
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or("no default audio output to capture")?;
-        let default_cfg = device
-            .default_output_config()
-            .map_err(|e| format!("output config unavailable: {e}"))?;
-        let rate = default_cfg.sample_rate().0;
-        let channels = default_cfg.channels() as usize;
-        let sample_format = default_cfg.sample_format();
-        let config: cpal::StreamConfig = default_cfg.into();
-
-        let (tx, rx) = std::sync::mpsc::channel::<()>();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
-        // cpal's Stream is !Send, so it must be built, played and dropped on one
-        // thread; the thread parks on `rx` and unwinds when the sender is dropped.
-        std::thread::spawn(move || {
-            // Any sample format downmixed to the mono i16-LE the mixer expects.
-            let on_err = |e| eprintln!("[desktop-audio] stream error: {e}");
-            let build = || -> Result<cpal::Stream, cpal::BuildStreamError> {
-                match sample_format {
-                    cpal::SampleFormat::F32 => device.build_input_stream(
-                        &config,
-                        move |data: &[f32], _: &_| {
-                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
-                            for frame in data.chunks(channels) {
-                                let avg = frame.iter().sum::<f32>() / channels as f32;
-                                let s = (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                                mono.extend_from_slice(&s.to_le_bytes());
-                            }
-                            rtc::broadcast_desktop_audio(rate, mono);
-                        },
-                        on_err,
-                        None,
-                    ),
-                    cpal::SampleFormat::I16 => device.build_input_stream(
-                        &config,
-                        move |data: &[i16], _: &_| {
-                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
-                            for frame in data.chunks(channels) {
-                                let sum: i32 = frame.iter().map(|s| *s as i32).sum();
-                                mono.extend_from_slice(&((sum / channels as i32) as i16).to_le_bytes());
-                            }
-                            rtc::broadcast_desktop_audio(rate, mono);
-                        },
-                        on_err,
-                        None,
-                    ),
-                    cpal::SampleFormat::U16 => device.build_input_stream(
-                        &config,
-                        move |data: &[u16], _: &_| {
-                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
-                            for frame in data.chunks(channels) {
-                                let sum: i32 = frame.iter().map(|s| *s as i32 - 32768).sum();
-                                mono.extend_from_slice(&((sum / channels as i32) as i16).to_le_bytes());
-                            }
-                            rtc::broadcast_desktop_audio(rate, mono);
-                        },
-                        on_err,
-                        None,
-                    ),
-                    other => {
-                        eprintln!("[desktop-audio] unsupported sample format {other:?}");
-                        return Err(cpal::BuildStreamError::StreamConfigNotSupported);
-                    }
+        // Level log every 5s. Desktop audio is deliberately not played back
+        // locally (the sharer already hears it), so without this there is no way
+        // to tell "capture is silent" from "capture never started" short of
+        // asking a viewer.
+        let stats = std::sync::Mutex::new((0u64, 0i32, std::time::Instant::now()));
+        let (rate, tx) = start_windows_loopback(move |rate, pcm| {
+            {
+                let mut s = stats.lock().unwrap();
+                s.0 += (pcm.len() / 2) as u64;
+                for b in pcm.chunks_exact(2) {
+                    s.1 = s.1.max(i16::from_le_bytes([b[0], b[1]]).unsigned_abs() as i32);
                 }
-            };
-
-            let stream = match build().and_then(|s| s.play().map(|_| s).map_err(|e| {
-                cpal::BuildStreamError::BackendSpecific {
-                    err: cpal::BackendSpecificError { description: e.to_string() },
+                if s.2.elapsed() >= std::time::Duration::from_secs(5) {
+                    eprintln!("[desktop-audio] {} samples/s @ {rate}Hz, peak {}", s.0 / 5, s.1);
+                    *s = (0, 0, std::time::Instant::now());
                 }
-            })) {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = ready_tx.send(Err(format!("loopback capture failed: {e}")));
-                    return;
-                }
-            };
-            let _ = ready_tx.send(Ok(()));
-            // Blocks until desktop_audio_stop drops the sender; `stream` lives
-            // exactly as long as this thread.
-            let _ = rx.recv();
-            drop(stream);
-        });
-
-        ready_rx
-            .recv()
-            .map_err(|_| "loopback capture thread died".to_string())??;
+            }
+            rtc::broadcast_desktop_audio(rate, pcm);
+        })?;
         *state.0.lock().unwrap() = Some(DesktopAudioCapture::Loopback(tx));
         Ok(rate)
     }

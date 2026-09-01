@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.51] — 2026-09-01
+
+### Fixed
+- **The desktop-audio tick no longer clears once a share is running.** Whether
+  audio was on was read back from the share's `MediaStream`, but desktop audio
+  never becomes a track on it — it is captured in Rust and sent straight over the
+  native transport. The answer was therefore always "no": reopening the picker to
+  switch source showed the box unticked, and re-picking the same audio setting
+  looked like a change and forced a needless restart of the share. The share now
+  tracks its own audio state.
+- A desktop-audio capture that fails to start now clears that state too, so the
+  picker stops offering to keep audio the share doesn't actually have.
+
+### Changed
+- Desktop audio logs its level every 5s (`[desktop-audio] N samples/s @ 48000Hz,
+  peak P`). It is deliberately never played back locally — the sharer already
+  hears it — so there was previously no way to tell a silent capture from one
+  that never started without asking a viewer.
+
 ## [0.9.50] — 2026-09-01
 
 ### Fixed
