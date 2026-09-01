@@ -14,6 +14,8 @@ interface UiSettingsState {
   screenShareFps: ScreenShareFps;
   screenShareResolution: ScreenShareResolution;
   screenShareQuality: ScreenShareQuality;
+  /** Remembered state of the picker's "share desktop audio" box. */
+  screenShareAudio: boolean;
   noiseSuppression: boolean;
   echoCancellation: boolean;
   inputVolume: number;
@@ -47,6 +49,7 @@ export const useUiSettingsStore = create<UiSettingsState>()(
       screenShareFps: 30,
       screenShareResolution: "1080p",
       screenShareQuality: "high",
+      screenShareAudio: false,
       noiseSuppression: true,
       echoCancellation: true,
       inputVolume: 70,

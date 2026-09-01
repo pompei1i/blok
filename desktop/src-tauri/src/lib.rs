@@ -22,7 +22,32 @@ struct AudioState(Mutex<Option<NativeAudio>>);
 
 /// Running desktop-audio loopback capture (`parec` child), if any. Kept so a stop
 /// command (or a fresh start) can kill the previous recorder.
-struct DesktopAudioState(Mutex<Option<std::process::Child>>);
+/// A running desktop-audio capture, however the platform provides it.
+enum DesktopAudioCapture {
+    /// Linux: a `parec` child reading the default sink's monitor source.
+    #[cfg(target_os = "linux")]
+    Parec(std::process::Child),
+    /// Windows: dropping the sender ends the thread that owns the WASAPI
+    /// loopback stream (cpal streams are `!Send`, so one thread owns it).
+    #[cfg(target_os = "windows")]
+    Loopback(std::sync::mpsc::Sender<()>),
+}
+
+impl DesktopAudioCapture {
+    fn stop(self) {
+        match self {
+            #[cfg(target_os = "linux")]
+            DesktopAudioCapture::Parec(mut child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            #[cfg(target_os = "windows")]
+            DesktopAudioCapture::Loopback(tx) => drop(tx),
+        }
+    }
+}
+
+struct DesktopAudioState(Mutex<Option<DesktopAudioCapture>>);
 
 /// Generation counter for the push-based screen-capture loop. Bumping it stops
 /// the currently running capture thread (it checks the counter every frame).
@@ -718,12 +743,20 @@ fn default_audio_monitor_hint() -> Option<String> {
     }
 }
 
-/// Start native desktop-audio loopback capture: records the default sink's
-/// `.monitor` source via `parec` (PulseAudio/PipeWire CLI) and streams raw
-/// s16le 48kHz stereo PCM chunks to the frontend over a binary channel — the
-/// same Channel pattern the voice pipeline uses. This bypasses WebKitGTK's
-/// getUserMedia entirely (it doesn't expose monitor sources and crashes when
-/// asked for one). Returns the sample rate.
+/// Start native desktop-audio capture and fan it out to peers as tag 2.
+///
+/// Linux records the default sink's `.monitor` source via `parec`
+/// (PulseAudio/PipeWire CLI), bypassing WebKitGTK's getUserMedia, which doesn't
+/// expose monitor sources and crashes when asked for one.
+///
+/// Windows opens a WASAPI loopback stream on the default render endpoint — cpal
+/// turns an input stream on an output device into loopback. This branch used to
+/// return an error, which was correct while screen share went through
+/// getDisplayMedia (it carried system audio itself); the native picker replaced
+/// that on both OSes and the error was never revisited, so Windows shares had no
+/// sound at all no matter what the picker's audio box said.
+///
+/// Returns the capture sample rate.
 #[tauri::command]
 fn desktop_audio_start(
     state: tauri::State<DesktopAudioState>,
@@ -733,10 +766,9 @@ fn desktop_audio_start(
     {
         use std::io::Read;
 
-        // Kill any previous recorder first (e.g. share restarted quickly).
-        if let Some(mut old) = state.0.lock().unwrap().take() {
-            let _ = old.kill();
-            let _ = old.wait();
+        // Stop any previous recorder first (e.g. share restarted quickly).
+        if let Some(old) = state.0.lock().unwrap().take() {
+            old.stop();
         }
 
         let sink = std::process::Command::new("pactl")
@@ -762,7 +794,7 @@ fn desktop_audio_start(
             .spawn()
             .map_err(|e| format!("parec failed to start: {e}"))?;
         let mut stdout = child.stdout.take().ok_or("parec has no stdout")?;
-        *state.0.lock().unwrap() = Some(child);
+        *state.0.lock().unwrap() = Some(DesktopAudioCapture::Parec(child));
 
         // on_chunk is unused now that desktop audio rides the native transport
         // (it fans out to peers in Rust, not through the webview).
@@ -792,18 +824,126 @@ fn desktop_audio_start(
         });
         Ok(48000)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+        // on_chunk is unused: desktop audio rides the native transport, fanning
+        // out to peers in Rust rather than through the webview.
+        let _ = on_chunk;
+        if let Some(old) = state.0.lock().unwrap().take() {
+            old.stop();
+        }
+
+        // WASAPI loopback: cpal opens an *input* stream on an *output* device with
+        // AUDCLNT_STREAMFLAGS_LOOPBACK, which is how you record what the speakers
+        // are playing. Use the endpoint's own mix format — shared mode rejects
+        // anything else, so the rate travels with the frames instead of being
+        // forced to 48k like the parec path can.
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or("no default audio output to capture")?;
+        let default_cfg = device
+            .default_output_config()
+            .map_err(|e| format!("output config unavailable: {e}"))?;
+        let rate = default_cfg.sample_rate().0;
+        let channels = default_cfg.channels() as usize;
+        let sample_format = default_cfg.sample_format();
+        let config: cpal::StreamConfig = default_cfg.into();
+
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+        // cpal's Stream is !Send, so it must be built, played and dropped on one
+        // thread; the thread parks on `rx` and unwinds when the sender is dropped.
+        std::thread::spawn(move || {
+            // Any sample format downmixed to the mono i16-LE the mixer expects.
+            let on_err = |e| eprintln!("[desktop-audio] stream error: {e}");
+            let build = || -> Result<cpal::Stream, cpal::BuildStreamError> {
+                match sample_format {
+                    cpal::SampleFormat::F32 => device.build_input_stream(
+                        &config,
+                        move |data: &[f32], _: &_| {
+                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
+                            for frame in data.chunks(channels) {
+                                let avg = frame.iter().sum::<f32>() / channels as f32;
+                                let s = (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                                mono.extend_from_slice(&s.to_le_bytes());
+                            }
+                            rtc::broadcast_desktop_audio(rate, mono);
+                        },
+                        on_err,
+                        None,
+                    ),
+                    cpal::SampleFormat::I16 => device.build_input_stream(
+                        &config,
+                        move |data: &[i16], _: &_| {
+                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
+                            for frame in data.chunks(channels) {
+                                let sum: i32 = frame.iter().map(|s| *s as i32).sum();
+                                mono.extend_from_slice(&((sum / channels as i32) as i16).to_le_bytes());
+                            }
+                            rtc::broadcast_desktop_audio(rate, mono);
+                        },
+                        on_err,
+                        None,
+                    ),
+                    cpal::SampleFormat::U16 => device.build_input_stream(
+                        &config,
+                        move |data: &[u16], _: &_| {
+                            let mut mono = Vec::with_capacity(data.len() / channels * 2);
+                            for frame in data.chunks(channels) {
+                                let sum: i32 = frame.iter().map(|s| *s as i32 - 32768).sum();
+                                mono.extend_from_slice(&((sum / channels as i32) as i16).to_le_bytes());
+                            }
+                            rtc::broadcast_desktop_audio(rate, mono);
+                        },
+                        on_err,
+                        None,
+                    ),
+                    other => {
+                        eprintln!("[desktop-audio] unsupported sample format {other:?}");
+                        return Err(cpal::BuildStreamError::StreamConfigNotSupported);
+                    }
+                }
+            };
+
+            let stream = match build().and_then(|s| s.play().map(|_| s).map_err(|e| {
+                cpal::BuildStreamError::BackendSpecific {
+                    err: cpal::BackendSpecificError { description: e.to_string() },
+                }
+            })) {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("loopback capture failed: {e}")));
+                    return;
+                }
+            };
+            let _ = ready_tx.send(Ok(()));
+            // Blocks until desktop_audio_stop drops the sender; `stream` lives
+            // exactly as long as this thread.
+            let _ = rx.recv();
+            drop(stream);
+        });
+
+        ready_rx
+            .recv()
+            .map_err(|_| "loopback capture thread died".to_string())??;
+        *state.0.lock().unwrap() = Some(DesktopAudioCapture::Loopback(tx));
+        Ok(rate)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (state, on_chunk);
-        Err("desktop audio loopback capture is only needed/supported on Linux".into())
+        Err("desktop audio capture is not supported on this platform".into())
     }
 }
 
 #[tauri::command]
 fn desktop_audio_stop(state: tauri::State<DesktopAudioState>) {
-    if let Some(mut child) = state.0.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+    if let Some(capture) = state.0.lock().unwrap().take() {
+        capture.stop();
     }
 }
 

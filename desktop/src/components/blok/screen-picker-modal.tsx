@@ -19,16 +19,24 @@ import { cn } from "@/lib/utils";
 export function ScreenPickerModal() {
   const { t } = useI18n();
   const { open, sources, initialAudio, confirm, cancel } = useScreenPickerStore();
-  const { screenShareFps, screenShareResolution, screenShareQuality, setSetting } = useUiSettingsStore();
+  const { screenShareFps, screenShareResolution, screenShareQuality, screenShareAudio, setSetting } =
+    useUiSettingsStore();
   const [selected, setSelected] = useState<string | null>(null);
   const [withAudio, setWithAudio] = useState(false);
 
   // Reset the local selection each time the picker opens (default: first source).
+  // The audio box starts from the remembered setting rather than always off: a
+  // mid-share source switch passes the live state as `initialAudio`, and a fresh
+  // share falls back to whatever the user ticked last time — it used to reset to
+  // unchecked on every single share.
   useEffect(() => {
     if (open) {
       setSelected(sources[0]?.id ?? null);
-      setWithAudio(initialAudio);
+      setWithAudio(initialAudio ?? screenShareAudio);
     }
+    // screenShareAudio is read only at open time; re-running on its change would
+    // fight the user mid-interaction.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, sources, initialAudio]);
 
   const screens = useMemo(() => sources.filter((s) => s.kind === "screen"), [sources]);
@@ -37,7 +45,10 @@ export function ScreenPickerModal() {
   if (!open) return null;
 
   const start = () => {
-    if (selected) confirm({ sourceId: selected, withAudio });
+    if (!selected) return;
+    // Remember the choice so the next share opens with the same box ticked.
+    setSetting("screenShareAudio", withAudio);
+    confirm({ sourceId: selected, withAudio });
   };
 
   return (

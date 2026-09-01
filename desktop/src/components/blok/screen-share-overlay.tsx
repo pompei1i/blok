@@ -320,7 +320,7 @@ export function ScreenShareOverlay() {
                   <ShareVideo
                     stream={localScreenStream}
                     volume={0}
-                    className="max-w-full max-h-full object-contain"
+                    className="w-full h-full object-contain"
                   />
                 ) : (
                   <div className="text-center text-[var(--text-muted)] font-mono text-sm">
@@ -399,7 +399,7 @@ export function ScreenShareOverlay() {
                       stream={screenSharers[uid]}
                       volume={getVolume(uid)}
                       onContextMenu={openVolMenu(uid)}
-                      className="max-w-full max-h-full object-contain"
+                      className="w-full h-full object-contain"
                     />
                     <span className="absolute bottom-1 left-1 flex items-center gap-1 px-1.5 py-0.5 bg-black/60 rounded text-[11px] font-mono text-white">
                       {getDisplayName(uid)}
@@ -414,7 +414,7 @@ export function ScreenShareOverlay() {
                   stream={watchingStream}
                   volume={getVolume(watchingUserId!)}
                   onContextMenu={watchingUserId ? openVolMenu(watchingUserId) : undefined}
-                  className="max-w-full max-h-full object-contain"
+                  className="w-full h-full object-contain"
                 />
               </div>
             ) : null}

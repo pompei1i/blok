@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.50] — 2026-09-01
+
+### Fixed
+- **Screen shares have sound on Windows again.** Desktop-audio capture was
+  implemented only for Linux; the Windows branch returned an error, so ticking
+  "share desktop audio" did nothing at all. That was correct back when Windows
+  shared through `getDisplayMedia`, which carried system audio itself, but the
+  native picker replaced it on both platforms and the error was never revisited.
+  Windows now captures a WASAPI loopback stream from the default output device
+  and fans it out to peers like the Linux path does.
+- **The "share desktop audio" tick is remembered.** It reset to unchecked on
+  every new share because the picker had no saved state to fall back on — only a
+  mid-share source switch passed the live value. It is now a persisted setting,
+  while a source switch still wins with the share's actual state.
+- **Resolution changes sharpness, not size.** Picking 720p made the picture
+  smaller instead of softer: the video element was capped at its natural size, so
+  a lower-resolution frame simply drew smaller inside the same panel. It now fills
+  the panel at every resolution, with the aspect ratio preserved.
+
 ## [0.9.49] — 2026-09-01
 
 ### Added
