@@ -55,6 +55,11 @@ bytes = "1"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
     "Win32_Security",
     "Win32_System_Registry",
     "Win32_UI_WindowsAndMessaging",
@@ -69,6 +74,8 @@ windows = { version = "0.61", features = [
     "Graphics_Capture",
     "Graphics_DirectX_Direct3D11",
 ] }
+# `#[implement]` (process-loopback activation callback) expands to `::windows_core` paths.
+windows-core = "0.61"
 
 # Matches the webkit2gtk version wry/tauri already pulls in on Linux (see Cargo.lock) — must
 # stay in lockstep with that transitive version or the two `WebView`/`PermissionRequest`

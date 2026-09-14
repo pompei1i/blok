@@ -701,8 +701,10 @@ export class NativeVoiceEngine {
     if (!choice) return; // cancelled — keep sharing the current source
 
     if (choice.withAudio === hadAudio) {
+      const sourceChanged = nc.sourceId !== choice.sourceId;
       nc.sourceId = choice.sourceId;
       await this._startNativePush(choice.sourceId, nc.canvas, nc.ctx);
+      if (hadAudio && sourceChanged) this._startDesktopAudio(choice.sourceId);
       return;
     }
 
@@ -762,22 +764,12 @@ export class NativeVoiceEngine {
     const track = canvas.captureStream().getVideoTracks()[0];
     const stream = new MediaStream([track]);
 
-    // Optional desktop audio: Rust captures the system output (parec on Linux,
-    // WASAPI loopback on Windows) and fans it out to peers over the transport
-    // directly — no local playback (the user already hears it) and no MediaStream
-    // plumbing. Non-fatal on failure, but the flag has to come back down so the
-    // picker and a later source switch don't claim audio that isn't running.
-    if (choice.withAudio) {
-      const onChunk = new Channel<ArrayBuffer>(); // unused; command requires it
-      invoke("desktop_audio_start", { onChunk }).catch((e) => {
-        if (this._nativeCapture) this._nativeCapture.withAudio = false;
-        useToastStore.getState().showToast({
-          icon: WifiOff,
-          title: translate("screenShare.desktopAudioUnavailable"),
-          message: e instanceof Error ? e.message : String(e),
-        });
-      });
-    }
+    // Optional desktop audio: Rust captures it (the whole sink via parec on
+    // Linux; the shared window's app, or everything but blok for a monitor, via
+    // WASAPI process loopback on Windows) and fans it out to peers over the
+    // transport directly — no local playback (the user already hears it) and no
+    // MediaStream plumbing.
+    if (choice.withAudio) this._startDesktopAudio(sourceId);
 
     this._nativeCaptureCleanup = () => {
       invoke("screen_capture_stop").catch(() => {});
@@ -786,6 +778,25 @@ export class NativeVoiceEngine {
       if (choice.withAudio) invoke("desktop_audio_stop").catch(() => {});
     };
     return stream;
+  }
+
+  /**
+   * Start (or retarget — the command stops any running capture first) desktop
+   * audio for `sourceId`. On Windows a window source records only that window's
+   * app, so the capture has to follow the source. Non-fatal on failure, but the
+   * flag has to come back down so the picker and a later source switch don't
+   * claim audio that isn't running.
+   */
+  private _startDesktopAudio(sourceId: string): void {
+    const onChunk = new Channel<ArrayBuffer>(); // unused; command requires it
+    invoke("desktop_audio_start", { onChunk, sourceId }).catch((e) => {
+      if (this._nativeCapture) this._nativeCapture.withAudio = false;
+      useToastStore.getState().showToast({
+        icon: WifiOff,
+        title: translate("screenShare.desktopAudioUnavailable"),
+        message: e instanceof Error ? e.message : String(e),
+      });
+    });
   }
 
   async stopScreenShare(): Promise<void> {

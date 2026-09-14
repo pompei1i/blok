@@ -2,6 +2,8 @@ mod audio;
 #[cfg(target_os = "windows")]
 mod dxgi_capture;
 #[cfg(target_os = "windows")]
+mod process_audio;
+#[cfg(target_os = "windows")]
 mod wgc_capture;
 mod rtc;
 
@@ -842,22 +844,25 @@ fn start_windows_loopback(
 /// (PulseAudio/PipeWire CLI), bypassing WebKitGTK's getUserMedia, which doesn't
 /// expose monitor sources and crashes when asked for one.
 ///
-/// Windows opens a WASAPI loopback stream on the default render endpoint — cpal
-/// turns an input stream on an output device into loopback. This branch used to
-/// return an error, which was correct while screen share went through
-/// getDisplayMedia (it carried system audio itself); the native picker replaced
-/// that on both OSes and the error was never revisited, so Windows shares had no
-/// sound at all no matter what the picker's audio box said.
+/// Windows records per process (see `process_audio`): a window share hears only
+/// that window's app, a monitor share hears everything except blok itself. Where
+/// process loopback is missing (before build 20348) it falls back to a WASAPI
+/// loopback stream on the default render endpoint — cpal turns an input stream on
+/// an output device into loopback — which records the whole system.
+///
+/// `source_id` is the shared capture source; Linux ignores it (the whole sink).
 ///
 /// Returns the capture sample rate.
 #[tauri::command]
 fn desktop_audio_start(
     state: tauri::State<DesktopAudioState>,
     on_chunk: Channel<InvokeResponseBody>,
+    source_id: Option<String>,
 ) -> Result<u32, String> {
     #[cfg(target_os = "linux")]
     {
         use std::io::Read;
+        let _ = source_id;
 
         // Stop any previous recorder first (e.g. share restarted quickly).
         if let Some(old) = state.0.lock().unwrap().take() {
@@ -929,8 +934,8 @@ fn desktop_audio_start(
         // locally (the sharer already hears it), so without this there is no way
         // to tell "capture is silent" from "capture never started" short of
         // asking a viewer.
-        let stats = std::sync::Mutex::new((0u64, 0i32, std::time::Instant::now()));
-        let (rate, tx) = start_windows_loopback(move |rate, pcm| {
+        let stats = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0i32, std::time::Instant::now())));
+        let on_pcm = move |rate: u32, pcm: Vec<u8>| {
             {
                 let mut s = stats.lock().unwrap();
                 s.0 += (pcm.len() / 2) as u64;
@@ -943,13 +948,24 @@ fn desktop_audio_start(
                 }
             }
             rtc::broadcast_desktop_audio(rate, pcm);
-        })?;
+        };
+        let target = process_audio::target_for_source(source_id.as_deref().unwrap_or(""));
+        let (rate, tx) = match process_audio::start(target, on_pcm.clone()) {
+            Ok(tx) => {
+                eprintln!("[desktop-audio] process loopback {target:?}");
+                (process_audio::RATE, tx)
+            }
+            Err(e) => {
+                eprintln!("[desktop-audio] {e}; recording all system audio instead");
+                start_windows_loopback(on_pcm)?
+            }
+        };
         *state.0.lock().unwrap() = Some(DesktopAudioCapture::Loopback(tx));
         Ok(rate)
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let _ = (state, on_chunk);
+        let _ = (state, on_chunk, source_id);
         Err("desktop audio capture is not supported on this platform".into())
     }
 }
