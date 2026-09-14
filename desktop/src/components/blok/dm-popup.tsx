@@ -41,7 +41,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
     incomingCall,
     isDMCameraOn,
   } = useDMStore();
-  const { friends, presence, presenceLastSeen } = useFriendsStore();
+  const { friends, presence } = useFriendsStore();
   const { user } = useAuthStore();
   const [inputValue, setInputValue] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -65,7 +65,7 @@ export function DMPopup({ dmState }: DMPopupProps) {
     friendRel?.targetId === dmState.userId
       ? friendRel?.targetUser
       : friendRel?.requesterUser;
-  const friendPresence = effectiveStatus(presence[dmState.userId], presenceLastSeen[dmState.userId]);
+  const friendPresence = effectiveStatus(presence[dmState.userId]);
 
   useEffect(() => {
     if (!dmState.minimized) {

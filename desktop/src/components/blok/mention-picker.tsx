@@ -11,7 +11,7 @@ interface MentionPickerProps {
 
 export function MentionPicker({ onSelect, onClose }: MentionPickerProps) {
   const { t } = useI18n();
-  const { friends, presence, presenceLastSeen } = useFriendsStore();
+  const { friends, presence } = useFriendsStore();
   const [searchQuery, setSearchQuery] = useState("");
 
   const mentionableUsers = friends.map((f) => f.targetUser).filter(Boolean);
@@ -43,7 +43,7 @@ export function MentionPicker({ onSelect, onClose }: MentionPickerProps) {
         ) : (
           filteredUsers.map((user) => {
             if (!user) return null;
-            const status = effectiveStatus(presence[user.id], presenceLastSeen[user.id]);
+            const status = effectiveStatus(presence[user.id]);
             return (
               <button
                 key={user.id}

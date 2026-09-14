@@ -289,11 +289,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
-    const currentUser = get().user;
     const { useFriendsStore } = await import("./friends-store");
-    if (currentUser) {
-      await useFriendsStore.getState().updatePresence(currentUser.id, "offline");
-    }
+    await useFriendsStore.getState().stopPresence();
     // Reset friends/presence so re-login as a different account doesn't inherit
     // a stale relationship list or a stale presence-tracking set.
     useFriendsStore.setState({

@@ -15,5 +15,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(
   supabaseUrl ?? "http://localhost",
   supabaseAnonKey ?? "anon-key",
+  {
+    realtime: {
+      // Tick the socket heartbeat from a worker. Timers on a hidden page get
+      // throttled, so with the window closed to the tray the heartbeat can
+      // stall, the socket drops, and the user flickers offline in presence.
+      worker: true,
+      workerUrl: "/realtime-worker.js",
+    },
+  },
 );
 

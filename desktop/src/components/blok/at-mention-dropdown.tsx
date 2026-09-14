@@ -13,7 +13,7 @@ interface AtMentionDropdownProps {
 }
 
 export function AtMentionDropdown({ query, members, activeIndex, onSelect }: AtMentionDropdownProps) {
-  const { presence, presenceLastSeen } = useFriendsStore();
+  const { presence } = useFriendsStore();
   const activeRef = useRef<HTMLButtonElement>(null);
 
   const filtered = members
@@ -36,7 +36,7 @@ export function AtMentionDropdown({ query, members, activeIndex, onSelect }: AtM
       </p>
       <div className="max-h-48 overflow-y-auto py-1">
         {filtered.map((user, i) => {
-          const status = effectiveStatus(presence[user.id], presenceLastSeen[user.id]);
+          const status = effectiveStatus(presence[user.id]);
           const isActive = i === activeIndex % filtered.length;
           return (
             <button

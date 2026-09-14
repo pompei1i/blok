@@ -88,9 +88,8 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    const userId = user.id;
     const goOffline = () => {
-      void useFriendsStore.getState().updatePresence(userId, "offline");
+      void useFriendsStore.getState().stopPresence();
       void useServerStore.getState().leaveVoiceChannel();
     };
 

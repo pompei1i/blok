@@ -27,7 +27,7 @@ export function AppLayout() {
   const showMemberList = useUiSettingsStore((state) => state.showMemberList);
   const isBaitActive = useBaitStore((s) => s.isActive);
   const { initData: initServerData } = useServerStore();
-  const { initFriendsData, updatePresence } = useFriendsStore();
+  const { initFriendsData } = useFriendsStore();
   const { initDMData } = useDMStore();
   const loadEconomy = useEconomyStore((s) => s.loadEconomy);
   const activeServerId = useServerStore((s) => s.activeServerId);
@@ -59,8 +59,6 @@ export function AppLayout() {
         loadEconomy(user.id),
       ]);
 
-      void updatePresence(user.id, "online");
-
       if (!isCancelled) setIsBootstrapping(false);
     };
 
@@ -72,7 +70,7 @@ export function AppLayout() {
   // Depend on user?.id (not the full user object) so profile edits don't
   // trigger a full re-bootstrap — only login/logout should.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, initServerData, initFriendsData, initDMData, loadEconomy, updatePresence]);
+  }, [user?.id, initServerData, initFriendsData, initDMData, loadEconomy]);
 
   if (isBootstrapping) {
     return (

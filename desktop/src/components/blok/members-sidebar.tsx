@@ -15,7 +15,7 @@ export function MembersSidebar() {
   const { activeServerId, members, voiceParticipants } = useServerStore(
     useShallow((s) => ({ activeServerId: s.activeServerId, members: s.members, voiceParticipants: s.voiceParticipants })),
   );
-  const { presence, presenceLastSeen, activity } = useFriendsStore();
+  const { presence, activity } = useFriendsStore();
   const { openDM } = useDMStore();
   const { user } = useAuthStore();
   const [search, setSearch] = useState("");
@@ -34,10 +34,10 @@ export function MembersSidebar() {
   });
 
   const online = filtered.filter((m) => {
-    const s = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
+    const s = effectiveStatus(presence[m.userId]);
     return s === "online" || s === "afk" || s === "dnd";
   });
-  const offline = filtered.filter((m) => effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]) === "offline");
+  const offline = filtered.filter((m) => effectiveStatus(presence[m.userId]) === "offline");
 
   // Collect all userIds currently in any voice channel on this server
   const inVoice = new Set(
@@ -51,7 +51,7 @@ export function MembersSidebar() {
   };
 
   const MemberRow = ({ m }: { m: ServerMember }) => {
-    const status = effectiveStatus(presence[m.userId], presenceLastSeen[m.userId]);
+    const status = effectiveStatus(presence[m.userId]);
     const isMe = m.userId === user?.id;
     const inCall = inVoice.has(m.userId);
     const displayName = m.nickname ?? m.user?.displayName ?? m.user?.username ?? m.userId.slice(0, 8);

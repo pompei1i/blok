@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useFriendsStore, effectiveStatus, ONLINE_THRESHOLD_MS } from "../friends-store";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { supabase } from "@/lib/supabaseClient";
+import { useFriendsStore, effectiveStatus, ONLINE_CHANNEL } from "../friends-store";
 import type { User, UserRelationship } from "../types";
 
 function makeUser(id: string, name = "User"): User {
@@ -82,30 +83,108 @@ describe("patchUser (friends-store)", () => {
 // ── effectiveStatus ──────────────────────────────────────────────────────────
 
 describe("effectiveStatus", () => {
-  const fresh = new Date().toISOString();
-  const stale = new Date(Date.now() - ONLINE_THRESHOLD_MS - 1000).toISOString();
-
-  it("returns offline immediately when status is explicitly offline, even with a fresh heartbeat", () => {
-    // A clean app close/logout writes status: "offline" without touching online_at,
-    // so this must not fall through to the staleness check below.
-    expect(effectiveStatus("offline", fresh)).toBe("offline");
+  it("treats a user absent from presence as offline", () => {
+    expect(effectiveStatus(undefined)).toBe("offline");
   });
 
-  it("returns offline when last_seen is missing", () => {
-    expect(effectiveStatus("online", undefined)).toBe("offline");
+  it("passes a known status through", () => {
+    expect(effectiveStatus("online")).toBe("online");
+    expect(effectiveStatus("dnd")).toBe("dnd");
+  });
+});
+
+// ── Realtime presence (online-users channel) ─────────────────────────────────
+
+describe("online presence", () => {
+  const channel = () => (globalThis as any).__mockChannel as Record<string, ReturnType<typeof vi.fn>>;
+
+  /** Run initFriendsData and return the presence-channel sync handler. */
+  async function startPresence(me = "me") {
+    await useFriendsStore.getState().initFriendsData(me);
+    const syncCall = channel().on.mock.calls.find(
+      ([type, filter]) => type === "presence" && filter?.event === "sync",
+    );
+    if (!syncCall) throw new Error("presence sync handler not registered");
+    return syncCall[2] as () => void;
+  }
+
+  afterEach(async () => {
+    channel().presenceState.mockReturnValue({});
+    await useFriendsStore.getState().stopPresence();
   });
 
-  it("returns offline when last_seen is stale, even if status is online", () => {
-    expect(effectiveStatus("online", stale)).toBe("offline");
+  it("joins the shared channel keyed by the user id", async () => {
+    await startPresence("me");
+    expect(supabase.channel).toHaveBeenCalledWith(ONLINE_CHANNEL, {
+      config: { presence: { key: "me" } },
+    });
   });
 
-  it("returns dnd/afk when fresh and set", () => {
-    expect(effectiveStatus("dnd", fresh)).toBe("dnd");
-    expect(effectiveStatus("afk", fresh)).toBe("afk");
+  it("tracks itself on every SUBSCRIBED so a reconnect re-announces", async () => {
+    await startPresence();
+    const subscribeCb = channel().subscribe.mock.calls
+      .map(([cb]) => cb)
+      .find((cb) => typeof cb === "function") as (s: string) => void;
+    subscribeCb("SUBSCRIBED");
+    subscribeCb("CHANNEL_ERROR");
+    subscribeCb("SUBSCRIBED");
+    expect(channel().track).toHaveBeenCalledTimes(2);
   });
 
-  it("returns online when fresh and status is online", () => {
-    expect(effectiveStatus("online", fresh)).toBe("online");
+  it("marks tracked users online/offline from presence state", async () => {
+    const sync = await startPresence();
+    await useFriendsStore.getState().trackPresenceFor(["a", "b"]);
+
+    channel().presenceState.mockReturnValue({ a: [{ online_at: "x" }] });
+    sync();
+
+    const { presence } = useFriendsStore.getState();
+    expect(presence.a).toBe("online");
+    expect(presence.b).toBe("offline");
+  });
+
+  it("ignores users the UI doesn't track", async () => {
+    const sync = await startPresence();
+    channel().presenceState.mockReturnValue({ stranger: [{}] });
+    sync();
+    expect(useFriendsStore.getState().presence.stranger).toBeUndefined();
+  });
+
+  it("stamps last-seen when a user is observed leaving", async () => {
+    const sync = await startPresence();
+    await useFriendsStore.getState().trackPresenceFor(["a"]);
+    channel().presenceState.mockReturnValue({ a: [{}] });
+    sync();
+    expect(useFriendsStore.getState().presenceLastSeen.a).toBeUndefined();
+
+    channel().presenceState.mockReturnValue({});
+    sync();
+    const { presence, presenceLastSeen } = useFriendsStore.getState();
+    expect(presence.a).toBe("offline");
+    expect(Date.now() - Date.parse(presenceLastSeen.a)).toBeLessThan(1000);
+  });
+
+  it("applies current presence to ids tracked after the channel synced", async () => {
+    await startPresence();
+    channel().presenceState.mockReturnValue({ late: [{}] });
+    await useFriendsStore.getState().trackPresenceFor(["late"]);
+    expect(useFriendsStore.getState().presence.late).toBe("online");
+  });
+
+  it("stopPresence leaves the channel and persists last-seen", async () => {
+    await startPresence("me");
+    vi.mocked(supabase.removeChannel).mockClear();
+    q().upsert.mockClear();
+    q().then.mockClear();
+
+    await useFriendsStore.getState().stopPresence();
+
+    expect(supabase.removeChannel).toHaveBeenCalledTimes(1);
+    expect(q().upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "me", status: "offline", online_at: expect.any(String) }),
+    );
+    // Builders are lazy — the write only happens if something awaited it.
+    expect(q().then).toHaveBeenCalled();
   });
 });
 

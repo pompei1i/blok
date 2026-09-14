@@ -209,12 +209,12 @@ export function MessageBubble({
   onVotePoll,
 }: MessageBubbleProps) {
   const { t } = useI18n();
-  const { presence, presenceLastSeen } = useFriendsStore();
+  const { presence } = useFriendsStore();
   const { user: me } = useAuthStore();
   const authorId = "authorId" in message ? message.authorId : undefined;
   const authorStatus = authorId === me?.id
     ? ("online" as const)
-    : effectiveStatus(presence[authorId ?? ""], presenceLastSeen[authorId ?? ""]);
+    : effectiveStatus(presence[authorId ?? ""]);
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const showMenu = menuPos !== null;

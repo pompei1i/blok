@@ -60,8 +60,8 @@ export function FriendsSidebar() {
 
   const sortedFriends = [...filteredFriends].sort((a, b) => {
     const statusOrder = { online: 0, afk: 1, dnd: 2, offline: 3 } as const;
-    const statusA = effectiveStatus(presence[a.friendId], presenceLastSeen[a.friendId]);
-    const statusB = effectiveStatus(presence[b.friendId], presenceLastSeen[b.friendId]);
+    const statusA = effectiveStatus(presence[a.friendId]);
+    const statusB = effectiveStatus(presence[b.friendId]);
     return statusOrder[statusA] - statusOrder[statusB];
   });
 
@@ -80,7 +80,7 @@ export function FriendsSidebar() {
               @{user?.username}
             </p>
             <div className="flex items-center gap-1">
-              <PresenceDot status={effectiveStatus(presence[user?.id ?? ""], presenceLastSeen[user?.id ?? ""])} size="sm" />
+              <PresenceDot status={effectiveStatus(presence[user?.id ?? ""])} size="sm" />
               <span className="text-xs text-[var(--text-muted)]">{t("friends.online")}</span>
             </div>
           </div>
@@ -222,7 +222,7 @@ export function FriendsSidebar() {
         {/* Friends list */}
         <div className="space-y-0.5">
           {sortedFriends.map((friendship) => {
-            const status = effectiveStatus(presence[friendship.friendId], presenceLastSeen[friendship.friendId]);
+            const status = effectiveStatus(presence[friendship.friendId]);
             return (
               <button
                 key={friendship.id}

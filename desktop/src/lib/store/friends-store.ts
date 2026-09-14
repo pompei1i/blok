@@ -1,29 +1,62 @@
 import { create } from "zustand";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "../supabaseClient";
 import { mapProfile } from "../utils";
 import type { UserRelationship, PresenceStatus } from "./types";
 
-let friendsChannel: ReturnType<typeof import("../supabaseClient").supabase.channel> | null = null;
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let friendsChannel: RealtimeChannel | null = null;
+let onlineChannel: RealtimeChannel | null = null;
+let lastSeenInterval: ReturnType<typeof setInterval> | null = null;
 
-/** Threshold: if last_seen is older than this, the user is considered offline. */
-export const ONLINE_THRESHOLD_MS = 90_000;
+/** Every signed-in client joins this one Realtime Presence channel, keyed by
+ *  user id. A user is online while at least one of their connections is in it.
+ *  Realtime drops a dead socket's entry by itself, so a crash, sleep or lost
+ *  network reads as offline without any client-side timeout. */
+export const ONLINE_CHANNEL = "online-users";
 
-/** Derive display status from the raw DB status + last_seen timestamp. */
-export function effectiveStatus(
-  status: PresenceStatus | undefined,
-  lastSeen: string | undefined,
-): PresenceStatus {
-  if (status === "offline") return "offline";
-  if (!lastSeen || Date.now() - new Date(lastSeen).getTime() > ONLINE_THRESHOLD_MS) return "offline";
-  if (status === "dnd" || status === "afk") return status;
-  return "online";
+/** How often a connected client persists its last-seen time. Only matters for
+ *  users who drop without a clean quit — a quit or logout writes it directly. */
+export const LAST_SEEN_INTERVAL_MS = 5 * 60_000;
+
+/** Display status for a user; anyone not in the presence channel is offline. */
+export function effectiveStatus(status: PresenceStatus | undefined): PresenceStatus {
+  return status ?? "offline";
+}
+
+// async + await on purpose: a PostgREST builder only sends its request once
+// awaited, so `void supabase.from(...).upsert(...)` silently never runs.
+async function writeLastSeen(userId: string, status: "online" | "offline") {
+  await supabase
+    .from("user_presence")
+    .upsert({ user_id: userId, status, online_at: new Date().toISOString() });
+}
+
+/** Rebuild online/offline for every tracked id from the presence channel. */
+function syncOnlineStatus() {
+  if (!onlineChannel) return;
+  const online = new Set(Object.keys(onlineChannel.presenceState()));
+  useFriendsStore.setState((state) => {
+    const presence = { ...state.presence };
+    const presenceLastSeen = { ...state.presenceLastSeen };
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const id of state.presenceTrackedIds) {
+      const next: PresenceStatus = online.has(id) ? "online" : "offline";
+      if (presence[id] === next) continue;
+      // We watched them leave, so this moment is fresher than the stored last-seen.
+      if (presence[id] === "online") presenceLastSeen[id] = now;
+      presence[id] = next;
+      changed = true;
+    }
+    return changed ? { presence, presenceLastSeen } : state;
+  });
 }
 
 interface FriendsState {
   friends: UserRelationship[];
   pendingRequests: UserRelationship[];
   outgoingRequests: UserRelationship[];
+  /** Live status from the presence channel; absent means offline. */
   presence: Record<string, PresenceStatus>;
   presenceLastSeen: Record<string, string>;
   activity: Record<string, string>;
@@ -41,7 +74,8 @@ interface FriendsState {
    *  re-fetching the whole friends graph. */
   applyRelationshipEvent: (eventType: "INSERT" | "UPDATE" | "DELETE", row: any) => Promise<void>;
   removeFriend: (relationshipId: string) => Promise<void>;
-  updatePresence: (userId: string, status: PresenceStatus) => Promise<void>;
+  /** Leave the presence channel and persist last-seen (quit / logout). */
+  stopPresence: () => Promise<void>;
   setActivity: (userId: string, activity: string | null) => Promise<void>;
   acceptRequest: (relationshipId: string) => Promise<void>;
   declineRequest: (relationshipId: string) => Promise<void>;
@@ -73,23 +107,28 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
       for (const id of newIds) next.add(id);
       return { presenceTrackedIds: next };
     });
+    syncOnlineStatus();
 
+    // Online-ness comes from the presence channel; the table only holds
+    // last-seen and activity.
     const { data } = await supabase
       .from("user_presence")
-      .select("user_id, status, online_at, activity")
+      .select("user_id, online_at, activity")
       .in("user_id", newIds);
     if (!data || data.length === 0) return;
 
     set((state) => {
-      const presence = { ...state.presence };
       const presenceLastSeen = { ...state.presenceLastSeen };
       const activity = { ...state.activity };
       for (const p of data as any[]) {
-        presence[p.user_id] = p.status;
-        if (p.online_at) presenceLastSeen[p.user_id] = p.online_at;
+        // A leave observed while this fetch was in flight is newer — keep it.
+        const observed = presenceLastSeen[p.user_id];
+        if (p.online_at && !(observed && Date.parse(observed) > Date.parse(p.online_at))) {
+          presenceLastSeen[p.user_id] = p.online_at;
+        }
         if (p.activity) activity[p.user_id] = p.activity;
       }
-      return { presence, presenceLastSeen, activity };
+      return { presenceLastSeen, activity };
     });
   },
 
@@ -278,13 +317,12 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
           "postgres_changes",
           { event: "*", schema: "public", table: "user_presence" },
           (payload) => {
-            if (payload.new && "status" in payload.new) {
+            if (payload.new && "user_id" in payload.new) {
               const p = payload.new as any;
               // Ignore churn from users the UI never shows (not a friend or
               // co-server-member). Keeps state + re-renders scoped to our network.
               if (!get().presenceTrackedIds.has(p.user_id)) return;
               set((state) => ({
-                presence: { ...state.presence, [p.user_id]: p.status },
                 ...(p.online_at ? { presenceLastSeen: { ...state.presenceLastSeen, [p.user_id]: p.online_at } } : {}),
                 activity: p.activity != null
                   ? { ...state.activity, [p.user_id]: p.activity }
@@ -320,21 +358,22 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
             });
           },
         )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            void get().updatePresence(userId, 'online');
-          }
-        });
+        .subscribe();
 
-      // Heartbeat: keep online_at fresh so peers can infer online/offline from timestamp
-      if (heartbeatInterval) clearInterval(heartbeatInterval);
-      heartbeatInterval = setInterval(() => {
-        void supabase.from("user_presence").upsert({
-          user_id: userId,
-          status: 'online',
-          online_at: new Date().toISOString(),
+      // 4. Presence — this client counts as online while it's in the channel.
+      if (onlineChannel) await supabase.removeChannel(onlineChannel);
+      if (lastSeenInterval) clearInterval(lastSeenInterval);
+      const ch = supabase.channel(ONLINE_CHANNEL, { config: { presence: { key: userId } } });
+      onlineChannel = ch;
+      ch.on("presence", { event: "sync" }, syncOnlineStatus)
+        .subscribe((status) => {
+          // Server-side presence dies with the socket; re-track on every
+          // (re)join or we stay invisible after a reconnect.
+          if (status !== "SUBSCRIBED") return;
+          void ch.track({ online_at: new Date().toISOString() });
+          void writeLastSeen(userId, "online");
         });
-      }, 30_000);
+      lastSeenInterval = setInterval(() => void writeLastSeen(userId, "online"), LAST_SEEN_INTERVAL_MS);
 
     } catch(e) {
       console.error(e);
@@ -362,21 +401,17 @@ export const useFriendsStore = create<FriendsState>((set, get) => ({
     await supabase.from("user_presence").upsert({ user_id: userId, activity: activity ?? null });
   },
 
-  updatePresence: async (userId, status) => {
-    if (status === 'offline') {
-      // Stop heartbeat before writing so it can't race with the offline write
-      if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-      // Don't update online_at — keeps "last seen X ago" accurate
-      set((state) => ({ presence: { ...state.presence, [userId]: status } }));
-      await supabase.from("user_presence").upsert({ user_id: userId, status });
-    } else {
-      const now = new Date().toISOString();
-      set((state) => ({
-        presence: { ...state.presence, [userId]: status },
-        presenceLastSeen: { ...state.presenceLastSeen, [userId]: now },
-      }));
-      await supabase.from("user_presence").upsert({ user_id: userId, status, online_at: now });
-    }
+  stopPresence: async () => {
+    if (lastSeenInterval) { clearInterval(lastSeenInterval); lastSeenInterval = null; }
+    const ch = onlineChannel;
+    if (!ch) return;
+    onlineChannel = null;
+    const me = get().currentUserId;
+    // Leaving the channel drops our presence for everyone right away.
+    await Promise.all([
+      supabase.removeChannel(ch),
+      me ? writeLastSeen(me, "offline") : null,
+    ]);
   },
 
   acceptRequest: async (relationshipId) => {

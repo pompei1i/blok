@@ -74,7 +74,7 @@ function MembersView() {
       generateInviteCode: s.generateInviteCode,
     })),
   );
-  const { presence, presenceLastSeen, activity, friends, sendFriendRequest, removeFriend } = useFriendsStore();
+  const { presence, activity, friends, sendFriendRequest, removeFriend } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { user } = useAuthStore();
   const showToast = useToastStore((s) => s.showToast);
@@ -110,7 +110,7 @@ function MembersView() {
   const getStatus = (userId: string) =>
     userId === user?.id
       ? ("online" as const)
-      : effectiveStatus(presence[userId], presenceLastSeen[userId]);
+      : effectiveStatus(presence[userId]);
 
   // "in voice" only for channels that belong to this server
   const serverVoiceIds = new Set(
@@ -476,7 +476,7 @@ function MembersView() {
 
 function FriendsView() {
   const { user } = useAuthStore();
-  const { friends, pendingRequests, outgoingRequests, presence, presenceLastSeen, activity, acceptRequest, declineRequest, cancelRequest, removeFriend, loadError } = useFriendsStore();
+  const { friends, pendingRequests, outgoingRequests, presence, activity, acceptRequest, declineRequest, cancelRequest, removeFriend, loadError } = useFriendsStore();
   const { openDM, callUser } = useDMStore();
   const { activeServerId, generateInviteCode } = useServerStore(
     useShallow((s) => ({ activeServerId: s.activeServerId, generateInviteCode: s.generateInviteCode })),
@@ -521,11 +521,11 @@ function FriendsView() {
   );
 
   const onlineFriends = filtered.filter((f) => {
-    const s = effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId]);
+    const s = effectiveStatus(presence[f.friendId]);
     return s === "online" || s === "afk" || s === "dnd";
   });
   const offlineFriends = filtered.filter((f) =>
-    effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId]) === "offline",
+    effectiveStatus(presence[f.friendId]) === "offline",
   );
 
   const FriendRow = ({ f }: { f: FriendMeta }) => (
@@ -542,7 +542,7 @@ function FriendsView() {
     >
       <div className="relative flex-shrink-0">
         <UserAvatar user={f.friendUser} size="sm" />
-        <PresenceDot status={effectiveStatus(presence[f.friendId], presenceLastSeen[f.friendId])} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
+        <PresenceDot status={effectiveStatus(presence[f.friendId])} size="sm" className="absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--bg-surface)]" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs text-[var(--text-primary)] truncate font-medium">@{f.friendUser?.username ?? "unknown"}</p>
@@ -748,7 +748,7 @@ function FriendsView() {
       {profileFriend?.friendUser && (
         <UserProfileModal
           user={profileFriend.friendUser}
-          status={effectiveStatus(presence[profileFriend.friendId], presenceLastSeen[profileFriend.friendId])}
+          status={effectiveStatus(presence[profileFriend.friendId])}
           onClose={() => setProfileFriend(null)}
         />
       )}
