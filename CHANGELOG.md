@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.9.52] — 2026-09-14
+
+### Added
+- **Per-channel permissions.** Right-click a channel → *Permissions* to set
+  *View channel*, *Send messages* and *Connect* per role, plus an @everyone
+  baseline. A role's own setting wins over @everyone; the server owner and
+  anyone with MANAGE_SERVER always keep access, so a channel can't be locked
+  with nobody able to fix it. Hidden channels disappear from the sidebar, a
+  channel you can't post in shows a read-only composer instead of failing the
+  send, and changes apply live without a reload. Reading and sending are enforced
+  by the database; voice *Connect* is checked before joining.
+
+### Fixed
+- **Online status is accurate again.** Everyone dropped to offline about 90s
+  after launch: the heartbeat that kept a user online was built but never
+  actually sent. Status now comes from Supabase Realtime Presence: you are
+  online while any of your connections is up, a crash or sleep shows as
+  offline within seconds instead of ~1.5 min, and it updates without needing a
+  re-render. The socket heartbeat runs in a Web Worker so blok minimized to the
+  tray stays online. Older versions can't see newer ones as online (and the
+  reverse) until everyone updates.
+- **Auto-translate works again.** Messages showed "translating…" and then
+  nothing. The primary Gemini model was overloaded and there was no fallback.
+  Translation and b.ai.t now fall back across `gemini-3.6-flash` →
+  `gemini-3.5-flash` → `gemini-flash-lite-latest`. The token budget is raised so
+  the models' reasoning can't cut the reply short, and a truncated reply moves on
+  to the next model instead of counting as a success.
+
 ## [0.9.51] — 2026-09-01
 
 ### Fixed
