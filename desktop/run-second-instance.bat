@@ -1,6 +1,14 @@
 @echo off
-REM Launch a SECOND blok instance with its own login session (for voice testing).
-REM Double-click this file. Instance 1 = double-click blok.exe normally.
+REM Launch a SECOND blok instance with its own login session (two-account testing).
+REM Instance 1 = launch blok normally. Then double-click this file.
 set BLOK_MULTI=1
-echo BLOK_MULTI is now [%BLOK_MULTI%] - launching second instance...
-start "" "D:\blok\desktop\src-tauri\target\release\blok.exe"
+set "EXE=%LOCALAPPDATA%\blok\blok.exe"
+if not exist "%EXE%" set "EXE=%~dp0src-tauri\target\release\blok.exe"
+if not exist "%EXE%" set "EXE=%~dp0src-tauri\target\debug\blok.exe"
+if not exist "%EXE%" (
+  echo Could not find blok.exe - install blok, or build it: npm run tauri build
+  pause
+  exit /b 1
+)
+echo Launching second instance from "%EXE%"
+start "" "%EXE%"

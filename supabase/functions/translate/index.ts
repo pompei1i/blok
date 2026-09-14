@@ -26,7 +26,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-const MODEL = Deno.env.get("TRANSLATE_MODEL") ?? "gemini-flash-latest";
+const MODEL = Deno.env.get("TRANSLATE_MODEL") ?? "gemini-3.6-flash";
 
 const MAX_IDS = 25;           // messages per request (the client chunks to this)
 const CONTEXT_MESSAGES = 6;   // preceding messages handed to the model as context
@@ -56,6 +56,102 @@ const cors = {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "content-type": "application/json" } });
+
+// ── Gemini ────────────────────────────────────────────────────────────────────
+
+// Ordered fallback, mirroring bait: a 503 "experiencing high demand" is Google short
+// of capacity for that model — not our quota — so it can't be retried away, while
+// an older, less contended generation usually still answers. Only the first
+// model's failure is ever reported, so a fallback can't replace the diagnosis.
+// `gemini-flash-latest` is deliberately not in the chain: it tracks the newest Flash,
+// whose free tier is the most oversubscribed — probed 2026-09-14 at 0/3 (all 503)
+// while every pinned 3.x id answered 3/3 — so leading with it made every request
+// pay for its failures first. Google also retired the 2.5 generation for new API
+// keys (still listed in /models, but answers 404 "no longer available to new
+// users"). The Lite alias closes the chain so one more retirement can't leave it
+// with nothing live, and a failing fallback is logged: a silently dead chain is
+// how translation went dark without a trace.
+const MODELS = [...new Set([MODEL, "gemini-3.5-flash", "gemini-flash-lite-latest"])];
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Shallow on purpose: moving to a model with capacity beats hammering one without.
+const MAX_ATTEMPTS = 2;
+const backoffMs = (attempt: number) => Math.min(400 * 2 ** attempt, 2000) + Math.random() * 250;
+
+function postGemini(body: Record<string, unknown>, key: string): Promise<Response> {
+  return fetch(GEMINI_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+  });
+}
+
+/** One model, through a transient blip and a rejected response_format. */
+async function askModel(payload: Record<string, unknown>, key: string): Promise<Response> {
+  let body = payload;
+  for (let attempt = 0; ; attempt++) {
+    let resp: Response;
+    try {
+      resp = await postGemini(body, key);
+    } catch (e) {
+      if (attempt === MAX_ATTEMPTS - 1) throw e;
+      await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+      continue;
+    }
+    if (resp.status === 400 && "response_format" in body) {
+      // Not every Gemini model on the OpenAI-compat endpoint accepts
+      // response_format. The prompt already asks for bare JSON, and the parser
+      // tolerates a code fence, so retry without it rather than failing.
+      await resp.body?.cancel().catch(() => {});
+      const { response_format: _dropped, ...withoutFormat } = body;
+      body = withoutFormat;
+      attempt--; // not a transient failure, so it doesn't spend a retry
+      continue;
+    }
+    if (resp.ok || !RETRY_STATUSES.has(resp.status) || attempt === MAX_ATTEMPTS - 1) return resp;
+    await resp.body?.cancel().catch(() => {});
+    await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+  }
+}
+
+async function askGemini(payload: Record<string, unknown>, key: string): Promise<Response> {
+  let primaryFailure: Response | null = null;
+  let primaryError: unknown = null;
+  for (const [i, model] of MODELS.entries()) {
+    let resp: Response;
+    try {
+      resp = await askModel({ ...payload, model }, key);
+    } catch (e) {
+      if (i === 0) primaryError = e;
+      else console.warn("translate: fallback unreachable", model, e instanceof Error ? e.message : e);
+      continue;
+    }
+    if (resp.ok) {
+      // A thinking model can spend max_tokens before it closes the JSON; that 200
+      // parses to nothing and the message silently stays untranslated. Worth the
+      // next model — unless this is the last one, where a partial answer is all there is.
+      const finish = await resp.clone().json()
+        .then((b) => b?.choices?.[0]?.finish_reason as string | undefined)
+        .catch(() => undefined);
+      if (finish === "length" && i < MODELS.length - 1) {
+        console.warn("translate: output truncated", model);
+        await resp.body?.cancel().catch(() => {});
+        continue;
+      }
+      await primaryFailure?.body?.cancel().catch(() => {});
+      return resp;
+    }
+    if (i === 0) {
+      // A bad key or a malformed request isn't something another model would fix.
+      if (!RETRY_STATUSES.has(resp.status)) return resp;
+      primaryFailure = resp;
+      continue;
+    }
+    console.warn("translate: fallback failed", model, resp.status);
+    await resp.body?.cancel().catch(() => {});
+  }
+  if (primaryFailure) return primaryFailure;
+  throw primaryError ?? new Error("no models configured");
+}
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
@@ -263,10 +359,11 @@ Deno.serve(async (req) => {
   // 6. Translate.
   const inputChars = items.reduce((n, i) => n + i.text.length, 0);
   const payload: Record<string, unknown> = {
-    model: MODEL,
     // Low but not zero: greedy decoding makes idiomatic rewrites unnaturally stiff.
     temperature: 0.3,
-    max_tokens: Math.min(MAX_TOKENS_CAP, 512 + inputChars * 2),
+    // Thinking models count their reasoning against this, so the floor has to leave
+    // room for it: at 512 a one-line message came back as a cut-off JSON stub.
+    max_tokens: Math.min(MAX_TOKENS_CAP, 2048 + inputChars * 2),
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt(targetName) },
@@ -274,23 +371,18 @@ Deno.serve(async (req) => {
     ],
   };
 
-  const askGemini = (body: Record<string, unknown>) => fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json", Authorization: `Bearer ${geminiKey}` },
-    body: JSON.stringify(body),
-  });
-
-  let resp = await askGemini(payload);
-  if (resp.status === 400) {
-    // Not every Gemini model on the OpenAI-compat endpoint accepts
-    // response_format. The prompt already asks for bare JSON, and the parser
-    // tolerates a code fence, so retry without it rather than failing.
-    const { response_format: _dropped, ...withoutFormat } = payload;
-    resp = await askGemini(withoutFormat);
+  let resp: Response;
+  try {
+    resp = await askGemini(payload, geminiKey);
+  } catch (e) {
+    console.error("translate: Gemini unreachable", e instanceof Error ? e.message : e);
+    return json({ error: "upstream_unreachable" }, 502);
   }
 
   if (!resp.ok) {
     const detail = await resp.text().catch(() => "");
+    // The client hides a failed translation silently, so this log is the only trace.
+    console.error("translate: Gemini failed", resp.status, detail.slice(0, 500));
     return json({ error: "upstream_error", status: resp.status, detail: detail.slice(0, 500) }, resp.status);
   }
 

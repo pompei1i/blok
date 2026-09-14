@@ -22,11 +22,16 @@ const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat
 // running short of capacity for *that* model, not our quota, so it can't be
 // retried away — but an older, less contended generation usually still answers.
 //
-// `gemini-flash-latest` aliases gemini-3.5-flash, whose free tier is the most
-// oversubscribed of the three; the 2.5 pair are the fallbacks precisely because
-// demand has moved off them. Keep every entry a live id — a retired one (as
-// gemini-2.0-flash now is) answers 404, not 503.
-const MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+// Keep every entry a live id — a retired one answers 404, not 503.
+// `gemini-flash-latest` is deliberately not in the chain: it tracks the newest Flash,
+// whose free tier is the most oversubscribed — probed 2026-09-14 at 0/3 (all 503)
+// while every pinned 3.x id answered 3/3 — so leading with it made every request
+// pay for its failures first. Google also retired the 2.5 generation for new API
+// keys (still listed in /models, but answers 404 "no longer available to new
+// users"). The Lite alias closes the chain so one more retirement can't leave it
+// with nothing live, and a failing fallback is logged: a silently dead chain is
+// how translation went dark without a trace.
+const MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-lite-latest"];
 const RATE_MAX = 10;          // burst: requests per window, per user
 const RATE_WINDOW_SECS = 60;  // window = 1 minute
 const DAILY_MAX = 30;         // per-user daily cap (free tier is generous; beta guard)
@@ -114,6 +119,7 @@ async function callGemini(
       primaryFailure = { resp, model };
       continue;
     }
+    console.warn("bait: fallback failed", model, resp.status);
     await resp.body?.cancel().catch(() => {});
   }
   if (!primaryFailure) throw new Error("no models configured");
