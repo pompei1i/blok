@@ -260,6 +260,8 @@ export class NativeVoiceEngine {
   // signaling strings and receives events over one binary channel. Voice, screen
   // and camera all ride one connection per peer as data channels.
   private _rtcPeers = new Set<string>();
+  /** Peers whose transport is currently connected, i.e. whom we can actually hear. */
+  private _connectedPeers = new Set<string>();
   private _rtcStarted = false;
 
   // Per-user local controls (not synced to remote); effective volume (0 when
@@ -370,6 +372,7 @@ export class NativeVoiceEngine {
 
     // Close all native P2P connections + local media.
     this._rtcPeers.clear();
+    this._connectedPeers.clear();
     invoke("rtc_close_all").catch(() => {});
     for (const key of [...this._remoteVideo.keys()]) {
       const rv = this._remoteVideo.get(key);
@@ -444,6 +447,14 @@ export class NativeVoiceEngine {
           break;
         }
         case 0x02: { // connection state
+          // A live connection means the peer is in the call whatever presence
+          // says — list them (no-op when already listed).
+          if (kindByte === 1 && this._rtcPeers.has(peerId)) {
+            this._connectedPeers.add(peerId);
+            this.cb.onParticipantJoin(peerId, false);
+          } else if (kindByte === 3 || kindByte === 4) {
+            if (this._connectedPeers.delete(peerId)) this.cb.onPeerConnectionLost?.(peerId);
+          }
           // 3 = failed: rebuild via the same glare rule (Rust replaces the peer).
           if (kindByte === 3 && this._rtcPeers.has(peerId)) {
             console.warn(`[voice] rtc↔${peerId.slice(0, 8)} failed — rebuilding`);
@@ -557,8 +568,14 @@ export class NativeVoiceEngine {
     void invoke("rtc_create_peer", { peerId, initiator: this.userId < peerId }).catch(() => {});
   }
 
+  /** Whether we currently have a connected transport to `peerId`. */
+  isPeerConnected(peerId: string): boolean {
+    return this._connectedPeers.has(peerId);
+  }
+
   private _closeRtcPeer(peerId: string): void {
     this._rtcPeers.delete(peerId);
+    this._connectedPeers.delete(peerId);
     invoke("rtc_close_peer", { peerId }).catch(() => {});
     this._teardownRemoteVideo(peerId, 1);
     this._teardownRemoteVideo(peerId, 2);

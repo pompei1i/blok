@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { useServerStore } from "../server-store";
-import type { User } from "../types";
+import { VOICE_RETRACK_DELAY_MS } from "../slices/server-slice";
+import { setActiveNativeVoiceEngine, type NativeVoiceEngine } from "../../native-voice-engine";
+import type { User, VoiceParticipant } from "../types";
 
 const ch = () => (globalThis as any).__mockChannel as Record<string, ReturnType<typeof vi.fn>>;
 const q = () => (globalThis as any).__mockSupabaseQuery as Record<string, ReturnType<typeof vi.fn>>;
@@ -69,6 +71,7 @@ let channelInsert: (p: unknown) => void;
 let channelDelete: (p: unknown) => void;
 let msgUpdate: (p: unknown) => void;
 let reactionsCb: (p: unknown) => void;
+let voicePresenceSync: () => void;
 
 beforeAll(async () => {
   useServerStore.setState(BASE_STATE);
@@ -83,6 +86,9 @@ beforeAll(async () => {
   channelDelete = getRealtimeHandler("DELETE", "channels") as typeof channelDelete;
   msgUpdate = getRealtimeHandler("UPDATE", "messages") as typeof msgUpdate;
   reactionsCb = getReactionsHandler() as typeof reactionsCb;
+  voicePresenceSync = (ch().on.mock.calls as [string, Record<string, unknown>, () => void][]).find(
+    ([type, f]) => type === "presence" && f?.event === "sync",
+  )![2];
 });
 
 beforeEach(() => {
@@ -291,6 +297,93 @@ describe("realtime: messages INSERT", () => {
         new: { id: "att-1", message_id: "unknown", url: "https://x/y.png", filename: "y.png", media_type: null, size_bytes: null, created_at: "" },
       }),
     ).not.toThrow();
+  });
+});
+
+// ── voice presence ─────────────────────────────────────────────────────────────
+
+describe("realtime: voice presence", () => {
+  const tile = (userId: string): VoiceParticipant => ({
+    userId, channelId: "vc-1", isMuted: false, isDeafened: false, isScreenSharing: false, isSpeaking: false,
+  });
+  const meta = (userId: string, extra: Record<string, unknown> = {}) => ({
+    userId, voiceChannelId: "vc-1", isMuted: false, isDeafened: false, isScreenSharing: false, ...extra,
+  });
+
+  beforeEach(() => {
+    // Fake throughout: a sync with our entry missing arms a re-track timer, and
+    // one left pending would block the next test's from being armed.
+    vi.useFakeTimers();
+    setActiveNativeVoiceEngine({
+      isPeerConnected: (id: string) => id === "heard",
+      hasLiveViewerPc: () => false,
+    } as unknown as NativeVoiceEngine);
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    setActiveNativeVoiceEngine(null);
+    ch().presenceState.mockReturnValue({});
+  });
+
+  it("keeps a peer we are still connected to when presence loses them", () => {
+    useServerStore.setState({
+      activeVoiceChannelId: "vc-1",
+      voiceParticipants: { "vc-1": [tile("user-1"), tile("heard"), tile("gone")] },
+    });
+    ch().presenceState.mockReturnValue({ "user-1": [meta("user-1")] });
+
+    voicePresenceSync();
+
+    const ids = useServerStore.getState().voiceParticipants["vc-1"].map((p) => p.userId);
+    expect(ids.sort()).toEqual(["heard", "user-1"]);
+  });
+
+  it("keeps our own tile while joined even if our entry is missing", () => {
+    useServerStore.setState({
+      activeVoiceChannelId: "vc-1",
+      voiceParticipants: { "vc-1": [tile("user-1")] },
+    });
+
+    voicePresenceSync();
+
+    expect(useServerStore.getState().voiceParticipants["vc-1"].map((p) => p.userId)).toEqual(["user-1"]);
+  });
+
+  it("does not keep tiles for a channel we are not in", () => {
+    setActiveNativeVoiceEngine(null);
+    useServerStore.setState({
+      activeVoiceChannelId: null,
+      voiceParticipants: { "vc-1": [tile("heard")] },
+    });
+
+    voicePresenceSync();
+
+    expect(useServerStore.getState().voiceParticipants["vc-1"]).toBeUndefined();
+  });
+
+  it("re-tracks our current state when our own entry is missing", () => {
+    useServerStore.setState({ activeVoiceChannelId: "vc-1", isMuted: true, voiceParticipants: {} });
+
+    voicePresenceSync();
+    expect(ch().track).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(VOICE_RETRACK_DELAY_MS);
+
+    expect(ch().track).toHaveBeenCalledTimes(1);
+    expect(ch().track).toHaveBeenCalledWith(meta("user-1", { isMuted: true }));
+  });
+
+  it("re-tracks when our entry is stale, but not once it matches", () => {
+    useServerStore.setState({ activeVoiceChannelId: "vc-1", isMuted: true, voiceParticipants: {} });
+    ch().presenceState.mockReturnValue({ "user-1": [meta("user-1", { isMuted: false })] });
+
+    voicePresenceSync();
+    // The real track lands before the delay runs out — nothing to repair.
+    ch().presenceState.mockReturnValue({ "user-1": [meta("user-1", { isMuted: true })] });
+    vi.advanceTimersByTime(VOICE_RETRACK_DELAY_MS);
+
+    expect(ch().track).not.toHaveBeenCalled();
   });
 });
 

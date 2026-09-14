@@ -4,6 +4,10 @@ import { supabase } from "../../supabaseClient";
 export let voicePresenceCh: RealtimeChannel | null = null;
 export const setVoicePresenceCh = (ch: RealtimeChannel | null) => { voicePresenceCh = ch; };
 
+/** Rebuilds voiceParticipants from voice presence; installed by initData with the channel. */
+export let syncVoicePresence: () => void = () => {};
+export const setSyncVoicePresence = (fn: () => void) => { syncVoicePresence = fn; };
+
 // Tracks all long-lived realtime channels opened by initData so they can be
 // cleaned up before re-init or on logout. Without this, each re-init leaks
 // channels that continue firing duplicate events.

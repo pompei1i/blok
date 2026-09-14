@@ -7,9 +7,20 @@ import type { Server, Category, Channel, ServerMember, User, VoiceParticipant, R
 import type { ServerStore } from "../server-store.shape";
 
 import {
-  voicePresenceCh, setVoicePresenceCh,
+  voicePresenceCh, setVoicePresenceCh, setSyncVoicePresence,
   trackDataChannel, clearDataChannels,
 } from "./_shared";
+
+type VoicePresenceMeta = {
+  userId: string; voiceChannelId: string | null;
+  isMuted?: boolean; isDeafened?: boolean; isScreenSharing?: boolean;
+};
+
+/** How long our own voice presence may disagree with local state before it is re-sent. */
+export const VOICE_RETRACK_DELAY_MS = 3000;
+/** Backstop check for a track that never landed (no presence event would reveal it). */
+const VOICE_PRESENCE_CHECK_MS = 20_000;
+let voicePresenceWatchdog: ReturnType<typeof setInterval> | null = null;
 
 /** channel_permissions row → the shape the permission resolver takes. */
 const mapChannelOverride = (r: {
@@ -256,12 +267,44 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       const ch = supabase.channel("voice-presence", { config: { presence: { key: _userId } } });
       setVoicePresenceCh(ch);
 
+      // Our own entry can go missing or stale while the call is fine — a track()
+      // that resolved "timed out" (it never throws), or a drop the rejoin didn't
+      // repair. Everyone else then stops seeing us in the channel, so re-send
+      // whenever presence disagrees with local state for a few seconds.
+      const ownVoicePresenceStale = () => {
+        const s = get();
+        if (!voicePresenceCh || !getActiveNativeVoiceEngine() || !s.activeVoiceChannelId || !s._currentUserId) {
+          return false;
+        }
+        const metas = (voicePresenceCh.presenceState()[s._currentUserId] ?? []) as unknown as VoicePresenceMeta[];
+        return !metas.some((m) =>
+          m.voiceChannelId === s.activeVoiceChannelId &&
+          !!m.isMuted === s.isMuted && !!m.isDeafened === s.isDeafened && !!m.isScreenSharing === s.isScreenSharing,
+        );
+      };
+      let retrackTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleRetrack = () => {
+        if (retrackTimer || !ownVoicePresenceStale()) return;
+        retrackTimer = setTimeout(() => {
+          retrackTimer = null;
+          if (!ownVoicePresenceStale()) return;
+          const s = get();
+          console.info("[voice] own presence missing or stale — re-tracking");
+          void voicePresenceCh?.track({
+            userId: s._currentUserId,
+            voiceChannelId: s.activeVoiceChannelId,
+            isMuted: s.isMuted,
+            isDeafened: s.isDeafened,
+            isScreenSharing: s.isScreenSharing,
+          });
+        }, VOICE_RETRACK_DELAY_MS);
+      };
+      if (voicePresenceWatchdog) clearInterval(voicePresenceWatchdog);
+      voicePresenceWatchdog = setInterval(scheduleRetrack, VOICE_PRESENCE_CHECK_MS);
+
       const syncPresence = () => {
         if (!voicePresenceCh) return;
-        const raw = voicePresenceCh.presenceState() as Record<string, Array<{
-          userId: string; voiceChannelId: string | null;
-          isMuted?: boolean; isDeafened?: boolean; isScreenSharing?: boolean;
-        }>>;
+        const raw = voicePresenceCh.presenceState() as unknown as Record<string, VoicePresenceMeta[]>;
         const all = Object.values(raw).flat();
         const newMap: Record<string, VoiceParticipant[]> = {};
         const cache = get().userProfileCache;
@@ -288,6 +331,19 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
             });
           }
 
+          // Presence alone drops people who are audibly still in the call when
+          // their entry goes missing (see ownVoicePresenceStale). In our own
+          // channel, keep anyone we hold a live connection to, and ourselves.
+          const activeCh = state.activeVoiceChannelId;
+          const engine = getActiveNativeVoiceEngine();
+          if (activeCh && engine) {
+            const listed = new Set((merged[activeCh] ?? []).map((p) => p.userId));
+            const kept = (state.voiceParticipants[activeCh] ?? []).filter((p) =>
+              !listed.has(p.userId) && (p.userId === state._currentUserId || engine.isPeerConnected(p.userId)),
+            );
+            if (kept.length > 0) merged[activeCh] = [...(merged[activeCh] ?? []), ...kept];
+          }
+
           // Reconcile screenSharers against presence: if a sharer stopped (or
           // left) while WE were offline, we missed their screenshare_stop and
           // the overlay keeps a frozen frame forever. Presence is the truth:
@@ -296,10 +352,8 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
           // ~1s behind a freshly-started share, so a live PC keeps the stream).
           let screenSharers = state.screenSharers;
           let watchingUserId = state.watchingUserId;
-          const activeCh = state.activeVoiceChannelId;
           if (activeCh && Object.keys(screenSharers).length > 0) {
             const inChannel = new Map((merged[activeCh] ?? []).map((p) => [p.userId, p]));
-            const engine = getActiveNativeVoiceEngine();
             const next: typeof screenSharers = {};
             for (const [uid, stream] of Object.entries(screenSharers)) {
               const p = inChannel.get(uid);
@@ -317,6 +371,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
 
           return { voiceParticipants: merged, screenSharers, watchingUserId };
         });
+        scheduleRetrack();
         const uniqueMissing = [...new Set(missingProfileIds)];
         if (uniqueMissing.length > 0) {
           supabase.from("profiles").select("*").in("id", uniqueMissing).then(({ data }) => {
@@ -334,6 +389,8 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
           });
         }
       };
+
+      setSyncVoicePresence(syncPresence);
 
       ch.on("presence", { event: "sync" }, syncPresence)
         .on("presence", { event: "join" }, syncPresence)

@@ -8,7 +8,7 @@ import { NativeVoiceEngine, getActiveNativeVoiceEngine, setActiveNativeVoiceEngi
 import { useToastStore } from "../toast-store";
 import type { User, VoiceParticipant } from "../types";
 import type { ServerStore } from "../server-store.shape";
-import { voicePresenceCh } from "./_shared";
+import { voicePresenceCh, syncVoicePresence } from "./_shared";
 
 export interface VoiceSlice {
   activeVoiceChannelId: string | null;
@@ -111,6 +111,9 @@ export const createVoiceSlice: StateCreator<ServerStore, [], [], VoiceSlice> = (
           },
         }));
       },
+      // The tile was being kept on the strength of the connection alone; drop it
+      // now unless presence still lists them.
+      onPeerConnectionLost: () => syncVoicePresence(),
       onSpeakingChange: (userId, speaking) => {
         set((state) => ({
           voiceParticipants: {

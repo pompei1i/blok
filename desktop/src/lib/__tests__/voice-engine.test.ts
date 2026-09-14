@@ -223,6 +223,63 @@ describe("NativeVoiceEngine.join / leave", () => {
     await engine.leave();
     expect(supabase.removeChannel).toHaveBeenCalled();
   });
+
+  // ── transport connection state ──────────────────────────────────────────────
+
+  /** The rtc event channel handed to rtc_start during join(). */
+  function rtcEvents(): (buf: ArrayBuffer) => void {
+    const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "rtc_start");
+    const channel = (call?.[1] as { onEvent: { onmessage: (buf: ArrayBuffer) => void } }).onEvent;
+    return (buf) => channel.onmessage(buf);
+  }
+
+  function connState(peerId: string, state: number): ArrayBuffer {
+    const id = new TextEncoder().encode(peerId);
+    const frame = new Uint8Array(4 + id.length);
+    frame.set([0x02, state, id.length & 0xff, id.length >> 8]);
+    frame.set(id, 4);
+    return frame.buffer;
+  }
+
+  it("lists a peer once its transport connects, even without a presence entry", async () => {
+    const cb = makeCallbacks();
+    const engine = new NativeVoiceEngine("ch1", "u1", cb);
+    await engine.join();
+    (engine as any)._ensureRtcPeer("peer1");
+
+    rtcEvents()(connState("peer1", 1));
+
+    expect(engine.isPeerConnected("peer1")).toBe(true);
+    expect(cb.onParticipantJoin).toHaveBeenCalledWith("peer1", false);
+  });
+
+  it("ignores a connected event for a peer it never set up", async () => {
+    const cb = makeCallbacks();
+    const engine = new NativeVoiceEngine("ch1", "u1", cb);
+    await engine.join();
+
+    rtcEvents()(connState("stranger", 1));
+
+    expect(engine.isPeerConnected("stranger")).toBe(false);
+    expect(cb.onParticipantJoin).not.toHaveBeenCalled();
+  });
+
+  it("reports a lost connection once, on failed or closed", async () => {
+    const cb = { ...makeCallbacks(), onPeerConnectionLost: vi.fn() };
+    const engine = new NativeVoiceEngine("ch1", "u1", cb);
+    await engine.join();
+    (engine as any)._ensureRtcPeer("peer1");
+    const emit = rtcEvents();
+
+    emit(connState("peer1", 1));
+    emit(connState("peer1", 2)); // disconnected: transient, still counts
+    expect(engine.isPeerConnected("peer1")).toBe(true);
+
+    emit(connState("peer1", 3));
+    emit(connState("peer1", 4));
+    expect(engine.isPeerConnected("peer1")).toBe(false);
+    expect(cb.onPeerConnectionLost).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── setMuted / setDeafened ────────────────────────────────────────────────────

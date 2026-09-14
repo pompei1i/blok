@@ -8,6 +8,12 @@ export interface VoiceCallbacks {
   // receives from everyone already in the channel pass false (no chime storm).
   onParticipantJoin: (userId: string, isFreshJoin?: boolean) => void;
   onParticipantLeave: (userId: string) => void;
+  /**
+   * The transport to a peer failed or closed without a "leave" (crash, network
+   * loss). The peer may still be in the channel and reconnecting, so this is a
+   * cue to re-check presence, not a leave.
+   */
+  onPeerConnectionLost?: (userId: string) => void;
   onSpeakingChange: (userId: string, speaking: boolean) => void;
   onScreenShareStart?: (userId: string, stream: MediaStream) => void;
   onScreenShareStop?: (userId: string) => void;
