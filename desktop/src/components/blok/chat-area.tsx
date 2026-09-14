@@ -772,10 +772,12 @@ export function ChatArea() {
               }
               chat.handleKeyDown(e);
             }}
-            disabled={chat.isTimedOut}
+            disabled={chat.isTimedOut || chat.isReadOnly}
             placeholder={chat.isTimedOut
               ? t("moderation.timedOutPlaceholder")
-              : t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
+              : chat.isReadOnly
+                ? t("channelPerms.readOnly")
+                : t("chat.messagePlaceholder").replace("{channel}", activeChannel.name)}
             className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none max-h-40 py-1 leading-relaxed self-center disabled:opacity-60"
           />
 

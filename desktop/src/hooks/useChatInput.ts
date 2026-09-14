@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useServerStore } from "@/lib/store/server-store";
 import { supabase } from "@/lib/supabaseClient";
-import { can } from "@/lib/permission";
+import { can, canInChannel } from "@/lib/permission";
 import { MAX_FILE_SIZE, MAX_FILE_SIZE_MB } from "@/lib/constants";
 import type { Message, Attachment, User } from "@/lib/store/types";
 
@@ -18,6 +18,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     roles = {},
     servers = [],
     activeServerId = null,
+    channelOverrides = [],
   } = useServerStore();
 
   // ── Slowmode + timeout (moderation) ───────────────────────────────────────
@@ -36,6 +37,17 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember.roleId) ?? null
     : null;
   const bypassSlowmode = can("manage_channels", { userId: user?.id, server, role: myRole });
+
+  // Channel-level send access. The RLS policy rejects the insert anyway; this
+  // turns that rejection into a disabled composer instead of a failed send.
+  //
+  // Only applied once the channel's server is actually resolved: `canInChannel`
+  // denies when it has no server to reason about, which would otherwise lock the
+  // composer during the first render after boot and in DMs, where there is no
+  // server at all.
+  const isReadOnly = !!activeChannelId && !!server && !canInChannel("send", activeChannelId, {
+    userId: user?.id, server, role: myRole, overrides: channelOverrides,
+  });
 
   const timeoutUntilMs = myMember?.timeoutUntil ? new Date(myMember.timeoutUntil).getTime() : 0;
   const isTimedOut = timeoutUntilMs > nowTick;
@@ -72,7 +84,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     inputValue.trim().length > 0 ||
     attachments.length > 0 ||
     gifAttachments.length > 0;
-  const canSend = hasContent && !isTimedOut && cooldownRemaining === 0;
+  const canSend = hasContent && !isTimedOut && cooldownRemaining === 0 && !isReadOnly;
 
   const closeAllPickers = () => {
     setShowEmojiPicker(false);
@@ -269,6 +281,7 @@ export function useChatInput({ activeChannelId, user }: UseChatInputOptions) {
     slowModeSeconds,
     cooldownRemaining,
     isTimedOut,
+    isReadOnly,
     timeoutRemaining,
     isUploading,
     fileProgress,

@@ -27,7 +27,8 @@ import { CreateChannelModal } from "./create-channel-modal";
 import { InviteUserModal } from "./invite-user-modal";
 import { RoleManagerModal } from "./role-manager-modal";
 import { VoiceUserContextMenu, type VoiceUserCtx } from "./voice-user-context-menu";
-import { can } from "@/lib/permission";
+import { can, canInChannel } from "@/lib/permission";
+import { ChannelPermissionsModal } from "./channel-permissions-modal";
 
 export function GroupSidebar() {
   const { t } = useI18n();
@@ -58,6 +59,7 @@ export function GroupSidebar() {
     reorderCategories,
     reorderChannels,
     deleteServer,
+    channelOverrides,
   } = useServerStore(
     useShallow((s) => ({
       servers: s.servers,
@@ -74,6 +76,7 @@ export function GroupSidebar() {
       deleteChannel: s.deleteChannel,
       members: s.members,
       roles: s.roles,
+      channelOverrides: s.channelOverrides,
       isCameraOn: s.isCameraOn,
       cameraUsers: s.cameraUsers,
       updateServerIcon: s.updateServerIcon,
@@ -97,8 +100,15 @@ export function GroupSidebar() {
   const serverCategories = (activeServerId ? categories[activeServerId] ?? [] : [])
     .slice().sort((a, b) => a.position - b.position);
 
+  // Channels the viewer may not see are dropped here rather than rendered
+  // disabled: a hidden channel should not advertise its own name. The database
+  // also withholds the row, so this only matters for the moment between an
+  // override landing and the next fetch.
   const channelsIn = (categoryId: string | null) =>
-    serverChannels.filter((c) => (c.categoryId ?? null) === categoryId).sort((a, b) => a.position - b.position);
+    serverChannels
+      .filter((c) => (c.categoryId ?? null) === categoryId)
+      .filter((c) => canInChannel("view", c.id, channelCtx))
+      .sort((a, b) => a.position - b.position);
 
   // Local state for modal
   const [showCreateChannel, setShowCreateChannel] = useState(false);
@@ -123,6 +133,7 @@ export function GroupSidebar() {
     ? (roles[activeServerId ?? ""] ?? []).find((r) => r.id === myMember.roleId) ?? null
     : null;
   const roleCtx = { userId: user?.id, server: activeServer ?? null, role: myRole };
+  const channelCtx = { ...roleCtx, overrides: channelOverrides };
 
   const canManage        = can("manage_server",      roleCtx);
   const canRenameChannel = can("rename_channel",     roleCtx);
@@ -131,6 +142,7 @@ export function GroupSidebar() {
   const canManageChannels= can("manage_channels",    roleCtx);
   const canCreateChannel = can("create_channel",     roleCtx);
   const canDeleteChannelPerm = can("delete_channel", roleCtx);
+  const canManageRoles   = can("manage_roles",       roleCtx);
   const isServerOwner = !!user && !!activeServer && activeServer.ownerId === user.id;
 
   const handleDeleteServer = async () => {
@@ -172,6 +184,8 @@ export function GroupSidebar() {
   const [slowmodeChannelId, setSlowmodeChannelId] = useState<string | null>(null);
   const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null);
   const [renamingServer, setRenamingServer] = useState(false);
+  const [permsChannelId, setPermsChannelId] = useState<string | null>(null);
+  const [channelMenu, setChannelMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
   const serverRenameInputRef = useRef<HTMLInputElement>(null);
@@ -272,6 +286,13 @@ export function GroupSidebar() {
   const handleVoiceChannelClick = async (channelId: string) => {
     if (!user || joiningChannel) return;
     setVoiceError(null);
+    // Voice participants live in Realtime presence rather than a table, so there
+    // is no RLS policy standing behind this the way there is for messages — the
+    // check has to happen before we announce ourselves.
+    if (!canInChannel("connect", channelId, channelCtx)) {
+      setVoiceError(t("channelPerms.cannotConnect"));
+      return;
+    }
     if (activeVoiceChannelId === channelId) {
       // Navigate to VoiceView (clear text channel selection)
       setActiveChannel(null);
@@ -311,6 +332,11 @@ export function GroupSidebar() {
           dropAbove && "border-t-2 border-t-[var(--accent-red)]",
           dropBelow && "border-b-2 border-b-[var(--accent-red)]",
         )}
+        onContextMenu={canManageChannels || canManageRoles ? (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setChannelMenu({ channelId: channel.id, x: e.clientX, y: e.clientY });
+        } : undefined}
         draggable={canManageChannels && !confirmDeleteChannelId && !renamingChannelId}
         onDragStart={(e) => { e.stopPropagation(); setDraggedChannelId(channel.id); }}
         onDragEnd={() => { setDraggedChannelId(null); setDragOverChannel(null); }}
@@ -845,6 +871,42 @@ export function GroupSidebar() {
         <RoleManagerModal
           serverId={activeServer.id}
           onClose={() => setShowRoleManager(false)}
+        />
+      )}
+
+      {/* Right-click a channel → its access settings. */}
+      {channelMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-[70]"
+            onMouseDown={() => setChannelMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setChannelMenu(null); }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              left: Math.min(channelMenu.x, window.innerWidth - 200),
+              top: Math.min(channelMenu.y, window.innerHeight - 60),
+              zIndex: 71,
+            }}
+            className="w-48 bg-[var(--bg-elevated)] border border-[var(--border)] shadow-xl py-1 font-mono"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => { setPermsChannelId(channelMenu.channelId); setChannelMenu(null); }}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-sm text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              {t("channelPerms.open")}
+            </button>
+          </div>
+        </>
+      )}
+
+      {permsChannelId && (
+        <ChannelPermissionsModal
+          channel={serverChannels.find((c) => c.id === permsChannelId) ?? null}
+          onClose={() => setPermsChannelId(null)}
         />
       )}
 

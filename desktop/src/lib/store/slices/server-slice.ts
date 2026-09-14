@@ -2,12 +2,29 @@ import type { StateCreator } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { mapProfile } from "../../utils";
 import { getActiveNativeVoiceEngine } from "../../native-voice-engine";
+import type { ChannelOverride } from "../../permission";
 import type { Server, Category, Channel, ServerMember, User, VoiceParticipant, Role, ServerBan, AuditEntry } from "../types";
 import type { ServerStore } from "../server-store.shape";
+
 import {
   voicePresenceCh, setVoicePresenceCh,
   trackDataChannel, clearDataChannels,
 } from "./_shared";
+
+/** channel_permissions row → the shape the permission resolver takes. */
+const mapChannelOverride = (r: {
+  id?: string;
+  channel_id: string;
+  role_id: string | null;
+  allow: number;
+  deny: number;
+}): ChannelOverride => ({
+  id: r.id,
+  channelId: r.channel_id,
+  roleId: r.role_id,
+  allow: r.allow ?? 0,
+  deny: r.deny ?? 0,
+});
 
 function removeChannelFromState(
   state: Pick<ServerStore, "channels" | "channelIndex" | "activeChannelId">,
@@ -38,6 +55,8 @@ export interface ServerSlice {
   channelIndex: Record<string, Channel>;
   members: Record<string, ServerMember[]>;
   roles: Record<string, Role[]>;
+  /** Per-channel access overrides, flat: the resolver filters by channel. */
+  channelOverrides: ChannelOverride[];
   userProfileCache: Record<string, User>;
   memberUserIndex: Record<string, { serverId: string; memberId: string }[]>;
   openTabs: string[];
@@ -73,6 +92,8 @@ export interface ServerSlice {
   createRole: (data: { serverId: string; name: string; color?: string; permissions: number }) => Promise<void>;
   updateRole: (roleId: string, serverId: string, data: { name?: string; color?: string; permissions?: number }) => Promise<void>;
   deleteRole: (roleId: string, serverId: string) => Promise<void>;
+  /** Upsert one (channel, role) override; allow = deny = 0 clears it. */
+  setChannelPermission: (channelId: string, roleId: string | null, allow: number, deny: number) => Promise<void>;
   assignRole: (memberId: string, serverId: string, roleId: string | null) => Promise<void>;
   kickMember: (memberId: string, serverId: string) => Promise<void>;
   updateServerIcon: (serverId: string, iconUrl: string | null) => Promise<void>;
@@ -98,6 +119,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
   channelIndex: {},
   members: {},
   roles: {},
+  channelOverrides: [],
   userProfileCache: {},
   memberUserIndex: {},
   openTabs: [],
@@ -114,12 +136,13 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       // every server — the single heaviest payload in the app. Profiles now
       // load per-server on demand via loadProfilesFor (active server below,
       // others on setActiveServer).
-      const [serverRes, channelRes, categoryRes, memberRes, rolesRes] = await Promise.all([
+      const [serverRes, channelRes, categoryRes, memberRes, rolesRes, overrideRes] = await Promise.all([
         supabase.from("servers").select("*"),
         supabase.from("channels").select("*"),
         supabase.from("categories").select("*"),
         supabase.from("server_members").select("*"),
         supabase.from("roles").select("*"),
+        supabase.from("channel_permissions").select("*"),
       ]);
 
       if (serverRes.error) console.error("Err loading servers", serverRes.error);
@@ -127,6 +150,9 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       if (categoryRes.error) console.error("Err loading categories", categoryRes.error);
       if (memberRes.error) console.error("Err loading members", memberRes.error);
       if (rolesRes.error) console.error("Err loading roles", rolesRes.error);
+      // Non-fatal: without overrides the resolver falls back to "allowed", which
+      // is the behaviour every server had before channel permissions existed.
+      if (overrideRes.error) console.error("Err loading channel permissions", overrideRes.error);
 
       const servers: Server[] = (serverRes.data || []).map((s) => ({
         id: s.id, ownerId: s.owner_id, name: s.name, iconUrl: s.icon_url,
@@ -200,6 +226,7 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
       set({
         servers, categories: categoriesMap, channels: channelsMap, channelIndex,
         members: membersMap, roles: rolesMap, userProfileCache: {}, memberUserIndex,
+        channelOverrides: (overrideRes.data || []).map(mapChannelOverride),
         openTabs: prevTabs,
         activeServerId: restoredActiveId,
         activeChannelId: targetChannel?.id ?? null,
@@ -461,6 +488,35 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
             }));
             // If *we* were removed, drop the whole server from this client too.
             if (userId === get()._currentUserId) get().removeServer(serverId);
+          },
+        ).subscribe(),
+      );
+
+      // Access changes have to land without a reload: a member who is granted or
+      // loses a channel mid-session should see it appear or grey out at once.
+      trackDataChannel(
+        supabase.channel("public:channel_permissions").on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "channel_permissions" },
+          (payload) => {
+            if (payload.eventType === "DELETE") {
+              // DELETE carries only the primary key, so match on id.
+              const id = payload.old.id;
+              set((state) => ({
+                channelOverrides: state.channelOverrides.filter((o) => o.id !== id),
+              }));
+              return;
+            }
+            const row = payload.new as Parameters<typeof mapChannelOverride>[0];
+            const next = mapChannelOverride(row);
+            set((state) => {
+              const exists = state.channelOverrides.some((o) => o.id === row.id);
+              return {
+                channelOverrides: exists
+                  ? state.channelOverrides.map((o) => (o.id === row.id ? next : o))
+                  : [...state.channelOverrides, next],
+              };
+            });
           },
         ).subscribe(),
       );
@@ -1058,6 +1114,28 @@ export const createServerSlice: StateCreator<ServerStore, [], [], ServerSlice> =
         ),
       },
     }));
+  },
+
+  setChannelPermission: async (channelId, roleId, allow, deny) => {
+    // The RPC re-checks the permission server-side and normalises an all-zero
+    // pair into a delete, so the channel falls back to the level above it.
+    const { error } = await supabase.rpc("set_channel_permission", {
+      p_channel_id: channelId,
+      p_role_id: roleId,
+      p_allow: allow,
+      p_deny: deny,
+    });
+    if (error) { console.error("setChannelPermission failed", error); throw error; }
+    // Realtime delivers the authoritative row; this keeps the toggle from
+    // flicking back while that round trip is in flight.
+    set((s) => {
+      const rest = s.channelOverrides.filter(
+        (o) => !(o.channelId === channelId && o.roleId === roleId),
+      );
+      return allow === 0 && deny === 0
+        ? { channelOverrides: rest }
+        : { channelOverrides: [...rest, { channelId, roleId, allow, deny }] };
+    });
   },
 
   deleteRole: async (roleId, serverId) => {
