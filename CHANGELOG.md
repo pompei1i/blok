@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.53] — 2026-09-14
+
+### Fixed
+- **Sharing one window shares only that window's sound.** Desktop audio on
+  Windows recorded everything playing on the speakers, so viewers heard every
+  other app too. A window share now records just the app that owns the window
+  (a browser's audio included), and a monitor share records everything except
+  blok itself — so the other people in the call no longer hear their own voices
+  echoed back through your share. Switching the shared window mid-share moves
+  the audio with it. On Windows 10 before build 20348 the old whole-system audio
+  is used, since per-app capture isn't available there.
+- **People you can hear no longer vanish from the voice channel list.** The list
+  came from Realtime Presence alone, so if someone's presence entry got lost
+  (a slow network moment, a reconnect) they dropped off the list the next time
+  anyone muted or unmuted, while their voice kept playing. Anyone you have a live
+  connection to now stays listed, and each client notices within seconds when
+  its own entry is missing and re-announces itself, so it shows up again for
+  everyone.
+
 ## [0.9.52] — 2026-09-14
 
 ### Added
