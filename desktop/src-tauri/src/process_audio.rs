@@ -311,6 +311,53 @@ mod tests {
         assert_eq!(target_for_source(&format!("window:{}", desktop.0 as isize)), Target::Include(pid));
     }
 
+    /// Loudest sample `target` delivers within `ms`.
+    fn peak_of(target: Target, ms: u64) -> Result<i32, String> {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        let peak = std::sync::Arc::new(AtomicI32::new(0));
+        let p = peak.clone();
+        let stop = start(target, move |_, pcm| {
+            for b in pcm.chunks_exact(2) {
+                p.fetch_max(i16::from_le_bytes([b[0], b[1]]).unsigned_abs() as i32, Ordering::Relaxed);
+            }
+        })?;
+        std::thread::sleep(Duration::from_millis(ms));
+        drop(stop);
+        Ok(peak.load(Ordering::Relaxed))
+    }
+
+    /// Plays a sound from a separate process and checks a window share of an
+    /// unrelated process stays silent while one of the player hears it. Ignored
+    /// by default because it is audible and needs an output device:
+    /// `cargo test --lib hears_only_the_target -- --ignored`.
+    #[test]
+    #[ignore]
+    fn hears_only_the_target_process() {
+        let explorer = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "(Get-Process explorer | Select-Object -First 1).Id"])
+            .output()
+            .unwrap();
+        let explorer: u32 = String::from_utf8_lossy(&explorer.stdout).trim().parse().expect("explorer pid");
+        // A child of the test process would count as part of its tree, so the
+        // "unrelated" target is explorer, not this process.
+        let mut player = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                r"$p = New-Object Media.SoundPlayer 'C:\Windows\Media\Alarm01.wav'; $p.PlayLooping(); Start-Sleep 6",
+            ])
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+
+        let unrelated = peak_of(Target::Include(explorer), 1500);
+        let own = peak_of(Target::Include(player.id()), 1500);
+        let _ = player.kill();
+        let (Ok(unrelated), Ok(own)) = (unrelated, own) else { return }; // no process loopback here
+        assert!(own > 300, "the player's own capture heard nothing (peak {own})");
+        assert!(unrelated < 50, "an unrelated process's capture heard the player (peak {unrelated})");
+    }
+
     /// Where process loopback exists (Win11), capturing everything but this test
     /// process must open and stop cleanly; older builds must decline, not panic.
     #[test]

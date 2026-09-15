@@ -49,7 +49,10 @@ impl DesktopAudioCapture {
     }
 }
 
-struct DesktopAudioState(Mutex<Option<DesktopAudioCapture>>);
+/// The running capture and the id its start was issued with. Stops name the id
+/// they mean: IPC calls can be handled out of order, and a stop meant for the
+/// previous share landing after the next start would otherwise kill the new one.
+struct DesktopAudioState(Mutex<Option<(u64, DesktopAudioCapture)>>);
 
 /// Generation counter for the push-based screen-capture loop. Bumping it stops
 /// the currently running capture thread (it checks the counter every frame).
@@ -448,8 +451,7 @@ fn encode_bgra_to_jpeg(bgra: Vec<u8>, w: u32, h: u32, max_width: u32, jpeg_quali
         return None;
     }
     // Target size (downscale only). `image`'s generic resize was ~50ms/frame even for
-    // Nearest; a fused BGRA→RGB + nearest-neighbour downscale in one integer-math pass
-    // is ~10x faster and drops the full-res RGB intermediate allocation entirely.
+    // Nearest; an integer nearest-neighbour pass is ~10x faster.
     let (tw, th) = if max_width > 0 && w > max_width {
         (max_width, ((h as u64 * max_width as u64 / w as u64) as u32).max(1))
     } else {
@@ -467,30 +469,40 @@ fn encode_bgra_to_jpeg(bgra: Vec<u8>, w: u32, h: u32, max_width: u32, jpeg_quali
     if bpp < 3 {
         return None; // unexpected/truncated buffer — bail instead of indexing OOB
     }
-    let stride = w as usize * bpp;
-
-    let mut rgb = vec![0u8; (tw as usize) * (th as usize) * 3];
-    // Precompute source X byte-offset for each target X (integer nearest-neighbour).
-    let src_x: Vec<usize> = (0..tw).map(|tx| ((tx as u64 * w as u64) / tw as u64) as usize * bpp).collect();
-    for ty in 0..th as usize {
-        let sy = (ty as u64 * h as u64) / th as u64;
-        let src_row = sy as usize * stride;
-        let dst_row = ty * tw as usize * 3;
-        for tx in 0..tw as usize {
-            let s = src_row + src_x[tx];
-            let d = dst_row + tx * 3;
-            // First three bytes are B, G, R for both BGRX and BGR → emit R, G, B.
-            rgb[d] = bgra[s + 2];
-            rgb[d + 1] = bgra[s + 1];
-            rgb[d + 2] = bgra[s];
-        }
-    }
+    // The encoder takes BGR(A) as is, so pixels are only touched to downscale.
+    // Converting every frame to RGB first cost a third of the encode (1080p:
+    // 13.7ms → 9.0ms without it, measured on a real screen frame).
+    let (out_bpp, color) = if bpp == 3 {
+        (3, jpeg_encoder::ColorType::Bgr)
+    } else {
+        (4, jpeg_encoder::ColorType::Bgra)
+    };
+    let pixels_in: std::borrow::Cow<[u8]> = if (tw, th) == (w, h) && bpp == out_bpp {
+        std::borrow::Cow::Borrowed(&bgra)
+    } else {
+        std::borrow::Cow::Owned(downscale_nearest(&bgra, w, h, bpp, tw, th, out_bpp))
+    };
 
     let quality = jpeg_quality.clamp(1, 100);
     let mut buf = Vec::new();
     let encoder = jpeg_encoder::Encoder::new(&mut buf, quality);
-    encoder.encode(&rgb, tw as u16, th as u16, jpeg_encoder::ColorType::Rgb).ok()?;
+    encoder.encode(&pixels_in, tw as u16, th as u16, color).ok()?;
     Some((buf, tw, th))
+}
+
+/// Nearest-neighbour resample of a `bpp`-bytes-per-pixel frame to `tw`x`th`,
+/// keeping the first `out_bpp` bytes of each pixel.
+fn downscale_nearest(src: &[u8], w: u32, h: u32, bpp: usize, tw: u32, th: u32, out_bpp: usize) -> Vec<u8> {
+    let (w, h, tw, th) = (w as usize, h as usize, tw as usize, th as usize);
+    let mut out = vec![0u8; tw * th * out_bpp];
+    let src_x: Vec<usize> = (0..tw).map(|x| x * w / tw * bpp).collect();
+    for (ty, row) in out.chunks_exact_mut(tw * out_bpp).enumerate() {
+        let src_row = &src[(ty * h / th) * w * bpp..][..w * bpp];
+        for (px, &sx) in row.chunks_exact_mut(out_bpp).zip(&src_x) {
+            px.copy_from_slice(&src_row[sx..sx + out_bpp]);
+        }
+    }
+    out
 }
 
 fn capture_raw_frame(source_id: &str) -> Option<RawFrame> {
@@ -851,6 +863,7 @@ fn start_windows_loopback(
 /// an output device into loopback — which records the whole system.
 ///
 /// `source_id` is the shared capture source; Linux ignores it (the whole sink).
+/// `capture_id` is what a later `desktop_audio_stop` names to stop this capture.
 ///
 /// Returns the capture sample rate.
 #[tauri::command]
@@ -858,16 +871,20 @@ fn desktop_audio_start(
     state: tauri::State<DesktopAudioState>,
     on_chunk: Channel<InvokeResponseBody>,
     source_id: Option<String>,
+    capture_id: Option<u64>,
 ) -> Result<u32, String> {
+    let capture_id = capture_id.unwrap_or(0);
+    // Held for the whole start, so a stop can't slip in between the previous
+    // capture ending and this one being recorded.
+    let mut slot = state.0.lock().unwrap();
+    if let Some((_, old)) = slot.take() {
+        old.stop();
+    }
+
     #[cfg(target_os = "linux")]
     {
         use std::io::Read;
         let _ = source_id;
-
-        // Stop any previous recorder first (e.g. share restarted quickly).
-        if let Some(old) = state.0.lock().unwrap().take() {
-            old.stop();
-        }
 
         let sink = std::process::Command::new("pactl")
             .arg("get-default-sink")
@@ -892,7 +909,7 @@ fn desktop_audio_start(
             .spawn()
             .map_err(|e| format!("parec failed to start: {e}"))?;
         let mut stdout = child.stdout.take().ok_or("parec has no stdout")?;
-        *state.0.lock().unwrap() = Some(DesktopAudioCapture::Parec(child));
+        *slot = Some((capture_id, DesktopAudioCapture::Parec(child)));
 
         // on_chunk is unused now that desktop audio rides the native transport
         // (it fans out to peers in Rust, not through the webview).
@@ -927,9 +944,6 @@ fn desktop_audio_start(
         // on_chunk is unused: desktop audio rides the native transport, fanning
         // out to peers in Rust rather than through the webview.
         let _ = on_chunk;
-        if let Some(old) = state.0.lock().unwrap().take() {
-            old.stop();
-        }
         // Level log every 5s. Desktop audio is deliberately not played back
         // locally (the sharer already hears it), so without this there is no way
         // to tell "capture is silent" from "capture never started" short of
@@ -960,20 +974,25 @@ fn desktop_audio_start(
                 start_windows_loopback(on_pcm)?
             }
         };
-        *state.0.lock().unwrap() = Some(DesktopAudioCapture::Loopback(tx));
+        *slot = Some((capture_id, DesktopAudioCapture::Loopback(tx)));
         Ok(rate)
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let _ = (state, on_chunk, source_id);
+        let _ = (slot, on_chunk, source_id, capture_id);
         Err("desktop audio capture is not supported on this platform".into())
     }
 }
 
+/// Stops the desktop-audio capture started with `capture_id`, or whatever is
+/// running when it's omitted. A late stop for an earlier capture is a no-op.
 #[tauri::command]
-fn desktop_audio_stop(state: tauri::State<DesktopAudioState>) {
-    if let Some(capture) = state.0.lock().unwrap().take() {
-        capture.stop();
+fn desktop_audio_stop(state: tauri::State<DesktopAudioState>, capture_id: Option<u64>) {
+    let mut slot = state.0.lock().unwrap();
+    if slot.as_ref().is_some_and(|(id, _)| capture_id.is_none_or(|c| c == *id)) {
+        if let Some((_, capture)) = slot.take() {
+            capture.stop();
+        }
     }
 }
 
@@ -1113,6 +1132,9 @@ impl CastStats {
     }
 }
 
+/// Minimum spacing of frames sent to the sharer's own preview (~15fps).
+const PREVIEW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(66);
+
 /// One captured frame on its way to an encoder. `seq` orders the output: an
 /// encoder that finishes after a newer frame has already shipped drops its
 /// result rather than sending the screen backwards.
@@ -1167,6 +1189,16 @@ impl Capturer {
         }
         let _ = source_id;
         Capturer::Generic
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            #[cfg(target_os = "windows")]
+            Capturer::Dxgi(_) => "desktop duplication",
+            #[cfg(target_os = "windows")]
+            Capturer::Wgc(_) => "graphics capture",
+            Capturer::Generic => "generic grab",
+        }
     }
 
     /// Blocks up to `budget` for a changed frame. `None` means nothing new — the
@@ -1240,6 +1272,8 @@ struct Grabbed {
 /// An unchanged frame (hash dedup, or DXGI's own no-change signal) sends nothing.
 /// The loop exits when a newer start bumps the generation counter, or
 /// `screen_capture_stop` is called, or the channel dies (webview reloaded).
+///
+/// Returns this capture's generation, for `screen_capture_stop` to name.
 #[tauri::command]
 fn screen_capture_start(
     source_id: String,
@@ -1248,7 +1282,7 @@ fn screen_capture_start(
     fps: u32,
     state: tauri::State<ScreenCastState>,
     on_frame: Channel<InvokeResponseBody>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Condvar};
     use std::time::{Duration, Instant};
@@ -1266,7 +1300,8 @@ fn screen_capture_start(
         Arc::new((Mutex::new(None), Condvar::new()));
     // Serialises output and enforces frame order across the pool: an encoder that
     // finishes out of order sees a newer seq already shipped and drops its frame.
-    let sent_seq = Arc::new(Mutex::new(0u64));
+    // Alongside it, when the self-preview last got a frame.
+    let sent_seq = Arc::new(Mutex::new((0u64, None::<Instant>)));
     // Throughput log while a share is running (frames actually sent to the
     // webview) — makes fps regressions diagnosable from the console. The per-stage
     // averages are what tells "the screen was idle" apart from "a stage is too
@@ -1306,17 +1341,34 @@ fn screen_capture_start(
                 let Some((jpeg, w, h)) = encoded else { continue };
 
                 let mut last = sent_seq.lock().unwrap();
-                if *last >= job.seq {
+                if last.0 >= job.seq {
                     continue; // a newer frame already went out
                 }
-                *last = job.seq;
-                // Fan out to remote viewers over the native transport (screen tag),
-                // then to the local self-preview canvas via on_frame.
-                rtc::broadcast_video_frame(1, w, h, jpeg.clone());
+                // An encode that outlived its generation would ship after the new
+                // capture's first frames — a flash of the old size or source.
+                if generation.load(Ordering::SeqCst) != my_gen {
+                    return;
+                }
+                last.0 = job.seq;
+                // The self-preview only needs to look alive. Every frame it gets is
+                // decoded, drawn and re-captured by the sharer's webview — CPU taken
+                // from the encoders and the app being shared — so it runs at a
+                // preview rate; viewers get every frame straight from the transport.
+                let preview = last.1.is_none_or(|t| t.elapsed() >= PREVIEW_INTERVAL);
+                if !preview {
+                    rtc::broadcast_video_frame(1, w, h, jpeg);
+                    drop(last);
+                    let mut s = stats.lock().unwrap();
+                    s.sent += 1;
+                    s.tick();
+                    continue;
+                }
+                last.1 = Some(Instant::now());
                 let mut msg = Vec::with_capacity(8 + jpeg.len());
                 msg.extend_from_slice(&w.to_le_bytes());
                 msg.extend_from_slice(&h.to_le_bytes());
                 msg.extend_from_slice(&jpeg);
+                rtc::broadcast_video_frame(1, w, h, jpeg);
                 if on_frame.send(InvokeResponseBody::Raw(msg)).is_err() {
                     // Frontend went away — end this generation for every thread.
                     let _ = generation.compare_exchange(
@@ -1338,11 +1390,17 @@ fn screen_capture_start(
 
     std::thread::spawn(move || {
         let mut capturer = Capturer::for_source(&source_id);
+        eprintln!(
+            "[screencast] gen {my_gen}: {source_id} via {} at {fps}fps, max width {max_width}",
+            capturer.kind()
+        );
+        let mut pacer = FramePacer::new(frame_budget, Instant::now());
         let mut last_hash: Option<u64> = None;
         let mut seq = 0u64;
         while generation.load(Ordering::SeqCst) == my_gen {
-            let started = Instant::now();
+            std::thread::sleep(pacer.wait(Instant::now()));
             if let Some(frame) = capturer.grab(&source_id, frame_budget) {
+                pacer.frame_taken(Instant::now());
                 let hash = frame_hash(&frame.bgra);
                 if last_hash != Some(hash) {
                     last_hash = Some(hash);
@@ -1360,19 +1418,68 @@ fn screen_capture_start(
                 s.captured += 1;
                 s.capture_ms += frame.work_ms;
             }
-            let elapsed = started.elapsed();
-            if elapsed < frame_budget {
-                std::thread::sleep(frame_budget - elapsed);
-            }
         }
+        eprintln!("[screencast] gen {my_gen}: stopped");
     });
-    Ok(())
+    Ok(my_gen)
 }
 
+/// Paces the capture loop to the requested rate on a fixed schedule.
+///
+/// The old loop slept out a whole frame budget after every grab, so each
+/// iteration ran slightly longer than one frame. Against a source at the same
+/// rate the phase slipped until a frame was skipped: a 60fps share of a 60Hz
+/// screen came out at ~56. Here the schedule advances by exactly one budget per
+/// frame, and a grab may start a little early so a frame landing just ahead of
+/// its slot still counts for it.
+struct FramePacer {
+    budget: std::time::Duration,
+    next_due: std::time::Instant,
+}
+
+impl FramePacer {
+    const SLACK: std::time::Duration = std::time::Duration::from_millis(2);
+
+    fn new(budget: std::time::Duration, now: std::time::Instant) -> Self {
+        FramePacer { budget, next_due: now }
+    }
+
+    /// How long to hold off before the next grab. Sources that wait for a new
+    /// frame themselves (DXGI, WGC) accumulate changes meanwhile, so holding off
+    /// loses nothing.
+    fn wait(&self, now: std::time::Instant) -> std::time::Duration {
+        self.next_due.saturating_duration_since(now + Self::SLACK)
+    }
+
+    /// Schedules the slot after a frame taken at `now`. After an idle screen or a
+    /// stall the schedule restarts from `now` rather than bursting to catch up.
+    fn frame_taken(&mut self, now: std::time::Instant) {
+        self.next_due = (self.next_due + self.budget).max(now + self.budget - Self::SLACK);
+    }
+}
+
+/// Stops the capture of `generation`, or whatever is running when it's omitted.
+/// Bumping the generation makes the loop exit on its next iteration.
+///
+/// Scoped because IPC calls can be handled out of order: switching the share's
+/// audio sends a stop and then a start, and a stop handled second used to kill
+/// the capture that had just started — the sharer's share died after 3s without
+/// frames and viewers were left on a frozen frame.
 #[tauri::command]
-fn screen_capture_stop(state: tauri::State<ScreenCastState>) {
-    // Bumping the generation makes the worker loop exit on its next iteration.
-    state.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+fn screen_capture_stop(state: tauri::State<ScreenCastState>, generation: Option<u64>) {
+    stop_generation(&state.0, generation);
+}
+
+fn stop_generation(counter: &std::sync::atomic::AtomicU64, generation: Option<u64>) {
+    use std::sync::atomic::Ordering;
+    match generation {
+        Some(g) => {
+            let _ = counter.compare_exchange(g, g + 1, Ordering::SeqCst, Ordering::SeqCst);
+        }
+        None => {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 }
 
 #[tauri::command]
@@ -1882,6 +1989,51 @@ mod tests {
         eprintln!("[bench] encode total = {}ms/frame over {n} iters", t.elapsed().as_millis() / n as u128);
     }
 
+    /// Reference path: convert to RGB by hand, downscale nearest, encode as RGB —
+    /// what the encoder did before it took BGR(A) directly.
+    fn jpeg_via_rgb(src: &[u8], w: u32, h: u32, bpp: usize, tw: u32, th: u32, q: u8) -> Vec<u8> {
+        let mut rgb = Vec::with_capacity((tw * th * 3) as usize);
+        for ty in 0..th as usize {
+            for tx in 0..tw as usize {
+                let s = ((ty * h as usize / th as usize) * w as usize + tx * w as usize / tw as usize) * bpp;
+                rgb.extend_from_slice(&[src[s + 2], src[s + 1], src[s]]);
+            }
+        }
+        let mut out = Vec::new();
+        jpeg_encoder::Encoder::new(&mut out, q)
+            .encode(&rgb, tw as u16, th as u16, jpeg_encoder::ColorType::Rgb)
+            .unwrap();
+        out
+    }
+
+    fn gradient(w: u32, h: u32, bpp: usize) -> Vec<u8> {
+        let mut v = Vec::with_capacity((w * h) as usize * bpp);
+        for y in 0..h {
+            for x in 0..w {
+                v.extend_from_slice(&[(x * 7) as u8, (y * 5) as u8, ((x + y) * 3) as u8, 255][..bpp]);
+            }
+        }
+        v
+    }
+
+    /// Encoding BGR(A) directly must give exactly the JPEG the RGB conversion did —
+    /// same colours (no swapped red/blue), same size, with and without downscale.
+    #[test]
+    fn direct_bgr_encode_matches_the_rgb_conversion() {
+        for bpp in [4usize, 3] {
+            let (w, h) = (160u32, 90u32);
+            let src = gradient(w, h, bpp);
+            for (max_width, tw, th) in [(0u32, 160u32, 90u32), (160, 160, 90), (80, 80, 45)] {
+                let (jpeg, ow, oh) = encode_bgra_to_jpeg(src.clone(), w, h, max_width, 80).unwrap();
+                assert_eq!((ow, oh), (tw, th), "bpp {bpp}, max width {max_width}");
+                assert!(
+                    jpeg == jpeg_via_rgb(&src, w, h, bpp, tw, th, 80),
+                    "bpp {bpp}, max width {max_width}: output differs from the RGB path"
+                );
+            }
+        }
+    }
+
     // ── encode_bgra_to_frame ──────────────────────────────────────────────────
 
     #[test]
@@ -2181,6 +2333,112 @@ mod tests {
         // back instead of taking down the capture thread.
         assert!(wgc_capture::WindowCapture::new(0).is_none());
         assert!(wgc_capture::WindowCapture::new(12345).is_none());
+    }
+
+    /// Runs the capture loop's pacing against a simulated vsync source: frames
+    /// land every `period`, a grab takes the newest landed frame or waits for the
+    /// next one, each frame then costs `work`, and every sleep overshoots by
+    /// `overshoot` (the drift that cost the old loop a frame every ~17).
+    fn simulated_fps(target_fps: f64, period_ms: f64, work_ms: f64, overshoot_ms: f64) -> f64 {
+        use std::time::{Duration, Instant};
+        let ms = |v: f64| Duration::from_secs_f64(v / 1000.0);
+        let start = Instant::now();
+        let at = |t: Instant| (t - start).as_secs_f64() * 1000.0;
+        let mut pacer = FramePacer::new(Duration::from_secs_f64(1.0 / target_fps), start);
+        let mut now = start;
+        let mut last_taken: i64 = -1;
+        let mut frames = 0;
+        let seconds = 20.0;
+        while at(now) < seconds * 1000.0 {
+            let wait = pacer.wait(now);
+            if !wait.is_zero() {
+                now += wait + ms(overshoot_ms);
+            }
+            let landed = (at(now) / period_ms).floor() as i64;
+            let taken = if landed > last_taken { landed } else { last_taken + 1 };
+            now = now.max(start + ms(taken as f64 * period_ms));
+            last_taken = taken;
+            pacer.frame_taken(now);
+            frames += 1;
+            now += ms(work_ms);
+        }
+        frames as f64 / seconds
+    }
+
+    #[test]
+    fn a_stale_screen_capture_stop_leaves_the_newer_capture_running() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let counter = AtomicU64::new(0);
+        let old = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let new = counter.fetch_add(1, Ordering::SeqCst) + 1;
+
+        stop_generation(&counter, Some(old)); // handled after the new start
+        assert_eq!(counter.load(Ordering::SeqCst), new, "stale stop killed the new capture");
+
+        stop_generation(&counter, Some(new));
+        assert_ne!(counter.load(Ordering::SeqCst), new, "stop for the running capture did nothing");
+
+        let before = counter.load(Ordering::SeqCst);
+        stop_generation(&counter, None);
+        assert_ne!(counter.load(Ordering::SeqCst), before, "unscoped stop did nothing");
+    }
+
+    #[test]
+    fn pacer_holds_the_target_against_a_same_rate_source() {
+        for (period, overshoot) in [(1000.0 / 60.0, 0.5), (1000.0 / 59.94, 0.5), (1000.0 / 60.0, 1.5)] {
+            let fps = simulated_fps(60.0, period, 3.0, overshoot);
+            assert!(fps > 59.5, "{fps:.2}fps for a {:.2}Hz source", 1000.0 / period);
+        }
+    }
+
+    #[test]
+    fn pacer_caps_a_faster_source_at_the_target() {
+        for target in [15.0, 30.0, 60.0] {
+            let fps = simulated_fps(target, 1000.0 / 144.0, 3.0, 0.5);
+            assert!((fps - target).abs() < target * 0.02, "{fps:.2}fps for a {target}fps target on 144Hz");
+        }
+    }
+
+    #[test]
+    fn pacer_follows_a_slower_source_without_bursting() {
+        let fps = simulated_fps(60.0, 1000.0 / 48.0, 3.0, 0.5);
+        assert!((fps - 48.0).abs() < 0.5, "{fps:.2}fps for a 48Hz source");
+    }
+
+    /// End to end on a real window: the WGC source plus the pacer must deliver
+    /// the requested rate. Skipped where the display can't produce 60 compositions
+    /// a second (or WGC is missing) — that's the environment, not a defect.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn window_capture_loop_reaches_60fps() {
+        use std::time::{Duration, Instant};
+        if !wgc_capture::is_supported() {
+            return;
+        }
+        let win = wgc_capture::TestWindow::new();
+        let source = format!("window:{}", win.hwnd());
+        let run = |fps: f64, secs: f64| {
+            let mut capturer = Capturer::for_source(&source);
+            let budget = Duration::from_secs_f64(1.0 / fps);
+            let mut pacer = FramePacer::new(budget, Instant::now());
+            let end = Instant::now() + Duration::from_secs_f64(secs);
+            let mut frames = 0;
+            while Instant::now() < end {
+                std::thread::sleep(pacer.wait(Instant::now()));
+                if let Some(frame) = capturer.grab(&source, budget) {
+                    pacer.frame_taken(Instant::now());
+                    std::hint::black_box(frame_hash(&frame.bgra));
+                    frames += 1;
+                }
+            }
+            frames as f64 / secs
+        };
+        if run(1000.0, 1.0) < 70.0 {
+            return;
+        }
+        let fps = run(60.0, 3.0);
+        eprintln!("window share loop: {fps:.1}fps at a 60fps target");
+        assert!(fps > 58.5, "window share ran at {fps:.1}fps for a 60fps target");
     }
 
     #[test]

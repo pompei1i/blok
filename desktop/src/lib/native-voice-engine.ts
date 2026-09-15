@@ -247,6 +247,10 @@ export class NativeVoiceEngine {
      */
     withAudio: boolean;
   } | null = null;
+  /** Generation of the running Rust capture loop, as returned by screen_capture_start. */
+  private _captureGeneration: number | null = null;
+  /** Id of the latest desktop-audio capture started, for a scoped stop. */
+  private _desktopAudioId = 0;
   private _subscribed = false;
   private _subscribeResolve: (() => void) | null = null;
   private _subscribeReject: ((err: Error) => void) | null = null;
@@ -692,7 +696,9 @@ export class NativeVoiceEngine {
       setTimeout(() => { firstFrame = null; resolve(false); }, 3000);
     });
 
-    await invoke("screen_capture_start", { sourceId, maxWidth, jpegQuality, fps: screenShareFps, onFrame });
+    this._captureGeneration = await invoke<number>("screen_capture_start", {
+      sourceId, maxWidth, jpegQuality, fps: screenShareFps, onFrame,
+    });
     return await firstFramePromise;
   }
 
@@ -771,7 +777,7 @@ export class NativeVoiceEngine {
     if (!ctx) throw new Error("Native screen capture is unavailable on this system");
 
     if (!(await this._startNativePush(sourceId, canvas, ctx))) {
-      invoke("screen_capture_stop").catch(() => {});
+      this._stopScreenCapture();
       throw new Error("Native screen capture produced no frames");
     }
     this._nativeCapture = { canvas, ctx, sourceId, withAudio: choice.withAudio };
@@ -789,12 +795,23 @@ export class NativeVoiceEngine {
     if (choice.withAudio) this._startDesktopAudio(sourceId);
 
     this._nativeCaptureCleanup = () => {
-      invoke("screen_capture_stop").catch(() => {});
+      this._stopScreenCapture();
       this._nativeCapture = null;
       track.stop();
-      if (choice.withAudio) invoke("desktop_audio_stop").catch(() => {});
+      if (choice.withAudio) {
+        invoke("desktop_audio_stop", { captureId: this._desktopAudioId }).catch(() => {});
+      }
     };
     return stream;
+  }
+
+  /**
+   * Stops the capture this engine last started, by generation. A mid-share
+   * restart sends this stop and then a new start, and IPC may handle them in
+   * either order; an unscoped stop handled second killed the new capture.
+   */
+  private _stopScreenCapture(): void {
+    invoke("screen_capture_stop", { generation: this._captureGeneration }).catch(() => {});
   }
 
   /**
@@ -806,7 +823,9 @@ export class NativeVoiceEngine {
    */
   private _startDesktopAudio(sourceId: string): void {
     const onChunk = new Channel<ArrayBuffer>(); // unused; command requires it
-    invoke("desktop_audio_start", { onChunk, sourceId }).catch((e) => {
+    // Ids let a stop name the capture it means (see _stopScreenCapture).
+    const captureId = ++this._desktopAudioId;
+    invoke("desktop_audio_start", { onChunk, sourceId, captureId }).catch((e) => {
       if (this._nativeCapture) this._nativeCapture.withAudio = false;
       useToastStore.getState().showToast({
         icon: WifiOff,
