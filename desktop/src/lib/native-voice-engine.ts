@@ -9,10 +9,14 @@ import { useToastStore } from "./store/toast-store";
 import { useScreenPickerStore, type CaptureSource, type PickResult } from "./store/screen-picker-store";
 import { SCREEN_RES_TO_MAX_WIDTH, SCREEN_QUALITY_TO_JPEG } from "@/lib/constants";
 import { translate } from "./i18n";
+import { H264Receiver, canDecodeH264 } from "./h264-receiver";
+
+/** What a client can receive. Absent from clients that predate it, which then get JPEG shares. */
+type PeerCaps = { h264?: boolean };
 
 type NativeSignalMsg =
-  | { type: "join"; from: string }
-  | { type: "hello"; from: string }
+  | { type: "join"; from: string; caps?: PeerCaps }
+  | { type: "hello"; from: string; caps?: PeerCaps }
   | { type: "leave"; from: string }
   // Native (Rust) transport signaling: one peer connection per pair carries
   // voice + screen + camera as data channels; payload is SDP or ICE JSON.
@@ -264,6 +268,8 @@ export class NativeVoiceEngine {
   // signaling strings and receives events over one binary channel. Voice, screen
   // and camera all ride one connection per peer as data channels.
   private _rtcPeers = new Set<string>();
+  /** Our own receive capabilities, announced to peers. */
+  private _caps: PeerCaps = { h264: false };
   /** Peers whose transport is currently connected, i.e. whom we can actually hear. */
   private _connectedPeers = new Set<string>();
   private _rtcStarted = false;
@@ -308,6 +314,8 @@ export class NativeVoiceEngine {
     // Bring up the native P2P transport before announcing ourselves — peers
     // respond to our join immediately with signaling we must be able to accept.
     await this._startRtc();
+    // Announced in join/hello, so sharers know whether to send us H.264 or JPEG.
+    this._caps = { h264: await canDecodeH264() };
 
     this.unlistenSpeaking = await listen<boolean>("audio-speaking", (event) => {
       this.updateSpeaking(this.userId, event.payload);
@@ -325,7 +333,7 @@ export class NativeVoiceEngine {
           if (!this._subscribed) {
             this._subscribed = true;
             this._subscribeResolve?.();
-            this.broadcast({ type: "join", from: this.userId });
+            this.broadcast({ type: "join", from: this.userId, caps: this._caps });
           } else if (this.realtimeCh) {
             // Rejoined after a network drop (supabase-js auto-rejoins channels
             // once the socket reconnects). Re-announce so peers rebuild anything
@@ -333,7 +341,7 @@ export class NativeVoiceEngine {
             // (→ _ensureAudioPc rebuilds dead audio PCs) and re-broadcasts their
             // screenshare/video. Healthy PCs ignore all of it.
             console.info("[voice] realtime channel rejoined — re-announcing");
-            void this.broadcast({ type: "join", from: this.userId });
+            void this.broadcast({ type: "join", from: this.userId, caps: this._caps });
             if (this.isScreenSharing()) void this.broadcast({ type: "screenshare_start", from: this.userId });
             if (this._cameraStream) void this.broadcast({ type: "video_start", from: this.userId });
           }
@@ -485,26 +493,37 @@ export class NativeVoiceEngine {
   }
 
   // Per-remote-source incoming video: a hidden canvas fed by the transport's
-  // JPEG frames, exposed to the UI as a MediaStream via captureStream(). Keyed
-  // by `${peerId}:${tag}` (tag 1 = screen, 2 = camera).
+  // frames, exposed to the UI as a MediaStream via captureStream(). Keyed by
+  // `${peerId}:${tag}` (tag 1 = screen, 2 = camera). A screen share arrives as
+  // JPEG (tag 1) or H.264 (tag 3); both paint the same `:1` canvas.
   private _remoteVideo = new Map<
     string,
-    { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; lastSeq: number; drawing: boolean; pending: Uint8Array | null }
+    {
+      canvas: HTMLCanvasElement;
+      ctx: CanvasRenderingContext2D;
+      lastSeq: number;
+      drawing: boolean;
+      pending: Uint8Array | null;
+      /** Present while the sharer sends H.264. */
+      h264?: H264Receiver;
+    }
   >();
 
   /**
    * Handle an inbound video frame from the native transport. Body layout:
-   * [u32-LE seq][u32-LE w][u32-LE h][jpeg]. Decodes to a per-source canvas and,
-   * on the first frame, hands a captureStream() MediaStream to the UI via the
-   * same callbacks the old media-track path used.
+   * [u32-LE seq][u32-LE w][u32-LE h][payload] — a JPEG for tags 1/2, an H.264
+   * frame for tag 3. Paints a per-source canvas and, on the first frame, hands
+   * a captureStream() MediaStream to the UI.
    */
-  private _onRtcVideoFrame(peerId: string, tag: number, body: Uint8Array): void {
+  private _onRtcVideoFrame(peerId: string, wireTag: number, body: Uint8Array): void {
     if (body.length <= 12) return;
     const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
     const seq = dv.getUint32(0, true);
     const w = dv.getUint32(4, true);
     const h = dv.getUint32(8, true);
-    const jpeg = body.subarray(12);
+    const payload = body.subarray(12);
+    const h264 = wireTag === 3;
+    const tag = h264 ? 1 : wireTag;
     const key = `${peerId}:${tag}`;
 
     let rv = this._remoteVideo.get(key);
@@ -521,14 +540,28 @@ export class NativeVoiceEngine {
       else this.cb.onVideoStart?.(peerId, stream);
     }
 
+    if (h264) {
+      // Ordered channel: no staleness check; the receiver gates on keyframes.
+      rv.h264 ??= new H264Receiver(rv.canvas, rv.ctx, () => {
+        invoke("rtc_request_keyframe", { peerId }).catch(() => {});
+      });
+      rv.h264.push(payload);
+      return;
+    }
+    if (rv.h264) {
+      // The sharer fell back to JPEG (e.g. a JPEG-only viewer joined).
+      rv.h264.close();
+      rv.h264 = undefined;
+    }
+
     // Drop out-of-order stragglers; coalesce backlog to the newest frame.
     if (seq < rv.lastSeq) return;
     rv.lastSeq = seq;
     if (rv.drawing) {
-      rv.pending = jpeg.slice();
+      rv.pending = payload.slice();
       return;
     }
-    void this._drawRemote(rv, jpeg);
+    void this._drawRemote(rv, payload);
   }
 
   private async _drawRemote(
@@ -559,6 +592,7 @@ export class NativeVoiceEngine {
     const key = `${peerId}:${tag}`;
     const rv = this._remoteVideo.get(key);
     if (rv) {
+      rv.h264?.close();
       rv.canvas.width = 0;
       rv.canvas.height = 0;
       this._remoteVideo.delete(key);
@@ -929,6 +963,11 @@ export class NativeVoiceEngine {
 
   // ── Signal handling ─────────────────────────────────────────────────────────
 
+  /** Tells the transport whether `peerId` can take our screen share as H.264. */
+  private _notePeerCaps(peerId: string, caps: PeerCaps | undefined): void {
+    invoke("rtc_set_peer_caps", { peerId, h264: caps?.h264 === true }).catch(() => {});
+  }
+
   private async handleSignal(msg: NativeSignalMsg): Promise<void> {
     if (!msg || !msg.from) return;
     if (msg.from === this.userId) return;
@@ -936,7 +975,8 @@ export class NativeVoiceEngine {
     switch (msg.type) {
       case "join":
         this.cb.onParticipantJoin(msg.from, true);
-        await this.broadcast({ type: "hello", from: this.userId });
+        this._notePeerCaps(msg.from, msg.caps);
+        await this.broadcast({ type: "hello", from: this.userId, caps: this._caps });
         this._ensureRtcPeer(msg.from);
         if (this.isScreenSharing()) {
           await this.broadcast({ type: "screenshare_start", from: this.userId });
@@ -947,6 +987,7 @@ export class NativeVoiceEngine {
         break;
       case "hello":
         this.cb.onParticipantJoin(msg.from, false);
+        this._notePeerCaps(msg.from, msg.caps);
         this._ensureRtcPeer(msg.from);
         break;
       case "leave":

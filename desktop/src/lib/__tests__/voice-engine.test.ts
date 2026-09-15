@@ -264,6 +264,67 @@ describe("NativeVoiceEngine.join / leave", () => {
     expect(cb.onParticipantJoin).not.toHaveBeenCalled();
   });
 
+  it("announces its H.264 support in join and hello", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await engine.join(); // jsdom has no WebCodecs → h264: false
+    await Promise.resolve();
+    const sent = ch().send.mock.calls.map(([m]) => (m as { payload: { type: string; caps?: unknown } }).payload);
+    expect(sent.find((p) => p.type === "join")?.caps).toEqual({ h264: false });
+
+    await (engine as any).handleSignal({ type: "join", from: "peer1" });
+    const hello = ch().send.mock.calls.map(([m]) => (m as { payload: { type: string; caps?: unknown } }).payload).find((p) => p.type === "hello");
+    expect(hello?.caps).toEqual({ h264: false });
+  });
+
+  it("tells the transport which peers decode H.264, treating silence as no", async () => {
+    const engine = new NativeVoiceEngine("ch1", "u1", makeCallbacks());
+    await engine.join();
+    await (engine as any).handleSignal({ type: "hello", from: "new-client", caps: { h264: true } });
+    await (engine as any).handleSignal({ type: "hello", from: "old-client" });
+    expect(invoke).toHaveBeenCalledWith("rtc_set_peer_caps", { peerId: "new-client", h264: true });
+    expect(invoke).toHaveBeenCalledWith("rtc_set_peer_caps", { peerId: "old-client", h264: false });
+  });
+
+  it("paints an H.264 share (tag 3) onto the screen canvas and asks for keyframes", () => {
+    const decoders: Array<{ decoded: unknown[] }> = [];
+    vi.stubGlobal("EncodedVideoChunk", class { constructor(public init: unknown) {} });
+    vi.stubGlobal("VideoDecoder", class {
+      state = "unconfigured";
+      decodeQueueSize = 0;
+      decoded: unknown[] = [];
+      constructor() { decoders.push(this); }
+      configure() { this.state = "configured"; }
+      decode(c: unknown) { this.decoded.push(c); }
+      close() { this.state = "closed"; }
+    });
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as never);
+    (HTMLCanvasElement.prototype as any).captureStream = () => ({ id: "stream" });
+
+    const cb = makeCallbacks();
+    const engine = new NativeVoiceEngine("ch1", "u1", cb);
+    const body = (flags: number, nals: number[]) => {
+      const b = new Uint8Array(12 + 9 + nals.length);
+      new DataView(b.buffer).setUint32(4, 1280, true);
+      new DataView(b.buffer).setUint32(8, 720, true);
+      b[12] = flags;
+      b.set(nals, 21);
+      return b;
+    };
+    (engine as any)._onRtcVideoFrame("sharer", 3, body(0, [0, 0, 1, 0x41])); // delta first
+    expect(invoke).toHaveBeenCalledWith("rtc_request_keyframe", { peerId: "sharer" });
+    (engine as any)._onRtcVideoFrame("sharer", 3, body(1, [0, 0, 0, 1, 0x67, 0x4d, 0x40, 0x28, 0, 0, 1, 0x65]));
+
+    expect(cb.onScreenShareStart).toHaveBeenCalledTimes(1);
+    expect(cb.onScreenShareStart).toHaveBeenCalledWith("sharer", { id: "stream" });
+    expect(decoders).toHaveLength(1);
+    expect(decoders[0].decoded).toHaveLength(1);
+    expect(engine.hasLiveViewerPc("sharer")).toBe(true);
+
+    getContext.mockRestore();
+    delete (HTMLCanvasElement.prototype as any).captureStream;
+    vi.unstubAllGlobals();
+  });
+
   it("reports a lost connection once, on failed or closed", async () => {
     const cb = { ...makeCallbacks(), onPeerConnectionLost: vi.fn() };
     const engine = new NativeVoiceEngine("ch1", "u1", cb);

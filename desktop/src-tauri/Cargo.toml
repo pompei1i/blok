@@ -44,6 +44,11 @@ serde_json = "1"
 cpal = "0.15"
 # SIMD JPEG encoder (pure Rust, no system libs) for the screen-capture frame path.
 jpeg-encoder = { version = "0.6", features = ["simd"] }
+# Software H.264 for screen share, built from source (fallback when there is no
+# hardware encoder; see h264.rs). Needs NASM on PATH at build time for its
+# assembly, which makes it ~3x faster.
+openh264 = "0.9"
+openh264-sys2 = "0.9"
 base64 = "0.22"
 # Native P2P transport (data channels only) — replaces browser RTCPeerConnection,
 # which Ubuntu/Mint's system WebKitGTK is compiled without. Pure Rust, same code
@@ -56,8 +61,10 @@ bytes = "1"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Media_Audio",
+    "Win32_Media_MediaFoundation",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
     "Win32_System_Threading",
     "Win32_System_Variant",
     "Win32_Security",

@@ -1,6 +1,10 @@
+mod adapt;
 mod audio;
 #[cfg(target_os = "windows")]
 mod dxgi_capture;
+mod h264;
+#[cfg(target_os = "windows")]
+mod h264_mf;
 #[cfg(target_os = "windows")]
 mod process_audio;
 #[cfg(target_os = "windows")]
@@ -1070,8 +1074,21 @@ fn rtc_broadcast_video(request: Request<'_>) -> Result<(), String> {
     };
     let w: u32 = header("x-w").and_then(|v| v.parse().ok()).ok_or("bad x-w")?;
     let h: u32 = header("x-h").and_then(|v| v.parse().ok()).ok_or("bad x-h")?;
-    rtc::broadcast_video_frame(tag, w, h, jpeg.clone());
+    rtc::broadcast_video_frame(tag, w, h, jpeg.clone(), false);
     Ok(())
+}
+
+/// Record whether a peer can decode H.264, from its join/hello announcement.
+/// Peers that never announce (older clients) stay on JPEG.
+#[tauri::command]
+fn rtc_set_peer_caps(peer_id: String, h264: bool) {
+    rtc::set_peer_caps(&peer_id, h264);
+}
+
+/// Our H.264 decoder for `peer_id`'s share lost the stream: ask them for a keyframe.
+#[tauri::command]
+fn rtc_request_keyframe(peer_id: String) {
+    rtc::request_keyframe(peer_id);
 }
 
 /// Probe TURN reachability natively (replaces the browser testTurnConnectivity
@@ -1095,11 +1112,20 @@ fn encode_worker_count() -> usize {
 /// thread and the encoder pool.
 struct CastStats {
     window: std::time::Instant,
+    /// JPEG frames sent to peers.
     sent: u32,
     capture_ms: f64,
     captured: u32,
     encode_ms: f64,
     encoded: u32,
+    /// JPEG encode time over the current second, for the adapter.
+    second_encode_ms: f64,
+    second_encoded: u32,
+    /// The running H.264 encoder, if any, and what it produced this window.
+    h264: Option<String>,
+    h264_frames: u32,
+    h264_bytes: u64,
+    h264_encode_ms: f64,
 }
 
 impl CastStats {
@@ -1111,31 +1137,70 @@ impl CastStats {
             captured: 0,
             encode_ms: 0.0,
             encoded: 0,
+            second_encode_ms: 0.0,
+            second_encoded: 0,
+            h264: None,
+            h264_frames: 0,
+            h264_bytes: 0,
+            h264_encode_ms: 0.0,
         }
+    }
+
+    fn record_jpeg_encode(&mut self, ms: f64) {
+        self.encoded += 1;
+        self.encode_ms += ms;
+        self.second_encoded += 1;
+        self.second_encode_ms += ms;
+    }
+
+    /// Mean JPEG encode time since the last call.
+    fn recent_encode_ms(&mut self) -> f64 {
+        let avg = self.second_encode_ms / self.second_encoded.max(1) as f64;
+        (self.second_encode_ms, self.second_encoded) = (0.0, 0);
+        avg
+    }
+
+    fn record_h264(&mut self, s: &h264::EncoderStats) {
+        self.h264_frames += s.encoded;
+        self.h264_bytes += s.bytes;
+        self.h264_encode_ms += s.avg_encode_ms * s.encoded as f64;
     }
 
     /// Prints and resets once per 5s window. Stage averages are per *frame*, so a
     /// low fps with small stage numbers means an idle screen, while a stage above
     /// the frame budget is the thing capping the rate.
     fn tick(&mut self) {
-        if self.window.elapsed() < std::time::Duration::from_secs(5) {
+        let secs = self.window.elapsed().as_secs_f64();
+        if secs < 5.0 {
             return;
         }
-        eprintln!(
-            "[screencast] {} fps sent (capture {:.1}ms, encode {:.1}ms x{} workers)",
-            self.sent / 5,
-            self.capture_ms / self.captured.max(1) as f64,
-            self.encode_ms / self.encoded.max(1) as f64,
-            encode_worker_count(),
-        );
+        let capture = self.capture_ms / self.captured.max(1) as f64;
+        if let Some(h264) = &self.h264 {
+            eprintln!(
+                "[screencast] h264 {h264}: {:.0} fps, {:.0} kbit, encode {:.1}ms; jpeg {:.0} fps; capture {capture:.1}ms",
+                self.h264_frames as f64 / secs,
+                self.h264_bytes as f64 * 8.0 / secs / 1000.0,
+                self.h264_encode_ms / self.h264_frames.max(1) as f64,
+                self.sent as f64 / secs,
+            );
+        } else {
+            eprintln!(
+                "[screencast] jpeg {:.0} fps sent (capture {capture:.1}ms, encode {:.1}ms x{} workers)",
+                self.sent as f64 / secs,
+                self.encode_ms / self.encoded.max(1) as f64,
+                encode_worker_count(),
+            );
+        }
+        let h264 = self.h264.take();
         *self = CastStats::new();
+        self.h264 = h264;
     }
 }
 
 /// Minimum spacing of frames sent to the sharer's own preview (~15fps).
 const PREVIEW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(66);
 
-/// One captured frame on its way to an encoder. `seq` orders the output: an
+/// One captured frame on its way to the JPEG pool. `seq` orders the output: an
 /// encoder that finishes after a newer frame has already shipped drops its
 /// result rather than sending the screen backwards.
 struct EncodeJob {
@@ -1143,6 +1208,13 @@ struct EncodeJob {
     bgra: Vec<u8>,
     w: u32,
     h: u32,
+    max_width: u32,
+    /// Send to peers on JPEG (otherwise the frame is only for the preview).
+    to_peers: bool,
+    /// Skip peers taking H.264 — they already get this frame that way.
+    jpeg_peers_only: bool,
+    /// Also deliver to the sharer's own preview.
+    preview: bool,
 }
 
 /// Frame source for the push loop. On Windows each kind of source has an API that
@@ -1263,16 +1335,18 @@ struct Grabbed {
 }
 
 /// Push-based native screen capture: a capture thread grabs frames at the
-/// requested rate and hands them to a pool of encoder threads that compress and
-/// ship them — replacing the old JS-driven poll (`capture_screen_frame`), whose
-/// per-frame invoke + base64 round-trip capped the effective frame rate at
-/// roughly half the target.
+/// requested rate and ships them to viewers in the best form each can take —
+/// H.264 (see `h264`) for peers that decode it, JPEG through a pool of encoder
+/// threads for the rest — while `adapt::ShareAdapter` keeps frame rate,
+/// resolution and bitrate within what this machine and its link can carry.
 ///
-/// Each message is: 8-byte header (u32-LE width, u32-LE height) + raw JPEG bytes.
-/// An unchanged frame (hash dedup, or DXGI's own no-change signal) sends nothing.
-/// The loop exits when a newer start bumps the generation counter, or
-/// `screen_capture_stop` is called, or the channel dies (webview reloaded).
+/// The sharer's own preview arrives on `on_frame` as an 8-byte header (u32-LE
+/// width, u32-LE height) + JPEG, at a preview rate. An unchanged frame (hash
+/// dedup, or DXGI's own no-change signal) sends nothing. The loop exits when a
+/// newer start bumps the generation counter, `screen_capture_stop` is called,
+/// or the channel dies (webview reloaded).
 ///
+/// `jpeg_quality` also picks the H.264 bitrate tier (see `quality_factor`).
 /// Returns this capture's generation, for `screen_capture_stop` to name.
 #[tauri::command]
 fn screen_capture_start(
@@ -1289,28 +1363,24 @@ fn screen_capture_start(
 
     let generation = state.0.clone();
     let my_gen = generation.fetch_add(1, Ordering::SeqCst) + 1;
-    // Sub-millisecond precision matters at the top of the range: integer
-    // `1000 / 60` is 16ms, which asks for 62.5fps and skews the pacing.
-    let frame_budget = Duration::from_secs_f64(1.0 / fps.clamp(1, 60) as f64);
+    let fps = fps.clamp(1, 60);
 
-    // Single-slot mailbox between capture and the encoder pool. Keeping only the
+    // Single-slot mailbox between capture and the JPEG pool. Keeping only the
     // newest frame is deliberate: when every encoder is busy, a live screen share
     // wants the freshest frame, not a backlog of stale ones.
     let mailbox: Arc<(Mutex<Option<EncodeJob>>, Condvar)> =
         Arc::new((Mutex::new(None), Condvar::new()));
     // Serialises output and enforces frame order across the pool: an encoder that
     // finishes out of order sees a newer seq already shipped and drops its frame.
-    // Alongside it, when the self-preview last got a frame.
-    let sent_seq = Arc::new(Mutex::new((0u64, None::<Instant>)));
-    // Throughput log while a share is running (frames actually sent to the
-    // webview) — makes fps regressions diagnosable from the console. The per-stage
-    // averages are what tells "the screen was idle" apart from "a stage is too
-    // slow to hit the requested rate".
+    let sent_seq = Arc::new(Mutex::new(0u64));
     let stats = Arc::new(Mutex::new(CastStats::new()));
+    let preview_delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cast_started = Instant::now();
 
     for _ in 0..encode_worker_count() {
         let (generation, mailbox, sent_seq, stats) =
             (generation.clone(), mailbox.clone(), sent_seq.clone(), stats.clone());
+        let preview_delivered = preview_delivered.clone();
         let on_frame = on_frame.clone();
         std::thread::spawn(move || {
             while generation.load(Ordering::SeqCst) == my_gen {
@@ -1329,19 +1399,15 @@ fn screen_capture_start(
                     }
                 };
                 let encode_started = Instant::now();
-                let encoded = encode_bgra_to_jpeg(job.bgra, job.w, job.h, max_width, jpeg_quality);
+                let encoded = encode_bgra_to_jpeg(job.bgra, job.w, job.h, job.max_width, jpeg_quality);
                 let encode_ms = encode_started.elapsed().as_secs_f64() * 1000.0;
-                {
-                    // Counted whether or not the frame ships: it's the cost of an
-                    // encode, and a stale-drop still consumed a worker for it.
-                    let mut s = stats.lock().unwrap();
-                    s.encoded += 1;
-                    s.encode_ms += encode_ms;
-                }
+                // Counted whether or not the frame ships: it's the cost of an
+                // encode, and a stale-drop still consumed a worker for it.
+                stats.lock().unwrap().record_jpeg_encode(encode_ms);
                 let Some((jpeg, w, h)) = encoded else { continue };
 
                 let mut last = sent_seq.lock().unwrap();
-                if last.0 >= job.seq {
+                if *last >= job.seq {
                     continue; // a newer frame already went out
                 }
                 // An encode that outlived its generation would ship after the new
@@ -1349,41 +1415,25 @@ fn screen_capture_start(
                 if generation.load(Ordering::SeqCst) != my_gen {
                     return;
                 }
-                last.0 = job.seq;
-                // The self-preview only needs to look alive. Every frame it gets is
-                // decoded, drawn and re-captured by the sharer's webview — CPU taken
-                // from the encoders and the app being shared — so it runs at a
-                // preview rate; viewers get every frame straight from the transport.
-                let preview = last.1.is_none_or(|t| t.elapsed() >= PREVIEW_INTERVAL);
-                if !preview {
-                    rtc::broadcast_video_frame(1, w, h, jpeg);
-                    drop(last);
-                    let mut s = stats.lock().unwrap();
-                    s.sent += 1;
-                    s.tick();
-                    continue;
+                *last = job.seq;
+                if job.preview {
+                    let mut msg = Vec::with_capacity(8 + jpeg.len());
+                    msg.extend_from_slice(&w.to_le_bytes());
+                    msg.extend_from_slice(&h.to_le_bytes());
+                    msg.extend_from_slice(&jpeg);
+                    if on_frame.send(InvokeResponseBody::Raw(msg)).is_err() {
+                        // Frontend went away — end this generation for every thread.
+                        let _ = generation.compare_exchange(my_gen, my_gen + 1, Ordering::SeqCst, Ordering::SeqCst);
+                        return;
+                    }
+                    if !preview_delivered.swap(true, Ordering::Relaxed) {
+                        eprintln!("[screencast] gen {my_gen}: first preview {w}x{h} delivered after {:?}", cast_started.elapsed());
+                    }
                 }
-                last.1 = Some(Instant::now());
-                let mut msg = Vec::with_capacity(8 + jpeg.len());
-                msg.extend_from_slice(&w.to_le_bytes());
-                msg.extend_from_slice(&h.to_le_bytes());
-                msg.extend_from_slice(&jpeg);
-                rtc::broadcast_video_frame(1, w, h, jpeg);
-                if on_frame.send(InvokeResponseBody::Raw(msg)).is_err() {
-                    // Frontend went away — end this generation for every thread.
-                    let _ = generation.compare_exchange(
-                        my_gen,
-                        my_gen + 1,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    );
-                    return;
+                if job.to_peers {
+                    rtc::broadcast_video_frame(1, w, h, jpeg, job.jpeg_peers_only);
+                    stats.lock().unwrap().sent += 1;
                 }
-                drop(last);
-
-                let mut s = stats.lock().unwrap();
-                s.sent += 1;
-                s.tick();
             }
         });
     }
@@ -1394,34 +1444,388 @@ fn screen_capture_start(
             "[screencast] gen {my_gen}: {source_id} via {} at {fps}fps, max width {max_width}",
             capturer.kind()
         );
-        let mut pacer = FramePacer::new(frame_budget, Instant::now());
+        let started = Instant::now();
+        let quality = quality_factor(jpeg_quality);
+        let mut adapter = adapt::ShareAdapter::new(fps, max_width);
+        let mut pacer = FramePacer::new(Duration::from_secs_f64(1.0 / fps as f64), started);
+        let mut h264 = H264Share::new(my_gen);
         let mut last_hash: Option<u64> = None;
         let mut seq = 0u64;
+        let mut last_preview: Option<Instant> = None;
+        let mut native_width = 0u32;
+        let mut next_tick = started + Duration::from_secs(1);
+        let (mut jpeg_offered, mut jpeg_dropped) = (0u32, 0u32);
+        // A share that never produces a frame fails in JS after 3s with no clue
+        // why; these say how far the pipeline got.
+        let mut keyframe_pending = false;
+        let mut last_keyframe: Option<Instant> = None;
+        let mut first_frame_logged = false;
+        let mut first_preview_logged = false;
+        let mut last_frame_at = started;
+
         while generation.load(Ordering::SeqCst) == my_gen {
             std::thread::sleep(pacer.wait(Instant::now()));
-            if let Some(frame) = capturer.grab(&source_id, frame_budget) {
-                pacer.frame_taken(Instant::now());
+            let budget = Duration::from_secs_f64(1.0 / adapter.fps() as f64);
+            let grabbed = capturer.grab(&source_id, budget);
+            if grabbed.is_none() && last_frame_at.elapsed() >= Duration::from_secs(10) {
+                // Sources only deliver on change, so this is normal for a static
+                // window; a share that never started is caught by the first-frame log.
+                eprintln!("[screencast] gen {my_gen}: no new frames from {source_id} for 10s (static content, or minimized)");
+                last_frame_at = Instant::now();
+            }
+            if let Some(frame) = grabbed {
+                let now = Instant::now();
+                last_frame_at = now;
+                if !first_frame_logged {
+                    first_frame_logged = true;
+                    eprintln!(
+                        "[screencast] gen {my_gen}: first frame {}x{} ({} bytes) after {:?}",
+                        frame.w, frame.h, frame.bgra.len(), now.duration_since(started)
+                    );
+                }
+                pacer.frame_taken(now);
+                {
+                    let mut s = stats.lock().unwrap();
+                    s.captured += 1;
+                    s.capture_ms += frame.work_ms;
+                }
                 let hash = frame_hash(&frame.bgra);
                 if last_hash != Some(hash) {
                     last_hash = Some(hash);
                     seq += 1;
-                    let (lock, cv) = &*mailbox;
-                    *lock.lock().unwrap() = Some(EncodeJob {
-                        seq,
-                        bgra: frame.bgra,
-                        w: frame.w,
-                        h: frame.h,
-                    });
-                    cv.notify_one();
+                    native_width = frame.w;
+
+                    let (h264_peers, jpeg_peers) = rtc::video_audience();
+                    let h264_live = h264_peers > 0 && h264.ensure_ready(now);
+                    if h264_peers == 0 {
+                        h264.idle(now);
+                    }
+                    let preview = last_preview.is_none_or(|t| now.duration_since(t) >= PREVIEW_INTERVAL);
+
+                    let Grabbed { bgra, w, h, .. } = frame;
+                    // H.264 first: whether it actually took the frame decides if
+                    // the peers waiting for it need JPEG instead.
+                    let (bgra, h264_sent) = if h264_live {
+                        let spare = bgra.clone();
+                        let sent = h264.encode(bgra, w, h, adapter.max_width(), adapter.fps(), quality * adapter.bitrate_factor(), now, started);
+                        (spare, sent)
+                    } else {
+                        (bgra, false)
+                    };
+                    let jpeg_to_peers = jpeg_peers > 0 || (h264_peers > 0 && !h264_sent && !h264.is_open());
+                    if !first_preview_logged {
+                        first_preview_logged = true;
+                        eprintln!(
+                            "[screencast] gen {my_gen}: first frame routed after {:?} (h264 peers {h264_peers}, jpeg peers {jpeg_peers}, h264 took it {h264_sent}, preview {preview})",
+                            now.duration_since(started)
+                        );
+                    }
+                    if jpeg_to_peers || preview {
+                        if preview {
+                            last_preview = Some(now);
+                        }
+                        let (lock, cv) = &*mailbox;
+                        let mut slot = lock.lock().unwrap();
+                        if jpeg_to_peers {
+                            jpeg_offered += 1;
+                            if slot.as_ref().is_some_and(|j| j.to_peers) {
+                                jpeg_dropped += 1; // the pool never got to the last one
+                            }
+                        }
+                        *slot = Some(EncodeJob {
+                            seq,
+                            bgra,
+                            w,
+                            h,
+                            max_width: if jpeg_to_peers { adapter.max_width() } else { PREVIEW_MAX_WIDTH },
+                            to_peers: jpeg_to_peers,
+                            jpeg_peers_only: h264.is_open(),
+                            preview,
+                        });
+                        cv.notify_one();
+                    }
+                }
+            }
+
+            // At most one keyframe a second: a keyframe is several frames' worth
+            // of data, and on a struggling link every dropped frame asking for
+            // one fed the congestion that dropped it. Requests in between are
+            // honoured when the interval ends, so a new viewer still gets one.
+            keyframe_pending |= rtc::take_keyframe_request();
+            if keyframe_pending && last_keyframe.is_none_or(|t| t.elapsed() >= KEYFRAME_MIN_INTERVAL) {
+                keyframe_pending = false;
+                last_keyframe = Some(Instant::now());
+                h264.request_keyframe();
+            }
+
+            let now = Instant::now();
+            if now >= next_tick {
+                next_tick = now + Duration::from_secs(1);
+                let congestion = rtc::take_congestion();
+                let h264_stats = h264.take_stats();
+                if let Some(s) = &h264_stats {
+                    stats.lock().unwrap().record_h264(s);
+                }
+                let measurements = match h264_stats {
+                    Some(s) => adapt::Measurements {
+                        offered: s.encoded + s.busy_drops,
+                        dropped: s.busy_drops,
+                        avg_encode_ms: s.avg_encode_ms,
+                        congestion,
+                    },
+                    None => {
+                        // The JPEG pool encodes in parallel, so what limits it is
+                        // per-worker time: compare the budget against that.
+                        let avg = stats.lock().unwrap().recent_encode_ms() / encode_worker_count() as f64;
+                        let m = adapt::Measurements { offered: jpeg_offered, dropped: jpeg_dropped, avg_encode_ms: avg, congestion };
+                        (jpeg_offered, jpeg_dropped) = (0, 0);
+                        m
+                    }
+                };
+                if let Some(change) = adapter.tick(measurements, native_width) {
+                    eprintln!(
+                        "[screencast] gen {my_gen}: adapt ({:?}) -> {}fps, max width {}, bitrate x{:.2} ({measurements:?})",
+                        change.reason,
+                        change.fps,
+                        if change.max_width == 0 { "native".to_string() } else { change.max_width.to_string() },
+                        change.bitrate_factor,
+                    );
+                    if change.fps != pacer.fps() {
+                        pacer = FramePacer::new(Duration::from_secs_f64(1.0 / change.fps as f64), now);
+                    }
+                    h264.set_quality(change.fps, quality * change.bitrate_factor);
                 }
                 let mut s = stats.lock().unwrap();
-                s.captured += 1;
-                s.capture_ms += frame.work_ms;
+                s.h264 = h264.describe();
+                s.tick();
             }
         }
+        drop(h264);
         eprintln!("[screencast] gen {my_gen}: stopped");
     });
     Ok(my_gen)
+}
+
+/// H.264 bitrate tier for the share's quality setting, from the JPEG quality
+/// the settings already map it to (high 85, medium 65, low 40).
+fn quality_factor(jpeg_quality: u8) -> f64 {
+    match jpeg_quality {
+        80.. => 1.0,
+        55..=79 => 0.6,
+        _ => 0.35,
+    }
+}
+
+/// Width of the JPEG preview frames for the sharer's own tile while viewers are
+/// on H.264: the tile is small, and a full-size JPEG cost ~30ms.
+const PREVIEW_MAX_WIDTH: u32 = 960;
+/// How long a resized source must hold still before the encoder is reopened at
+/// the new size; until then frames are scaled to the running encoder's size, so
+/// dragging a window edge doesn't reopen the encoder on every frame.
+const RESIZE_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+/// An encoder no one has watched for this long is closed (reopened on demand).
+const H264_IDLE_CLOSE: std::time::Duration = std::time::Duration::from_secs(10);
+/// Minimum spacing of keyframes forced on viewers' request.
+const KEYFRAME_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// After failing to open any encoder, when to try again.
+const H264_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// An encoder being opened on its own thread, for `size`.
+type OpeningEncoder = ((u32, u32), std::sync::mpsc::Receiver<Result<h264::H264Encoder, String>>);
+
+/// The H.264 side of one capture generation: owns the encoder, reopens it when
+/// the size changes (debounced), and reports when none can be opened so the
+/// caller serves JPEG instead.
+///
+/// Opening happens off the capture thread: a hardware encoder takes ~0.4s to
+/// open (longer right after another session closed), and while the capture
+/// thread waited the share delivered no frame at all — past 3s the frontend
+/// gave up with "produced no frames". Frames meanwhile go out as JPEG.
+struct H264Share {
+    generation: u64,
+    encoder: Option<h264::H264Encoder>,
+    opening: Option<OpeningEncoder>,
+    failed_at: Option<std::time::Instant>,
+    idle_since: Option<std::time::Instant>,
+    /// A size the source moved to, and since when, while the encoder runs the old one.
+    pending_size: Option<((u32, u32), std::time::Instant)>,
+    fps: u32,
+    quality: f64,
+}
+
+impl H264Share {
+    fn new(generation: u64) -> Self {
+        H264Share { generation, encoder: None, opening: None, failed_at: None, idle_since: None, pending_size: None, fps: 30, quality: 1.0 }
+    }
+
+    /// Installs an encoder that finished opening, if one did.
+    fn poll_opening(&mut self) {
+        let Some((size, rx)) = &self.opening else { return };
+        let result = match rx.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("encoder open thread died".into()),
+        };
+        let (w, h) = *size;
+        self.opening = None;
+        match result {
+            Ok(enc) => {
+                eprintln!(
+                    "[screencast] gen {}: h264 via {} at {w}x{h}, {}fps, {} kbit",
+                    self.generation, enc.name, self.fps, enc.bitrate() / 1000
+                );
+                enc.set_bitrate(h264::bitrate_for(w, h, self.fps, self.quality));
+                enc.request_keyframe();
+                self.encoder = Some(enc);
+                self.failed_at = None;
+            }
+            Err(e) => {
+                eprintln!("[screencast] gen {}: h264 unavailable ({e}); viewers get JPEG", self.generation);
+                self.failed_at = Some(std::time::Instant::now());
+            }
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        self.encoder.as_ref().is_some_and(|e| e.is_alive())
+    }
+
+    /// Whether to try H.264 for this frame: an encoder is open, or opening one
+    /// hasn't failed recently.
+    fn ensure_ready(&mut self, now: std::time::Instant) -> bool {
+        self.idle_since = None;
+        self.poll_opening();
+        if self.encoder.as_ref().is_some_and(|e| !e.is_alive()) {
+            eprintln!("[screencast] gen {}: encoder died; reopening", self.generation);
+            self.encoder = None;
+        }
+        self.encoder.is_some() || self.failed_at.is_none_or(|t| now.duration_since(t) >= H264_RETRY)
+    }
+
+    fn idle(&mut self, now: std::time::Instant) {
+        let since = *self.idle_since.get_or_insert(now);
+        if (self.encoder.is_some() || self.opening.is_some()) && now.duration_since(since) >= H264_IDLE_CLOSE {
+            eprintln!("[screencast] gen {}: no H.264 viewers, closing the encoder", self.generation);
+            self.encoder = None;
+            self.opening = None;
+        }
+    }
+
+    /// Starts opening an encoder for `w`x`h` in the background. The running
+    /// encoder, if any, keeps serving until the new one is ready.
+    fn open(&mut self, w: u32, h: u32) {
+        if self.opening.as_ref().is_some_and(|(size, _)| *size == (w, h)) {
+            return;
+        }
+        let (fps, bitrate) = (self.fps, h264::bitrate_for(w, h, self.fps, self.quality));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = h264::H264Encoder::open(w, h, fps, bitrate, move |f| {
+                rtc::broadcast_h264_frame(f.key, w, h, f.timestamp_us, f.data);
+            });
+            let _ = tx.send(result); // a dropped receiver just closes the encoder
+        });
+        self.opening = Some(((w, h), rx));
+    }
+
+    /// Scales `bgra` to the share's width cap and offers it to the encoder,
+    /// opening or reopening the encoder as the size requires. Returns whether a
+    /// running encoder took the frame's size (a busy encoder still counts: it
+    /// drops the frame by design).
+    #[allow(clippy::too_many_arguments)]
+    fn encode(
+        &mut self,
+        bgra: Vec<u8>,
+        w: u32,
+        h: u32,
+        max_width: u32,
+        fps: u32,
+        quality: f64,
+        now: std::time::Instant,
+        started: std::time::Instant,
+    ) -> bool {
+        self.fps = fps;
+        self.quality = quality;
+        self.poll_opening();
+        let pixels = (w as usize) * (h as usize);
+        if pixels == 0 || bgra.len() < pixels * 3 {
+            return false;
+        }
+        let bpp = bgra.len() / pixels;
+        let (sw, sh) = if max_width > 0 && w > max_width {
+            (max_width, ((h as u64 * max_width as u64 / w as u64) as u32).max(2))
+        } else {
+            (w, h)
+        };
+        let target = h264::even_size(sw, sh);
+        if target.0 < 2 || target.1 < 2 {
+            return false;
+        }
+
+        let running = self.encoder.as_ref().map(|e| (e.width, e.height));
+        let size = match running {
+            Some(size) if size == target => {
+                self.pending_size = None;
+                size
+            }
+            Some(size) => match self.pending_size {
+                Some((s, since)) if s == target && now.duration_since(since) >= RESIZE_SETTLE => {
+                    self.pending_size = None;
+                    self.open(target.0, target.1);
+                    target
+                }
+                Some((s, _)) if s == target => size,
+                _ => {
+                    self.pending_size = Some((target, now));
+                    size
+                }
+            },
+            None => {
+                self.open(target.0, target.1);
+                target
+            }
+        };
+        let Some(enc) = &self.encoder else { return false };
+        if (enc.width, enc.height) != size {
+            return false;
+        }
+        let frame = if (w, h) == size && bpp == 4 {
+            bgra
+        } else {
+            downscale_nearest(&bgra, w, h, bpp, size.0, size.1, 4)
+        };
+        enc.encode(h264::RawFrame {
+            bgra: frame,
+            width: size.0,
+            height: size.1,
+            timestamp_us: now.duration_since(started).as_micros() as u64,
+        });
+        true
+    }
+
+    fn request_keyframe(&self) {
+        if let Some(enc) = &self.encoder {
+            enc.request_keyframe();
+        }
+    }
+
+    /// Applies a new frame rate / bitrate tier to the running encoder.
+    fn set_quality(&mut self, fps: u32, quality: f64) {
+        self.fps = fps;
+        self.quality = quality;
+        if let Some(enc) = &self.encoder {
+            enc.set_bitrate(h264::bitrate_for(enc.width, enc.height, fps, quality));
+        }
+    }
+
+    fn take_stats(&self) -> Option<h264::EncoderStats> {
+        let enc = self.encoder.as_ref().filter(|e| e.is_alive())?;
+        Some(enc.take_stats())
+    }
+
+    fn describe(&self) -> Option<String> {
+        self.encoder.as_ref().map(|e| format!("{} {}x{} @ {} kbit", e.name, e.width, e.height, e.bitrate() / 1000))
+    }
 }
 
 /// Paces the capture loop to the requested rate on a fixed schedule.
@@ -1442,6 +1846,10 @@ impl FramePacer {
 
     fn new(budget: std::time::Duration, now: std::time::Instant) -> Self {
         FramePacer { budget, next_due: now }
+    }
+
+    fn fps(&self) -> u32 {
+        (1.0 / self.budget.as_secs_f64()).round() as u32
     }
 
     /// How long to hold off before the next grab. Sources that wait for a new
@@ -1954,6 +2362,8 @@ pub fn run() {
             rtc_close_peer,
             rtc_close_all,
             rtc_set_user_volume,
+            rtc_set_peer_caps,
+            rtc_request_keyframe,
             rtc_broadcast_video,
             rtc_test_turn,
             screen_capture_start,
