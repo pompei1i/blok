@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.55] — 2026-09-15
+
+### Changed
+- **Screen sharing is now video (H.264), and smooth.** Every frame used to be
+  sent as its own JPEG — about 30ms of CPU and 400KB per 1080p frame, which
+  stuttered on a busy machine and needed ~77Mbit for a video. Shares are now
+  encoded as H.264 at a few Mbit, on your graphics card when it has an encoder
+  (NVIDIA, Intel, AMD) and with a fast built-in software encoder otherwise.
+  Viewers decode it in hardware.
+- **Shares adapt to your machine and connection.** If your computer can't
+  keep up, the share lowers the frame rate first and then the resolution; if a
+  viewer's connection struggles, the bitrate drops and recovers once the link
+  is calm again. It all steps back up on its own.
+
+### Compatibility
+- Viewers on an older blok version, or whose system can't decode H.264, keep
+  receiving the share as before (JPEG) — automatically, in the same call.
+
 ## [0.9.54] — 2026-09-15
 
 ### Fixed
