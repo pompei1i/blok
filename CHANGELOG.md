@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.54] — 2026-09-15
+
+### Fixed
+- **Changing the share's source no longer ends it.** Picking a source again
+  mid-share — including the same window with another frame rate, resolution or
+  audio setting — could stop the share on your side after a few seconds and
+  leave viewers on a frozen frame. A stop meant for the old capture could be
+  handled after the new one had started and kill it; stops now only ever end
+  the capture they were issued for.
+- **Window shares follow the window's size.** Resizing a shared window kept
+  sending the area it had when the share started, cutting off a grown window.
+  The share now tracks the window's size, live while you drag.
+- **60fps shares actually run at 60fps.** Windows delivered window frames at
+  most every 16ms, which on a 144Hz display meant ~48fps, and the capture loop
+  drifted against the display and dropped a frame every second or so (~56fps
+  on 60Hz). Both are fixed.
+
+### Changed
+- **Screen share encoding is about a third faster**, and your own preview of
+  what you're sharing updates at ~15fps instead of every frame, leaving more
+  CPU for the encoder and the app you're sharing. What viewers receive is
+  unchanged.
+
 ## [0.9.53] — 2026-09-14
 
 ### Fixed
